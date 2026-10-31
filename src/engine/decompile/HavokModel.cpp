@@ -1676,6 +1676,142 @@ bool anchorSnippets(const CB::engine::common::xml::Node& base, const CB::engine:
 // source that defines the id WINS (so patches override the base), and refs resolve across the MERGED id
 // space (a patch object may point at a base-only node). Single-source parse and base+patch merge are the
 // same operation with one vs many sources. `deltaIds` (optional) receives the ids a `isDelta` source won.
+/// @brief One layer of a node in the tagfile merge, as reconcileVocabulary reads it (see parseSourcesMerged's Layer).
+struct VocabLayer {
+    const CB::engine::common::xml::Node*   node;
+    bool                                   isDelta;
+    const std::unordered_set<std::string>* changed;
+    std::string                            code;
+};
+
+/// @brief Keep a merged graph's vocabulary arrays in step (see the note at the call in parseSourcesMerged): for each
+///        name roster bashMerge unioned (2+ changers), replay that by-value union per changer, and drop from the
+///        paired info array (and, for variables, the word values) the tail entries whose names the union dropped.
+void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml::Node>& merged,
+                         const std::vector<std::string>& order,
+                         const std::function<std::vector<VocabLayer>(const std::string&)>& layersOf) {
+    namespace X = CB::engine::common::xml;
+    const auto idOfClass = [&](std::string_view cls) -> std::string {
+        for (const std::string& id : order)
+            if (const auto it = merged.find(id); it != merged.end() && it->second.attr("class") == cls) return id;
+        return {};
+    };
+    const std::string sdId = idOfClass("hkbBehaviorGraphStringData"), gdId = idOfClass("hkbBehaviorGraphData");
+    if (sdId.empty() || gdId.empty()) return;
+    std::string vsId;
+    if (const X::Node* p = paramByName(merged[gdId], "variableInitialValues")) {
+        std::string t = p->text;
+        t.erase(0, t.find_first_not_of(" \t\r\n"));
+        t.erase(t.find_last_not_of(" \t\r\n") + 1);
+        if (!t.empty() && t != "null") vsId = canonId(t);
+    }
+    const auto items = [](const X::Node& p, std::string_view tag) {
+        std::vector<const X::Node*> v;
+        for (const auto& c : p.children) if (c.tag == tag) v.push_back(&c);
+        return v;
+    };
+    struct Changer { const VocabLayer* layer; const X::Node* param; };
+    /// The changers bashMerge picks for param P of node `id`: delta layers of the node's class that changed P and
+    /// differ from the base. `held` keeps the layer list alive for the returned pointers.
+    const auto changersOf = [&](const std::string& id, const std::string& P, std::vector<VocabLayer>& held,
+                                const X::Node*& baseP) {
+        std::vector<Changer> out;
+        held = layersOf(id);
+        baseP = nullptr;
+        const X::Node* baseNode = nullptr;
+        for (const VocabLayer& L : held) if (!L.isDelta) baseNode = L.node;
+        if (!baseNode) return out;   ///< a new node: no base prefix, nothing appended tail-wise
+        baseP = paramByName(*baseNode, P);
+        const std::string_view cls = merged[id].attr("class");
+        for (const VocabLayer& L : held) {
+            if (!L.isDelta || !L.changed || !L.changed->count(P) || L.node->attr("class") != cls) continue;
+            const X::Node* lp = paramByName(*L.node, P);
+            if (!lp || (baseP && CB::engine::merge::deepEqual(*lp, *baseP))) continue;
+            out.push_back({ &L, lp });
+        }
+        return out;
+    };
+    struct Roster { const char* names; const char* infos; bool values; };
+    for (const Roster r : { Roster{ "variableNames", "variableInfos", true }, Roster{ "eventNames", "eventInfos", false },
+                            Roster{ "characterPropertyNames", "characterPropertyInfos", false } }) {
+        std::vector<VocabLayer> nHeld;
+        const X::Node* nb = nullptr;
+        const auto names = changersOf(sdId, r.names, nHeld, nb);
+        if (names.size() < 2 || !nb) continue;   ///< one changer is copied whole: its names and infos stay in step
+        /// Replay mergeArrayInto's union: each code's tail length, and the tail positions whose name was already there.
+        std::vector<std::string> have;
+        for (const X::Node* c : items(*nb, "hkcstring")) have.push_back(c->text);
+        const std::size_t baseN = have.size();
+        std::unordered_map<std::string, std::size_t> tailLen;
+        std::unordered_map<std::string, std::set<std::size_t>> dropped;
+        bool exact = true;
+        for (const Changer& ch : names) {
+            const auto v = items(*ch.param, "hkcstring");
+            if (v.size() < baseN || ch.layer->code.empty() || tailLen.count(ch.layer->code)) { exact = false; break; }
+            tailLen[ch.layer->code] = v.size() - baseN;
+            for (std::size_t k = 0; k < v.size() && exact; ++k) {
+                const bool present = std::find(have.begin(), have.end(), v[k]->text) != have.end();
+                if (k < baseN) { exact = present; continue; }   ///< a renamed base name appends without an info: not ours
+                if (present) dropped[ch.layer->code].insert(k - baseN);
+                else         have.push_back(v[k]->text);
+            }
+            if (!exact) break;
+        }
+        if (!exact || dropped.empty()) continue;
+        /// Drop the paired tail entries from an info / value array, when it was appended tail-wise by the same codes.
+        const auto dropPaired = [&](const std::string& ownerId, const char* P, bool checkTypes) {
+            if (ownerId.empty() || !merged.count(ownerId)) return false;
+            std::vector<VocabLayer> held;
+            const X::Node* bp = nullptr;
+            const auto ch = changersOf(ownerId, P, held, bp);
+            X::Node* mp = CB::engine::merge::findParam(merged[ownerId], P);
+            if (ch.size() < 2 || !bp || !mp) return false;
+            const std::size_t B = items(*bp, "hkobject").size();
+            std::size_t expect = B;
+            for (const Changer& c : ch) {
+                const std::size_t n = items(*c.param, "hkobject").size();
+                const auto t = tailLen.find(c.layer->code);
+                if (n < B || t == tailLen.end() || n - B != t->second) return false;   ///< not paired name for name
+                expect += n - B;
+            }
+            if (items(*mp, "hkobject").size() != expect) return false;
+            std::set<std::size_t> remove;
+            std::size_t at = B;
+            for (const Changer& c : ch) {
+                const std::size_t n = items(*c.param, "hkobject").size() - B;
+                if (const auto d = dropped.find(c.layer->code); d != dropped.end())
+                    for (const std::size_t t : d->second) if (t < n) remove.insert(at + t);
+                at += n;
+            }
+            const auto all = items(*mp, "hkobject");
+            if (checkTypes)   ///< a vector / quaternion / pointer variable's value indexes another array: leave those alone
+                for (const std::size_t k : remove)
+                    if (const X::Node* tp = paramByName(*all[k], "type"))
+                        if (tp->text.find("VECTOR") != std::string::npos || tp->text.find("QUATERNION") != std::string::npos ||
+                            tp->text.find("POINTER") != std::string::npos) return false;
+            std::vector<X::Node> kept;
+            std::size_t k = 0;
+            for (auto& c : mp->children)
+                if (c.tag != "hkobject" || !remove.count(k++)) kept.push_back(std::move(c));
+            mp->children = std::move(kept);
+            for (auto& [key, val] : mp->attrs) if (key == "numelements") val = std::to_string(items(*mp, "hkobject").size());
+            return true;
+        };
+        if (r.values) {
+            /// Variables: the infos and the word values must both pair, or neither changes.
+            std::vector<VocabLayer> h1, h2;
+            const X::Node* b1 = nullptr;
+            const X::Node* b2 = nullptr;
+            if (changersOf(gdId, r.infos, h1, b1).size() < 2 || vsId.empty() || changersOf(vsId, "wordVariableValues", h2, b2).size() < 2) continue;
+            const X::Node infosBefore = *CB::engine::merge::findParam(merged[gdId], r.infos);
+            if (!dropPaired(gdId, r.infos, true)) continue;
+            if (!dropPaired(vsId, "wordVariableValues", false)) *CB::engine::merge::findParam(merged[gdId], r.infos) = infosBefore;
+        } else {
+            dropPaired(gdId, r.infos, false);
+        }
+    }
+}
+
 bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& sources,
                         const schema::SchemaRegistry& reg, ParsedTagfile& out,
                         std::vector<std::string>* deltaIds, std::string& err) {
@@ -1695,7 +1831,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
     // one bundle. New-node ids (#code$N) live in the same map as base #NNNN, so refs resolve either way.
     struct Layer { const CB::engine::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed;
-                   const CB::engine::common::xml::Node* orig = nullptr; };
+                   const CB::engine::common::xml::Node* orig = nullptr; std::string code; };
     std::unordered_map<std::string, std::vector<Layer>> layers;
     std::unordered_map<std::string, bool> touchedByDelta;   // id was overridden/added by a patch source
     std::vector<std::string> order;                         // first-seen id order (base first, new ids appended)
@@ -1717,6 +1853,11 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             CB::engine::compat::ApplyNemesisTextArrayEdits(parseText);
             CB::engine::common::xml::StripPatchOriginals(parseText);
         }
+        /// @note The patch's Nemesis code (`MOD_CODE ~code~`), which pairs a code's vocabulary names with its own infos.
+        std::string code;
+        if (isDelta)
+            if (const auto m = text->find("MOD_CODE ~"); m != std::string::npos)
+                if (const auto e = text->find('~', m + 10); e != std::string::npos) code = text->substr(m + 10, e - m - 10);
         roots.push_back(CB::engine::common::xml::Parse("<r>" + parseText + "</r>"));
         std::vector<const CB::engine::common::xml::Node*> nodes;
         collectTopLevel(roots.back(), nodes);
@@ -1733,7 +1874,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             const std::string id = canonId(std::string(n->attr("name")));
             if (layers.find(id) == layers.end()) order.push_back(id);
             const auto oi = origById.find(id);
-            layers[id].push_back({ n, isDelta, changedPtr, oi == origById.end() ? nullptr : oi->second });
+            layers[id].push_back({ n, isDelta, changedPtr, oi == origById.end() ? nullptr : oi->second, code });
             if (isDelta) touchedByDelta[id] = true;
         }
     }
@@ -1761,6 +1902,9 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // class differs from the object (source drift) are dropped from the merge, preserving the old skip.
     std::unordered_map<std::string, CB::engine::common::xml::Node> mergedById;
     mergedById.reserve(order.size());
+    /// @note A snippet patch as bashMerge saw it (anchorSnippets' expansion), keyed by its source node, so
+    ///       reconcileVocabulary replays the same arrays the merge unioned.
+    std::unordered_map<const CB::engine::common::xml::Node*, CB::engine::common::xml::Node> expandedOf;
     for (const std::string& id : order) {
         const std::vector<Layer>& ls = layers[id];
         const std::string objCls(idMap[id]->ClassName());
@@ -1779,6 +1923,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             std::string aerr;
             const bool expanded = seedSkip == 0 && anchorSnippets(*baseNode, *L.node, L.orig, anchored, aerr);
             if (!aerr.empty()) { err = "parseSourcesMerged: " + aerr; return false; }
+            if (expanded) expandedOf[L.node] = anchored;
             pls.push_back({ expanded ? std::move(anchored) : *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
         }
         std::vector<const CB::engine::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
@@ -1790,6 +1935,22 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
         mergedById.emplace(id, ptrs.empty() ? *baseNode
                                : CB::engine::merge::bashMerge(*baseNode, ptrs, composePred));
     }
+
+    /// The vocabulary is three PARALLEL arrays held by three nodes (names in hkbBehaviorGraphStringData, infos in
+    /// hkbBehaviorGraphData, word values in hkbVariableValueSet), and bashMerge merges each node on its own: a name
+    /// array edited by 2+ codes unions BY VALUE (a name two codes both add is kept once), while their info / value
+    /// arrays append each code's tail VERBATIM (mergeArrayInto). So a name two codes both add leaves one info (and value) too
+    /// many, every index after it is off by one, and the bundle's vocabulary can't render as name-keyed records. Drop
+    /// the info / value paired with each tail name the union dropped, pairing a code's names with its own infos by the
+    /// patch's MOD_CODE (the duplicate Pandora drops). Anything this can't pair exactly is left as merged.
+    reconcileVocabulary(mergedById, order, [&](const std::string& id) {
+        std::vector<VocabLayer> v;
+        for (const Layer& L : layers[id]) {
+            const auto x = expandedOf.find(L.node);
+            v.push_back({ x == expandedOf.end() ? L.node : &x->second, L.isDelta, L.changed, L.code });
+        }
+        return v;
+    });
 
     // Nemesis symbol roster: variable/event NAME -> merged index, from the MERGED hkbBehaviorGraphStringData
     // (now the UNIONED roster across all mods, so a name only one mod added still resolves). Bindings /
@@ -3855,8 +4016,35 @@ bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaR
     }
 }
 
+namespace {
+/// @brief A behavior graph's variables and events must be in step before it ships: the game sizes the variable store
+///        by the infos and resolves it by the names, and does the same for events, so a graph whose names, infos and
+///        word values disagree crashes it while the character is set up. Character properties are not checked: shipped
+///        sub-behaviors carry property names without infos and play.
+bool vocabularyInStep(const ParsedHky& graph, std::string& why) {
+    for (const auto& o : graph.objects) {
+        if (!o || std::string_view(o->ClassName()) != "hkbBehaviorGraphData") continue;
+        const io::SchemaObject* sd = o->Child("stringData");
+        const io::SchemaObject* vs = o->Child("variableInitialValues");
+        const std::size_t vi = o->Children("variableInfos").size(), ei = o->Children("eventInfos").size();
+        const auto* vn = strsOf(sd, "variableNames");
+        const auto* en = strsOf(sd, "eventNames");
+        const std::size_t vnN = vn ? vn->size() : 0, enN = en ? en->size() : 0;
+        const std::size_t wv = vs ? vs->Children("wordVariableValues").size() : vi;
+        if (vnN != vi || wv != vi || enN != ei) {
+            why = "the vocabulary is out of step (variables: " + std::to_string(vnN) + " names, " + std::to_string(vi) +
+                  " infos, " + std::to_string(wv) + " values; events: " + std::to_string(enN) + " names, " +
+                  std::to_string(ei) + " infos)";
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err, const CB::engine::codec::HKXHeader& header) {
     try {
+        if (std::string why; !vocabularyInStep(graph, why)) { err = "SerializeGraph: " + why; return false; }
         PackFileSerializer ser;
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
         ser.Serialize(graph.root, bw, header);
@@ -3871,6 +4059,7 @@ bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std:
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::vector<trace::ObjectOrigin>& origins,
                     std::string& err, const CB::engine::codec::HKXHeader& header) {
     try {
+        if (std::string why; !vocabularyInStep(graph, why)) { err = "SerializeGraph: " + why; return false; }
         PackFileSerializer ser;
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
         ser.Serialize(graph.root, bw, header);
