@@ -101,8 +101,8 @@ namespace CB::feature {
         constexpr hk::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
         constexpr hk::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
 
-        /// @note No Sliding mode: ground too steep to stand on is Grounded with no grip, where gravity's slide
-        ///       (ch::GripStep) drags the character down and input has no force left to climb with.
+        /// @note No Sliding mode: ground too steep to stand on is Grounded with low support, where the slide velocity
+        ///       (ch::SlideStep) drags the character down and the player cannot climb (ch::ClipUphill).
         enum class Mode : std::uint8_t { Grounded, Airborne };
         enum class AirEntry : std::uint8_t { None, WalkedOff, Jumped, Launched, OutOfWater };
 
@@ -383,8 +383,8 @@ namespace CB::feature {
             t.airTime += dt;
         }
 
-        /// @brief P2 + step 7: one Grounded step. Gravity's slide and the spring toward the desired velocity share the
-        ///        ground's grip (ch::GripStep), the slide velocity is added, the sum is laid along
+        /// @brief P2 + step 7: one Grounded step. Each horizontal component springs toward the desired velocity (its
+        ///        uphill part cut by the ground's lack of support), the slide velocity is added, the sum is laid along
         ///        the ground plane at the same speed (as vanilla's surface frame does), plus one step of gravity
         ///        pressing into the floor (vanilla OnGround's pressure, never its 4x).
         void GroundStep(hk::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, float dt)
@@ -397,30 +397,21 @@ namespace CB::feature {
             }
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
+            ch::ClipUphill(fv, dx, dy);
+            ch::GroundVelocityStep(t.vx, t.vy, t.ax, t.ay, dx, dy, dt);
 
             /// @note A slide the body is not making (a wall or a ledge lip stopped it) does not keep growing: along its
             ///       own direction it is held to the body's actual speed before this step's gain.
-            hk::hkVector4 body;
-            c.GetLinearVelocityImpl(body);
-            const float bx = body(0) - surf(0), by = body(1) - surf(1);
             const float slide = std::sqrt(t.sx * t.sx + t.sy * t.sy);
             if (slide > 1.0e-6f) {
-                const float made = (std::max)(0.0f, (bx * t.sx + by * t.sy) / slide);
+                hk::hkVector4 body;
+                c.GetLinearVelocityImpl(body);
+                const float made = (std::max)(0.0f, ((body(0) - surf(0)) * t.sx + (body(1) - surf(1)) * t.sy) / slide);
                 if (made < slide) t.sx *= made / slide, t.sy *= made / slide;
-            }
-            /// @note Without grip the spring cannot shed what a face stopped (Box3D's body loses it to the contact), so on
-            ///       steep ground its velocity is held to the body's own the same way: a run into a steep face does not
-            ///       hold the character against the slide.
-            if (ch::Grip(c, fv.groundNz) < 1.0f) {
-                const float own = std::sqrt(t.vx * t.vx + t.vy * t.vy);
-                if (own > 1.0e-6f) {
-                    const float made = (std::max)(0.0f, ((bx - t.sx) * t.vx + (by - t.sy) * t.vy) / own);
-                    if (made < own) t.vx *= made / own, t.vy *= made / own;
-                }
             }
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
-            ch::GripStep(c, fv, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, dx, dy, t.vx, t.vy, t.ax, t.ay, t.sx, t.sy, dt);
+            ch::SlideStep(fv, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, t.sx, t.sy, dt);
 
             float hx = t.vx + t.sx, hy = t.vy + t.sy, hz = 0.0f;
             const float nz = fv.groundNz;
@@ -712,7 +703,7 @@ namespace CB::feature {
                     grounded = false;
                 } else if (fv.ground != ch::Ground::Airborne) {
                     /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
-                    ///       verdict's support and the grip it lends (ch::GripStep).
+                    ///       verdict's support, which the slide and the uphill clip read.
                     t.riding = false;
                 } else if (RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise && fv.stickable) {
                     /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it. Under the
