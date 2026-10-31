@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 /// @file
@@ -61,7 +62,7 @@ namespace CB::engine::locomotion {
     void ClipUphill(const Surface& g, float& dx, float& dy);
 
     /// @brief A jump's launch velocity from ground `g` at horizontal ground velocity (hx, hy) and jump speed `speed`
-    ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) plus the
+    ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) and the
     ///        push off the ground, along the ground's normal with the part that leans against the run removed.
     /// @note One rule for every slope: uphill the normal leans back against the run, so the push is straight up and the
     ///       run's uphill momentum carries the jump over the rising ground; downhill it leans with the run, so the push
@@ -70,6 +71,8 @@ namespace CB::engine::locomotion {
     ///       only when positive.
     /// @note Why the momentum: vanilla's launch keeps only the horizontal speed, so a jump up a slope lost the run's
     ///       upward motion and met the rising ground early. Pushing up along the full normal instead braked the run.
+    /// @note The vertical is the larger of the run's rise and the push, never their sum (Box3D's Jump: max(0, jumpSpeed
+    ///       - vy)): summed, a jump at the crest of a steep run launched the character far above a full jump.
     inline void JumpLaunch(const Surface& g, float hx, float hy, float speed, float& ox, float& oy, float& oz)
     {
         float       dx = 0.0f, dy = 0.0f, dz = 1.0f;
@@ -85,7 +88,7 @@ namespace CB::engine::locomotion {
         }
         ox = hx + speed * dx;
         oy = hy + speed * dy;
-        oz = SlopeRise(g, hx, hy) + speed * dz;
+        oz = (std::max)(SlopeRise(g, hx, hy), speed * dz);
     }
 
 }  // namespace CB::engine::locomotion
