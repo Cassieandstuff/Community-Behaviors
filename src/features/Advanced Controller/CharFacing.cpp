@@ -44,6 +44,7 @@ namespace CB::feature::controller {
         /// @brief How far ahead of the player the camera-facing target sits: far enough that its bearing is the
         ///        camera's yaw from anywhere the player moves within a frame.
         constexpr float kFaceCameraReach = 100000.0f;
+        constexpr float kFreeAttackTurn  = 12.566371f;  ///< 720 deg/s
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
@@ -152,6 +153,25 @@ namespace CB::feature::controller {
 
         /// @brief The graph flag under which the graph drives the speed itself (ch::GraphMovesActor's, or speed-synced),
         ///        the frame then left alone; empty when none is set.
+        /// @brief How fast (rad/s) an attack the graph moves may turn the player toward the aim: the attack-steering seam.
+        /// @note Default until per-clip turnRate curves reach the runtime: free through the wind-up (kDraw), between chained
+        ///       attacks (kNextAttack) and while a bow is drawn; locked from the swing on, so a committed strike holds its line.
+        float AttackTurnRate(RE::Actor* actor)
+        {
+            using A = RE::ATTACK_STATE_ENUM;
+            switch (actor->AsActorState()->GetAttackState()) {
+            case A::kDraw:
+            case A::kNextAttack:
+            case A::kBowDraw:
+            case A::kBowAttached:
+            case A::kBowDrawn:
+            case A::kBowNextAttack:
+                return kFreeAttackTurn;
+            default:
+                return 0.0f;
+            }
+        }
+
         const char* GraphDrivesSpeed(RE::Actor* actor)
         {
             static const RE::BSFixedString speedSynced("bSpeedSynced");
@@ -344,6 +364,14 @@ namespace CB::feature::controller {
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
                 d.init  = hold && !vanilla;
                 es      = EngineSpeed{};
+                /// @note The graph owns the attack's translation (root motion) but not its yaw: the turn toward the aim is
+                ///       CB's, capped by AttackTurnRate. Actor_ApplyFrameMovement adds turn[2]*dt to the heading before the move.
+                if (graphDrives && hold && !vanilla && steer == Steer::Player && deltaTime > 0.0f &&
+                    player->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone) {
+                    const float cap  = AttackTurnRate(player) * deltaTime;
+                    const float step = std::clamp(WrapPi(cameraYaw - heading), -cap, cap);
+                    out->turn[2]     = step / deltaTime;
+                }
                 if (!hold || graphDrives || vanilla) return;
             }
 
