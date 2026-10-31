@@ -1,11 +1,12 @@
 name:      hkpListShapeChildInfo
 parent:    null
-size:      16
-# Value type (no signature): hkpListShape::ChildInfo element. m_shape (hkpShape*, HK_ALIGN16),
-# m_collisionFilterInfo (uint32), m_shapeInfo (uint16); m_shapeSize/m_numChildShapes are +nosave.
-# The child shape is a top-level object read independently, so the pointer here is skipped.
+size:      32
+# Value type (no signature): hkpListShape::ChildInfo element (havok/.../hkpListShape.h). m_shape (hkpShape*,
+# HK_ALIGN16) @0, m_collisionFilterInfo (uint32) @8, m_shapeSize/m_numChildShapes (int32, +nosave) @12/@16,
+# pad -> 32. Verified against real dragon/werewolf bytes (a child pointer every 32 bytes of the array).
 fields:
-  - { skip: 8 }                                # m_shape ptr @0 (dropped; child read independently)
-  - { name: collisionFilterInfo, type: uint32 } # @8
-  - { name: shapeInfo,           type: uint16 } # @12
-  - { skip: 2 }                                # +nosave tail -> 16
+  - { name: shape,               type: ptr, ref: hkpShape }    # @0
+  - { name: collisionFilterInfo, type: uint32 }                # @8
+  - { name: shapeSize,           type: int32, ignored: true }  # @12 (+nosave)
+  - { name: numChildShapes,      type: int32, ignored: true }  # @16 (+nosave)
+  - { skip: 12 }                                               # pad -> 32

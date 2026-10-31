@@ -268,6 +268,8 @@ public:
     bool LoadDir(const std::string& root, std::string& err);
 
     const ClassSchema* Find(const std::string& name) const;
+    /// @brief Whether class `cls` is `base` or derives from it through its `parent:` chain. False when `cls` is unknown.
+    bool Derives(const std::string& cls, const std::string& base) const;
 
     /// @brief The class's flattened field list, parent-first.
     /// @warning Throws std::runtime_error on an unresolved or cyclic `parent:` chain.
