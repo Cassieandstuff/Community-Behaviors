@@ -1,6 +1,6 @@
 name:      hkpMoppCode
 parent:    hkReferencedObject
-signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+signature: 0x924c2661
 size:      64
 # hkReferencedObject ends @16. m_info (CodeInfo{hkVector4 m_offset}, 16-aligned) @16;
 # m_data (hkArray<hkUint8>) @32; m_buildType (enum hkInt8) @48. The MOPP byte payload is

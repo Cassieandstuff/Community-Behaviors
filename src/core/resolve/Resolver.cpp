@@ -646,6 +646,15 @@ namespace CB {
             if (!m_reuse.count(k)) Resolve(k);   // a reused graph's cached file stays as it is
             if (progress) progress(++done, total);
         }
+        /// @note One line per bundle, after every graph: a bundle converted by Behavior Converter 0.5.0-0.5.2 carries
+        ///       `&#9216;` for empty sync role prefixes (CB-15). The merge already reads them as unset; reconverting
+        ///       drops them from the bundle.
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto& [stem, n] : m_nullMarkers)
+            LOG_WARN("Community Behaviors: bundle '{}' has {} string field(s) set to Havok's null marker '&#9216;' "
+                     "(Behavior Converter 0.5.0-0.5.2, CB-15), read as unset. Reconvert the load order to drop them.",
+                     stem, n);
+        m_nullMarkers.clear();
     }
 
     void Resolver::ComputeGraphKeys(const std::filesystem::path& dataRoot)
@@ -1670,12 +1679,14 @@ namespace CB {
 
             CB::engine::decompile::ParsedHky graph;
             std::string err;
-            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err)) {
+            std::vector<std::pair<std::string, std::size_t>> nullMarkers;
+            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
                 LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
                           key, err);
                 m_cache.emplace(key, nullptr);
                 return nullptr;
             }
+            for (const auto& [stem, n] : nullMarkers) m_nullMarkers[stem] += n;   // m_mutex is held
             CB::engine::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {
@@ -1714,6 +1725,12 @@ namespace CB {
                     return nullptr;
                 }
             }
+
+            /// @note A patch can point a member at the wrong kind of node (one written against another numbering of a
+            ///       shared Nemesis code). The game reads every pointer as its declared class, so such a node crashes it;
+            ///       drop each one and name it. The writer leaves the same pointers out regardless.
+            for (const std::string& m : edit.DropMistypedPointers())
+                LOG_WARN("Resolver: '{}': {} — dropped (the game would read it as the declared class).", key, m);
 
             std::vector<std::uint8_t> bytes;
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

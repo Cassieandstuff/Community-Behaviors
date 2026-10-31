@@ -1,6 +1,6 @@
 name:      hkpListShape
 parent:    hkpShapeCollection
-signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+signature: 0xa1937cbd
 size:      144
 # hkpShapeCollection ends @40. m_childInfo (hkArray<ChildInfo>) is 16-aligned -> pad 40->48.
 # Then m_flags/m_numDisabledChildren (uint16 x2) @64, AABB (two Vector4) @80/@96, and

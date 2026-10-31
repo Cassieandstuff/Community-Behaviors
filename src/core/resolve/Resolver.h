@@ -408,6 +408,9 @@ namespace CB {
         // at compile time. Loaded once in Init().
         SymbolInjector m_symbols;
         std::mutex m_mutex;
+        // Per bundle stem, the string values its units held as Havok's null marker (CB-15), summed over the graphs
+        // Resolve merged; CompileAll names each bundle once. Guarded by m_mutex.
+        std::unordered_map<std::string, std::size_t> m_nullMarkers;
     };
 
 }  // namespace CB

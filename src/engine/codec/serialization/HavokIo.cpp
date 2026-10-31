@@ -1,5 +1,6 @@
 #include <codec/serialization/HavokIo.h>
 
+#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -353,9 +354,30 @@ void SchemaObject::Read(PackFileDeserializer& des, BinaryReaderEx& br) {
     }
 }
 
+bool AdmitsPointer(const SchemaRegistry& reg, const Field& f, const IHavokObject* target) {
+    if (!target || f.ref.empty() || !reg.Find(f.ref)) return true;
+    const auto* so = dynamic_cast<const SchemaObject*>(target);
+    return !so || reg.Derives(so->ClassName(), f.ref);
+}
+
+std::string ObjectLabel(const IHavokObject* o) {
+    if (!o) return "null";
+    std::string label = o->ClassName();
+    if (const auto* so = dynamic_cast<const SchemaObject*>(o))
+        if (const FieldValue* name = so->FindField("name"); name && !name->str.empty()) label += " '" + name->str + "'";
+    return label;
+}
+
 void SchemaObject::Write(PackFileSerializer& s, BinaryWriterEx& bw) const {
     const std::vector<const Field*>& fields = Fields();
     // m_fields was filled by Read in the same flattened order.
+    // A pointer whose target the member's class doesn't admit is left out (an array shrinks, a pointer writes null):
+    // the game would read the target as the declared class.
+    const auto admitted = [&](const Field& f, const std::shared_ptr<IHavokObject>& o, const std::string& at) {
+        if (!m_reg || AdmitsPointer(*m_reg, f, o.get())) return o;
+        s.DroppedPointers.push_back(ObjectLabel(this) + "." + f.name + at + ": " + ObjectLabel(o.get()) + " is not a " + f.ref);
+        return std::shared_ptr<IHavokObject>();
+    };
 
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field&      f = *fields[i];
@@ -377,10 +399,21 @@ void SchemaObject::Write(PackFileSerializer& s, BinaryWriterEx& bw) const {
             case FieldKind::StringArray: s.WriteStringPointerArray(bw, v.strs); break;
 
             case FieldKind::Ptr:
-                if (n == 1) s.WriteClassPointer(bw, v.obj);
-                else for (int k = 0; k < n; ++k) s.WriteClassPointer(bw, k < static_cast<int>(v.objs.size()) ? v.objs[k] : nullptr);
+                if (n == 1) s.WriteClassPointer(bw, admitted(f, v.obj, ""));
+                else for (int k = 0; k < n; ++k)
+                    s.WriteClassPointer(bw, k < static_cast<int>(v.objs.size()) ? admitted(f, v.objs[k], "[" + std::to_string(k) + "]") : nullptr);
                 break;
-            case FieldKind::PtrArray:    s.WriteClassPointerArrayGeneric(bw, v.objs); break;
+            case FieldKind::PtrArray: {
+                if (!m_reg || std::all_of(v.objs.begin(), v.objs.end(), [&](const auto& o) { return AdmitsPointer(*m_reg, f, o.get()); })) {
+                    s.WriteClassPointerArrayGeneric(bw, v.objs);
+                    break;
+                }
+                std::vector<std::shared_ptr<IHavokObject>> kept;   // a null entry stays: only a mistyped one goes
+                for (std::size_t k = 0; k < v.objs.size(); ++k)
+                    if (!v.objs[k] || admitted(f, v.objs[k], "[" + std::to_string(k) + "]")) kept.push_back(v.objs[k]);
+                s.WriteOwnedClassPointerArray(bw, std::move(kept));
+                break;
+            }
 
             case FieldKind::Vec4Array:        s.WriteRawArray(bw, v.raw, 16); break;
             case FieldKind::QsTransformArray: s.WriteRawArray(bw, v.raw, 48); break;
@@ -428,7 +461,8 @@ std::shared_ptr<SchemaObject> FindVariant(const SchemaObject& root, std::string_
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const SchemaRegistry&            reg,
                   std::vector<std::uint8_t>&       out,
-                  std::string&                     err) {
+                  std::string&                     err,
+                  bool                             vanillaSignatures) {
     try {
         BinaryReaderEx br(in);
         PackFileDeserializer des;
@@ -437,6 +471,7 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
         if (!root) { err = "havok-io: null root object"; return false; }
 
         PackFileSerializer ser;
+        ser.VanillaSignatures = vanillaSignatures;
         BinaryWriterEx bw(des._header.Endian == 0, des._header.PointerSize == 8);
         ser.Serialize(root, bw, des._header);
         out = bw.Data();
