@@ -51,6 +51,10 @@ public:
     SchemaObject(const schema::SchemaRegistry* reg, const schema::ClassSchema* cs);
 
     std::uint32_t Signature() const noexcept override { return m_schema->signature; }
+    std::uint32_t VanillaSignature() const noexcept override {
+        if (m_schema->vanillaSignature) return m_schema->vanillaSignature;
+        return m_schema->name.rfind("CB", 0) == 0 ? 0 : m_schema->signature;
+    }
     const char*   ClassName() const noexcept override { return m_schema->name.c_str(); }
     void Read(PackFileDeserializer& des, BinaryReaderEx& br) override;
     void Write(PackFileSerializer& s, BinaryWriterEx& bw) const override;
@@ -144,6 +148,15 @@ inline std::shared_ptr<SchemaObject> AsSchema(const std::shared_ptr<IHavokObject
     return std::dynamic_pointer_cast<SchemaObject>(o);
 }
 
+/// @brief Whether pointer member `f` (a Ptr or PtrArray) may hold `target`: its class is the member's `ref` or derives
+///        from it. A null target, a member with no `ref` or one the registry doesn't know, and an object that isn't a
+///        SchemaObject are all admitted: there's nothing to judge them against.
+/// @note  The game reads a pointer as its declared class. A modifier list's entry that is really a clip trigger array
+///        gets a modifier's virtual call and crashes, so the writer leaves such a pointer out (SchemaObject::Write).
+bool AdmitsPointer(const schema::SchemaRegistry& reg, const schema::Field& f, const IHavokObject* target);
+/// @brief `<class> '<name>'` (just the class when it has no name), for messages about an object.
+std::string ObjectLabel(const IHavokObject* o);
+
 /// @brief Deserialize a whole packfile through the schema path.
 /// @return The root object (nullptr when the root isn't a SchemaObject).
 /// @param tolerateUnregistered An object of a class the registry lacks reads as null instead of throwing.
@@ -157,10 +170,11 @@ std::shared_ptr<SchemaObject> FindVariant(const SchemaObject& root, std::string_
 
 // Read a packfile fully through the schema path and write it back. On success `out` holds the
 // re-serialized bytes; a byte-identical `out == in` is the hkx round-trip check. Returns false
-// with `err` set on any parse/framing/schema error.
+// with `err` set on any parse/framing/schema error. `vanillaSignatures`: see PackFileSerializer.
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const schema::SchemaRegistry&    reg,
                   std::vector<std::uint8_t>&       out,
-                  std::string&                     err);
+                  std::string&                     err,
+                  bool                             vanillaSignatures = false);
 
 } // namespace CB::engine::codec::io

@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,6 +30,10 @@ using namespace CB::engine::common;
 class PackFileSerializer {
 public:
     HKXHeader _header;
+    /// @brief Write each class's exe signature (VanillaSignature), for a game without CB: a vanilla class CB extends
+    ///        then loads through the exe's own hkClass. A class with none (only CB registers it, or its schema stores
+    ///        no signature) fails the write rather than carry one the game refuses.
+    bool VanillaSignatures = false;
 
     void Serialize(const std::shared_ptr<IHavokObject>& rootObject,
                    BinaryWriterEx& bw, const HKXHeader& header) {
@@ -35,6 +41,8 @@ public:
         bw.BigEndian = (_header.Endian == 0);
         _header.Write(bw);
 
+        DroppedPointers.clear();
+        _ownedArrays.clear();
         _localFixups.clear();
         _globalFixups.clear();
         _virtualFixups.clear();
@@ -46,6 +54,7 @@ public:
         _pendingVirtuals.clear();
         _serializedObjects.clear();
         _written.clear();
+        _visits = 0;
         _currentLocalWriteQueue = 0;
         _currentSerializationQueue = 0;
 
@@ -77,17 +86,20 @@ public:
                 _pendingVirtuals.erase(obj.get());
                 const std::string classname = obj->ClassName();
                 if (!_virtualLookup.count(classname)) {
+                    const std::uint32_t signature = VanillaSignatures ? obj->VanillaSignature() : obj->Signature();
+                    if (signature == 0)
+                        throw std::runtime_error("packfile: '" + classname + "' has no exe signature to write");
                     const std::uint32_t offset = static_cast<std::uint32_t>(classbw.Position());
-                    HKXClassName{obj->Signature(), classname}.Write(classbw);
+                    HKXClassName{signature, classname}.Write(classbw);
                     _virtualLookup[classname] = offset + 5;
                 }
                 _virtualFixups.push_back(
                     VirtualFixup{static_cast<std::uint32_t>(databw.Position()), 0, _virtualLookup[classname]});
                 auto pg = _pendingGlobals.find(obj.get());
                 if (pg != _pendingGlobals.end()) {
-                    for (std::uint32_t src : pg->second)
+                    for (const auto& [src, visit] : pg->second)
                         _globalFixups.push_back(
-                            GlobalFixup{src, 2, static_cast<std::uint32_t>(databw.Position())});
+                            {visit, GlobalFixup{src, 2, static_cast<std::uint32_t>(databw.Position())}});
                     _pendingGlobals.erase(pg);
                 }
                 _globalLookup[obj.get()] = static_cast<std::uint32_t>(databw.Position());
@@ -134,9 +146,11 @@ public:
         data.LocalFixups = _localFixups;
         std::stable_sort(data.LocalFixups.begin(), data.LocalFixups.end(),
                          [](const LocalFixup& a, const LocalFixup& b) { return a.Dst < b.Dst; });
-        data.GlobalFixups = _globalFixups;
-        std::stable_sort(data.GlobalFixups.begin(), data.GlobalFixups.end(),
-                         [](const GlobalFixup& a, const GlobalFixup& b) { return a.Src < b.Src; });
+        // Havok lists global fixups in the order their pointers are met walking each object's members, a
+        // pointer array's elements at the array's place (so not by Src).
+        std::stable_sort(_globalFixups.begin(), _globalFixups.end(),
+                         [](const VisitedFixup& a, const VisitedFixup& b) { return a.visit < b.visit; });
+        for (const auto& g : _globalFixups) data.GlobalFixups.push_back(g.fixup);
         data.VirtualFixups = _virtualFixups;
 
         classNames.WriteHeader(bw);
@@ -151,6 +165,10 @@ public:
     ///        its offset from the start of the __data__ section: where a loader finds it.
     const std::vector<std::pair<const IHavokObject*, std::uint32_t>>& Written() const { return _written; }
 
+    /// @brief Every pointer the last Serialize left out because the member's declared class doesn't admit its target
+    ///        (a schema object's Write checks; see io::AdmitsPointer), one description each. Empty for a well-typed graph.
+    std::vector<std::string> DroppedPointers;
+
     // ── Write helpers invoked by each class's Write(s, bw) ─────────────────────
 
     void WriteVoidPointer(BinaryWriterEx& bw) {
@@ -163,25 +181,21 @@ public:
         bw.WriteUInt32(0u | (static_cast<std::uint32_t>(0x80) << 24));
     }
 
-    void WriteClassPointer(BinaryWriterEx& bw, const std::shared_ptr<IHavokObject>& d) {
+    // `visit`: where the walk met this pointer (see Serialize's fixup sort); kNow = here.
+    void WriteClassPointer(BinaryWriterEx& bw, const std::shared_ptr<IHavokObject>& d, std::uint32_t visit = kNow) {
         PadToPointerSizeIfPaddingOption(bw);
         const std::uint32_t pos = static_cast<std::uint32_t>(bw.Position());
         bw.WriteUSize(0);
+        if (visit == kNow) visit = _visits++;
         if (!d) return;
         IHavokObject* key = d.get();
         auto gl = _globalLookup.find(key);
         if (gl != _globalLookup.end()) {
-            _globalFixups.push_back(GlobalFixup{pos, 2, gl->second});
+            _globalFixups.push_back({visit, GlobalFixup{pos, 2, gl->second}});
             return;
         }
-        if (!_pendingGlobals.count(key)) {
-            _pendingGlobals.emplace(key, std::vector<std::uint32_t>{});
-            PushSerializationQueue();
-            _serializationQueues[_currentSerializationQueue].push(d);
-            PopSerializationQueue();
-            _pendingVirtuals.insert(key);
-        }
-        _pendingGlobals[key].push_back(pos);
+        Enqueue(d);
+        _pendingGlobals[key].emplace_back(pos, visit);
     }
 
     /// @param null an empty `d` is written as the null pointer with no local fixup (a string read as null, see
@@ -234,13 +248,28 @@ public:
             bw.WriteBytes(std::span<const std::uint8_t>(bytes.data() + i * elemWidth, elemWidth));
         });
     }
+    // Havok queues the objects a pointer array names at the array member's place in the class, not when
+    // the array's data is written after the object, so they are queued here: a state machine's states
+    // then come out before its wildcard transitions, as in Havok's own files.
     void WriteClassPointerArrayGeneric(BinaryWriterEx& bw,
                                        const std::vector<std::shared_ptr<IHavokObject>>& d) {
-        WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { WriteClassPointer(bw, d[i]); });
+        for (const auto& e : d)
+            if (e && !_globalLookup.count(e.get())) Enqueue(e);
+        const std::uint32_t first = _visits;
+        _visits += static_cast<std::uint32_t>(d.size());
+        WriteArrayBase(bw, d.size(), [this, &bw, &d, first](std::size_t i) {
+            WriteClassPointer(bw, d[i], first + static_cast<std::uint32_t>(i));
+        });
     }
     void WriteStructArrayGeneric(BinaryWriterEx& bw,
                                  const std::vector<std::shared_ptr<IHavokObject>>& d) {
         WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { d[i]->Write(*this, bw); }, /*pad*/ true);
+    }
+    /// @brief WriteClassPointerArrayGeneric for an array the caller builds on the spot: the serializer holds it until
+    ///        Serialize ends, since the elements are written after the caller's Write returns.
+    void WriteOwnedClassPointerArray(BinaryWriterEx& bw, std::vector<std::shared_ptr<IHavokObject>> d) {
+        _ownedArrays.push_back(std::move(d));
+        WriteClassPointerArrayGeneric(bw, _ownedArrays.back());
     }
 
 private:
@@ -259,6 +288,17 @@ private:
             _serializationQueues.emplace_back();
     }
     void PopSerializationQueue() { _currentSerializationQueue--; }
+    // Queues an object not yet written to follow the current one. Havok's writer is depth-first: an object comes out
+    // where the walk first reaches it. One an earlier member already queued, still waiting behind that member's
+    // siblings, is queued again here, so it comes out inside this subtree; the later copy is skipped once written.
+    void Enqueue(const std::shared_ptr<IHavokObject>& d) {
+        IHavokObject* key = d.get();
+        _pendingGlobals.try_emplace(key);
+        PushSerializationQueue();
+        _serializationQueues[_currentSerializationQueue].push(d);
+        PopSerializationQueue();
+        _pendingVirtuals.insert(key);
+    }
 
     template <class Fn>
     void WriteArrayBase(BinaryWriterEx& bw, std::size_t count, Fn perElement, bool pad = false) {
@@ -281,19 +321,24 @@ private:
             _localWriteQueues[_currentLocalWriteQueue].push([&bw]() { bw.Pad(16); });
     }
 
+    static constexpr std::uint32_t kNow = 0xFFFFFFFFu;
+    struct VisitedFixup { std::uint32_t visit; GlobalFixup fixup; };
+
     int _currentLocalWriteQueue = 0;
     int _currentSerializationQueue = 0;
+    std::uint32_t             _visits = 0;
     std::vector<LocalFixup>   _localFixups;
-    std::vector<GlobalFixup>  _globalFixups;
+    std::vector<VisitedFixup> _globalFixups;
     std::vector<VirtualFixup> _virtualFixups;
     std::unordered_map<IHavokObject*, std::uint32_t>              _globalLookup;
-    std::unordered_map<IHavokObject*, std::vector<std::uint32_t>> _pendingGlobals;
+    std::unordered_map<IHavokObject*, std::vector<std::pair<std::uint32_t, std::uint32_t>>> _pendingGlobals;   // Src, visit
     std::unordered_set<IHavokObject*> _pendingVirtuals;
     std::unordered_set<IHavokObject*> _serializedObjects;
     std::vector<std::pair<const IHavokObject*, std::uint32_t>> _written;
     std::unordered_map<std::string, std::uint32_t> _virtualLookup;
     std::vector<std::queue<std::function<void()>>>             _localWriteQueues;
     std::vector<std::queue<std::shared_ptr<IHavokObject>>>     _serializationQueues;
+    std::deque<std::vector<std::shared_ptr<IHavokObject>>>     _ownedArrays;   // a deque: references stay valid on push
 };
 
 } // namespace CB::engine::codec
