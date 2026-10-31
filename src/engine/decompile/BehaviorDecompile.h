@@ -17,6 +17,7 @@
 #include <set>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace c4::yml { class ConstNodeRef; }
@@ -81,6 +82,10 @@ struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
+    /// @brief String values the .hky read held as Havok's null marker (`&#9216;`, the 0.5.0-0.5.2 converter's misread,
+    ///        CB-15): read as '' in a whole object, skipped in a field patch. ParseHkyReflective sets it,
+    ///        MergeHkyPatch adds to it.
+    std::size_t                                    nullMarkers = 0;
 };
 /// @brief A packfile's graph as a ParsedHky: every object reachable from the root (inline ones included), its
 ///        encounter-order identity (AssignIdentity's numbering). SerializeGraph is its inverse.
@@ -215,8 +220,11 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
 ///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
 ///        node. The merged graph feeds the compile stages that edit or read it (features, reference qualification,
 ///        adsf-derive) before SerializeGraph.
+/// @param nullMarkers When set, receives (layer stem, count) for every layer whose units held Havok's null marker
+///        (ParsedHky::nullMarkers), so the caller can name the bundles to reconvert.
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
-                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
+                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                           std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
                     const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief SerializeGraph, also reporting where every written object came from: its offset in the packfile's data

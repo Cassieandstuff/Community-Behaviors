@@ -1380,6 +1380,16 @@ std::string havokXmlString(const std::string& text) {
     return text == kNullMarker ? std::string() : text;
 }
 
+/// @brief True for a bundle string that is Havok's null-string marker: U+2400, or its XML spelling `&#9216;` kept as
+///        text.
+/// @note Why: Behavior Converter 0.5.0-0.5.2 kept the XML spelling verbatim (CB-15), so a bundle converted then
+///       carries `SyncAnimPrefix: '&#9216;'` for every empty sync role prefix a Nemesis mod's patch restates. Read
+///       as data it is a prefix no animation track has; read through this test such a bundle heals without a
+///       reconversion.
+bool isHavokNullMarker(std::string_view s) {
+    return s == "\xE2\x90\x80" || s == "&#9216;";
+}
+
 // Fill an already-created SchemaObject's fields from its tagfile <hkobject> node. `idMap` resolves refs
 // by CANONICAL id (populated in pass 1, so every top-level id — base #NNNN or new-node #code$N — exists).
 // Inline structs recurse.
@@ -1748,6 +1758,9 @@ struct HkyParse {
     /// @brief A `{ charprop: <name> }` member, whose binding its bindable appends once its own fields are filled.
     struct CharPropBind { io::SchemaObject* owner; std::string path, name, where; };
     std::vector<CharPropBind>                                              charPropBinds;
+    /// @brief String values that were Havok's null marker (isHavokNullMarker): read as '' in a whole object, skipped
+    ///        in a field patch.
+    std::size_t                                                            nullMarkers = 0;
 };
 
 /// @brief While filling the object behind `owner`'s field `f` (element `k`): an inline struct continues the member
@@ -1983,7 +1996,10 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             return scalarBytes(f, ystr(n), v.raw, ps);
         }
         case FieldKind::String:
-        case FieldKind::CString:    v.str = ystr(n); return true;
+        case FieldKind::CString:
+            v.str = ystr(n);
+            if (isHavokNullMarker(v.str)) { v.str.clear(); ++ps.nullMarkers; }
+            return true;
         case FieldKind::Vector4:
         case FieldKind::Quaternion:
             if (!n.is_seq()) { v.raw = vec4Strict(ystr(n)); return true; }
@@ -2025,7 +2041,11 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             return true;
         }
         case FieldKind::StringArray:
-            for (auto e : n) v.strs.push_back(ystr(e));
+            for (auto e : n) {
+                std::string s = ystr(e);
+                if (isHavokNullMarker(s)) { s.clear(); ++ps.nullMarkers; }
+                v.strs.push_back(std::move(s));
+            }
             return true;
         case FieldKind::ScalarArray: {
             const int w = schema::ScalarWidth(f.scalar);
@@ -2349,6 +2369,15 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     handled = false;
     const Field& f = *so.Fields()[i];
     io::FieldValue& v = so.FieldAt(i);
+    /// @note A patch setting a string to Havok's null marker is the 0.5.0-0.5.2 converter's misread (CB-15), not a
+    ///       mod's edit: the mod never changed the field. Skipped, so the value merged so far (the master's, or a
+    ///       lower bundle's) stands, as a reconverted bundle (no patch for that field) would leave it.
+    if ((f.kind == FieldKind::String || f.kind == FieldKind::CString) && !n.is_map() && !n.is_seq() &&
+        isHavokNullMarker(ystr(n))) {
+        handled = true;
+        ++ps.nullMarkers;
+        return true;
+    }
     if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map()) {
         handled = true;
         return rosterPatch(so, i, n, ps);
@@ -2425,6 +2454,7 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
         handled = true;
         for (auto e : n) {
             const std::string s = ystr(e);
+            if (isHavokNullMarker(s)) { ++ps.nullMarkers; continue; }
             if (std::find(v.strs.begin(), v.strs.end(), s) == v.strs.end()) v.strs.push_back(s);
         }
     }
@@ -2858,6 +2888,7 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
     out.root = root;
     out.objects = std::move(ps.all);
     out.identity.subKeys = std::move(ps.subKeys);
+    out.nullMarkers = ps.nullMarkers;
     return true;
 }
 
@@ -3424,6 +3455,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         }
         s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
     }
+    base.nullMarkers += ps.nullMarkers;
     return true;
 }
 
@@ -3634,16 +3666,24 @@ std::optional<std::vector<std::string>> ReadSkeletonBones(const CB::engine::comm
 }
 
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
-                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err) {
+                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                           std::vector<std::pair<std::string, std::size_t>>* nullMarkers) {
     try {
         if (layers.empty() || !layers.front().source) { err = "MergeLayersReflective: no base layer"; return false; }
+        std::size_t counted = 0;
+        const auto note = [&](const std::string& stem) {
+            if (nullMarkers && graph.nullMarkers > counted) nullMarkers->emplace_back(stem, graph.nullMarkers - counted);
+            counted = graph.nullMarkers;
+        };
         if (!ParseHkyReflective(*layers.front().source, reg, graph, err, bones)) { err = layers.front().stem + ": " + err; return false; }
+        note(layers.front().stem);
         for (std::size_t k = 1; k < layers.size(); ++k) {
             if (!layers[k].source) continue;
             if (!MergeHkyPatch(graph, *layers[k].source, reg, layers.front().masterTable, layers[k].masterTable, err, bones)) {
                 err = layers[k].stem + ": " + err;
                 return false;
             }
+            note(layers[k].stem);
         }
         return true;
     } catch (const std::exception& e) {
