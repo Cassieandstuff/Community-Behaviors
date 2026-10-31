@@ -1726,6 +1726,12 @@ namespace CB {
                 }
             }
 
+            /// @note A patch can point a member at the wrong kind of node (one written against another numbering of a
+            ///       shared Nemesis code). The game reads every pointer as its declared class, so such a node crashes it;
+            ///       drop each one and name it. The writer leaves the same pointers out regardless.
+            for (const std::string& m : edit.DropMistypedPointers())
+                LOG_WARN("Resolver: '{}': {} — dropped (the game would read it as the declared class).", key, m);
+
             std::vector<std::uint8_t> bytes;
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (CB::engine::decompile::SerializeGraph(graph, bytes, err)) {

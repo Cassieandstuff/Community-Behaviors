@@ -119,6 +119,12 @@ public:
     void ForEach(std::string_view cls, const std::function<void(io::SchemaObject&)>& fn);
     /// @brief How many reachable objects are `base` or derive from it.
     std::size_t CountDerived(std::string_view base);
+    /// @brief Remove every reachable pointer whose target the member's declared class doesn't admit (io::AdmitsPointer):
+    ///        a PtrArray entry is erased (later entries move up), a pointer or a fixed inline pointer slot is set null.
+    ///        One description per pointer, naming owner and target (with their FormIDs); empty for a well-typed graph.
+    /// @note  The writer leaves out the same pointers (PackFileSerializer::DroppedPointers). Running this first names
+    ///        them with their FormIDs, so a caller can log which node lost what.
+    std::vector<std::string> DropMistypedPointers();
     /// @brief A new object of `cls`, schema-initialized and owned by the graph.
     std::shared_ptr<io::SchemaObject> Make(std::string_view cls);
     /// @brief A node's id (FormID / canonical key) for FeatureResult::touched; "" for an inline object.

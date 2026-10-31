@@ -3597,6 +3597,43 @@ std::size_t GraphEdit::CountDerived(std::string_view base) {
     return n;
 }
 
+std::vector<std::string> GraphEdit::DropMistypedPointers() {
+    std::vector<std::string> out;
+    const auto label = [&](const IHavokObject* o) {
+        std::string l = io::ObjectLabel(o);
+        if (const std::string id = IdOf(o); !id.empty()) l += " [" + id + "]";
+        return l;
+    };
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        auto* so = dynamic_cast<io::SchemaObject*>(o);
+        if (!so) return;
+        const auto& fields = so->Fields();
+        for (std::size_t i = 0; i < fields.size() && i < so->Values().size(); ++i) {
+            const schema::Field& f = *fields[i];
+            if (f.kind != schema::FieldKind::Ptr && f.kind != schema::FieldKind::PtrArray) continue;
+            io::FieldValue& v = so->FieldAt(i);
+            const auto mistyped = [&](const std::shared_ptr<IHavokObject>& t, const std::string& at) {
+                if (io::AdmitsPointer(m_reg, f, t.get())) return false;
+                out.push_back(label(so) + "." + f.name + at + ": " + label(t.get()) + " is not a " + f.ref);
+                return true;
+            };
+            if (v.obj && mistyped(v.obj, "")) v.obj.reset();
+            std::vector<std::shared_ptr<IHavokObject>> kept;
+            kept.reserve(v.objs.size());
+            for (std::size_t k = 0; k < v.objs.size(); ++k) {
+                if (!mistyped(v.objs[k], "[" + std::to_string(k) + "]")) kept.push_back(std::move(v.objs[k]));
+                else if (f.kind == schema::FieldKind::Ptr) kept.emplace_back();   // a fixed slot stays, null
+            }
+            v.objs = std::move(kept);
+        }
+        for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(m_graph.root.get());
+    return out;
+}
+
 std::shared_ptr<io::SchemaObject> GraphEdit::Make(std::string_view cls) {
     auto o = makeObj(m_reg, std::string(cls));
     if (o) m_graph.objects.push_back(o);

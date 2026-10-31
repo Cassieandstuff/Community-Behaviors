@@ -143,6 +143,15 @@ inline std::shared_ptr<SchemaObject> AsSchema(const std::shared_ptr<IHavokObject
     return std::dynamic_pointer_cast<SchemaObject>(o);
 }
 
+/// @brief Whether pointer member `f` (a Ptr or PtrArray) may hold `target`: its class is the member's `ref` or derives
+///        from it. A null target, a member with no `ref` or one the registry doesn't know, and an object that isn't a
+///        SchemaObject are all admitted: there's nothing to judge them against.
+/// @note  The game reads a pointer as its declared class. A modifier list's entry that is really a clip trigger array
+///        gets a modifier's virtual call and crashes, so the writer leaves such a pointer out (SchemaObject::Write).
+bool AdmitsPointer(const schema::SchemaRegistry& reg, const schema::Field& f, const IHavokObject* target);
+/// @brief `<class> '<name>'` (just the class when it has no name), for messages about an object.
+std::string ObjectLabel(const IHavokObject* o);
+
 /// @brief Deserialize a whole packfile through the schema path.
 /// @return The root object (nullptr when the root isn't a SchemaObject).
 /// @param tolerateUnregistered An object of a class the registry lacks reads as null instead of throwing.

@@ -643,6 +643,14 @@ const ClassSchema* SchemaRegistry::Find(const std::string& name) const {
     return it == m_byName.end() ? nullptr : &it->second;
 }
 
+bool SchemaRegistry::Derives(const std::string& cls, const std::string& base) const {
+    // the depth bound only guards a cyclic `parent:` chain, which Flatten refuses
+    int depth = 0;
+    for (const ClassSchema* c = Find(cls); c && depth < 64; c = c->parent.empty() ? nullptr : Find(c->parent), ++depth)
+        if (c->name == base) return true;
+    return false;
+}
+
 namespace {
 /// @note `depth` bounds the parent chain so a cyclic `parent:` (A->B->A) throws instead of overflowing.
 void flattenInto(const SchemaRegistry& reg, const ClassSchema* cs, std::vector<const Field*>& out, int depth) {
