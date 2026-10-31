@@ -770,8 +770,10 @@ namespace CB::feature {
                 }
             }
 
-            /// @note G2 contract: kCanJump from CB's rule (Grounded on any ground, or inside the coyote window).
-            const bool canJumpNow = t.mode == Mode::Grounded
+            /// @note G2 contract: kCanJump from CB's rule (Grounded on walkable ground, or inside the coyote window).
+            /// @note Walkable now, not the faded grip (Box3D's Jump needs onGround and walkable): steep ground never
+            ///       lends a jump, or spamming it climbs a mountain face.
+            const bool canJumpNow = (t.mode == Mode::Grounded && ch::Supported(fv))
                                  || (t.mode == Mode::Airborne && t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime
                                      && !(c.m_flags & ch::kJumping));
             if (canJumpNow) c.m_flags |= ch::kCanJump;

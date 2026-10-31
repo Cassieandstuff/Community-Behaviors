@@ -114,7 +114,7 @@ namespace CB::core::debug {
           "Ground states in charge",
           "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
           "Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, velocity "
-          "springs). Grounded means any ground under the feet: the player lands on it and can always jump from it. How "
+          "springs). Grounded means any ground under the feet: the player lands on it, and jumps from it while it is walkable. How "
           "much it holds them up is its support, easing from 1 at fSlidePullStart degrees (default 5) below the max "
           "slope to 0 at fSlidePullFull degrees (default 10) past it; as it drops, a slide velocity drags the player "
           "downhill and the uphill part of their steering is cut. Rising off the ground, landing and sticking to it are "
