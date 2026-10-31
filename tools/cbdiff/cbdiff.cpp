@@ -37,8 +37,7 @@ std::string readFile(const std::string& p) {
 /// @brief The schema registry the caches are read through: $SCT_HAVOK_SCHEMA_DIR, else schema/ beside the exe.
 const CB::engine::schema::SchemaRegistry& reg() {
     const auto* r = CB::engine::schema::SharedRegistry();
-    if (!r) { std::fprintf(stderr, "cbdiff: schema: %s
-", CB::engine::schema::SharedRegistryError().c_str()); std::exit(2); }
+    if (!r) { std::fprintf(stderr, "cbdiff: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); std::exit(2); }
     return *r;
 }
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
