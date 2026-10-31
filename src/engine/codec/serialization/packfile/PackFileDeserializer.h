@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -176,12 +177,14 @@ public:
         const std::uint32_t size = br.ReadUInt32();
         br.AssertUInt32({size | (static_cast<std::uint32_t>(0x80) << 24)});
     }
-    std::string ReadStringPointer(BinaryReaderEx& br) {
+    std::string ReadStringPointer(BinaryReaderEx& br) { return ReadOptionalStringPointer(br).value_or(std::string()); }
+    /// @brief ReadStringPointer that keeps a null pointer (no local fixup: no string at all) apart from "".
+    std::optional<std::string> ReadOptionalStringPointer(BinaryReaderEx& br) {
         PadToPointerSizeIfPaddingOption(br);
         const std::uint32_t key = static_cast<std::uint32_t>(br.Position());
         br.AssertUSize({0});
         auto it = _dataSection._localMap.find(key);
-        if (it == _dataSection._localMap.end()) return std::string();
+        if (it == _dataSection._localMap.end()) return std::nullopt;
         br.StepIn(it->second.Dst);
         std::string ret = br.ReadASCII();
         br.StepOut();

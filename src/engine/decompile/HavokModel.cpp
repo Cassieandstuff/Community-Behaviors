@@ -886,8 +886,11 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 }
                 break;
             }
+            /// @note A null hkStringPtr renders as a plain `~`: every string is quoted, so it can't be read as text.
             case FieldKind::String:
-            case FieldKind::CString:    y += f.name + ": " + text::Quote(v.str) + "\n"; break;
+            case FieldKind::CString:
+                y += f.name + ": " + (v.strNull && v.str.empty() ? std::string("~") : text::Quote(v.str)) + "\n";
+                break;
             /// @note A `count:` field (hkTransform's four columns, a motor atom's three motors) renders as a list of its
             ///       elements; a single element keeps the bare form.
             case FieldKind::Vector4:
@@ -1411,7 +1414,10 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
         switch (f.kind) {
             case FieldKind::Scalar:  val.raw = parseScalarRaw(cls, f, p->text, syms, err); if (!err.empty()) return; break;
             case FieldKind::String:
-            case FieldKind::CString: val.str = havokXmlString(p->text); break;
+            case FieldKind::CString:
+                val.str     = havokXmlString(p->text);
+                val.strNull = f.kind == FieldKind::String && val.str.empty() && p->text != val.str;
+                break;
             case FieldKind::Vector4:
             case FieldKind::Quaternion:
                 if (f.count <= 1) { val.raw = parseVec4Raw(p->text); break; }
@@ -1997,8 +2003,13 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
         }
         case FieldKind::String:
         case FieldKind::CString:
+            if (f.kind == FieldKind::String && n.has_val() && !n.is_val_quoted() && n.val() == "~") {
+                v.str.clear();
+                v.strNull = true;
+                return true;
+            }
             v.str = ystr(n);
-            if (isHavokNullMarker(v.str)) { v.str.clear(); ++ps.nullMarkers; }
+            if (isHavokNullMarker(v.str)) { v.str.clear(); v.strNull = f.kind == FieldKind::String; ++ps.nullMarkers; }
             return true;
         case FieldKind::Vector4:
         case FieldKind::Quaternion:
