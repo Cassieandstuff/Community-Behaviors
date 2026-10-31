@@ -161,6 +161,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         out.factory = childStr(root, "factory");
         out.metadata        = childStr(root, "kind") == "metadata";
         out.blankTerminated = childStr(root, "terminator") == "blank";
+        out.binary          = childStr(root, "encoding") == "binary";
         { const std::string s = childStr(root, "framelimit"); if (!s.empty()) out.frameLimit = std::stoi(s); }
         { const std::string s = childStr(root, "interfaces"); if (!s.empty()) out.interfaces = std::stoi(s); }
         if (hasKey(root, "enums"))
@@ -198,8 +199,9 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.name = childStr(fn, "name");
                     const std::string t = childStr(fn, "type");
                     /// @note A metadata record's scalars are text lines carried verbatim; its record lists are object arrays.
-                    if (out.metadata && (t == "string" || t == "int" || t == "float" || t == "uint32" || t == "bool"))
-                        f.kind = FieldKind::Text;
+                    if (out.metadata && (t == "string" || t == "int" || t == "int32" || t == "float" || t == "uint32" || t == "bool")) {
+                        f.kind = FieldKind::Text; f.metaType = t;
+                    }
                     else if (t == "recordarray") { f.kind = FieldKind::PtrArray; f.ref = childStr(fn, "ref"); }
                     else if (t == "string")      f.kind = FieldKind::String;
                     else if (t == "cstring")     f.kind = FieldKind::CString;

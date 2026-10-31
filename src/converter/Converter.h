@@ -163,7 +163,8 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
 bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaTxt, const LogFn& log);
 /// @brief The schema-driven text codec gate: read each file through its `kind: metadata` descriptors (MetaText), write
 ///        it back, and require byte-identical output; record counts are cross-checked against the hand-written parsers.
-///        A file whose name contains "animationset" reads as AnimationSetDataSingleFile, else AnimationDataSingleFile.
+///        A file whose name contains "speeddata" reads as SpeedDataSingleFile (counts cross-checked by an independent
+///        walk of its binary bodies), "animationset" as AnimationSetDataSingleFile, else AnimationDataSingleFile.
 bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log);
 /// @brief The CB-8 gate: every vanilla spline animation under `meshesDir` that carries float tracks is decompiled,
 ///        recompiled, and its floatBlockOffsets compared against vanilla's. Also reports how vanilla fills the array

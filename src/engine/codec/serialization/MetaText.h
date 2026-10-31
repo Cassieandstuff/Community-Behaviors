@@ -31,3 +31,31 @@ struct MetaTextWriteOptions {
 bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err, const MetaTextWriteOptions& opts = {});
 
 } // namespace CB::engine::codec::io
+
+namespace CB::engine::codec::io {
+
+/// @brief A metadata object as YAML — the reflective, editable form a bundle carries (a speeddata project's tables):
+///        every scalar a string scalar (plain when safe, double-quoted otherwise, so its text survives byte-exact),
+///        a stringarray a sequence, a recordarray a sequence of maps (a record of scalars only on one flow line).
+/// @note The class is not written: the reader names it (ParseMetaYaml's `cls`), as the file's place in the bundle does.
+std::string EmitMetaYaml(const SchemaObject& obj);
+
+/// @brief Read EmitMetaYaml's form back into a SchemaObject of metadata class `cls`.
+/// @return nullptr with `err` set on malformed YAML or a key the class does not declare (a typo must not vanish).
+std::shared_ptr<SchemaObject> ParseMetaYaml(const schema::SchemaRegistry& reg, const std::string& cls, std::string_view yaml,
+                                            std::string& err);
+
+} // namespace CB::engine::codec::io
+
+namespace CB::engine::codec::io {
+
+/// @brief The engine's key for a speeddata project: the file stem of its path ("DefaultMaleData\DefaultMale.spd" →
+///        "DefaultMale"; the loader drops the directory and extension). Case kept as written.
+inline std::string SpeedDataProjectStem(std::string_view path) {
+    const auto s = path.find_last_of("\\/");
+    std::string_view f = s == std::string_view::npos ? path : path.substr(s + 1);
+    const auto d = f.find_last_of('.');
+    return std::string(d == std::string_view::npos ? f : f.substr(0, d));
+}
+
+} // namespace CB::engine::codec::io
