@@ -169,9 +169,11 @@ namespace CB::feature {
             Log(a);
         }
 
+        /// @note A floating shape (char_pogo) clears what the step query would step over, and the pogo carries the feet
+        ///       up: the query stands down.
         bool OnIntegrate(Integrate::Next next, hk::bhkCharacterController* self)
         {
-            if (!self || !ch::IsManaged(*self) || (self->m_flags & ch::kJumping)) return next(self);
+            if (!self || !ch::IsManaged(*self) || (self->m_flags & ch::kJumping) || ch::Lift(*self) > 0.0f) return next(self);
             const float dt = self->m_stepInfo.m_deltaTime;
             const float rx = self->m_outVelocity(0) * dt, ry = self->m_outVelocity(1) * dt;
             const float requested = std::sqrt(rx * rx + ry * ry);

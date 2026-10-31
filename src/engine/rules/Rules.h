@@ -150,6 +150,15 @@ public:
     const std::string& NamePrefix() const { return m_namePrefix; }
     /// @}
 
+    /// @brief Reads a file of the unit set's source that is no unit ("meshes/…/skeleton.nif"), by path identity.
+    using LooseReader = std::function<std::optional<std::vector<std::uint8_t>>(const std::string& rel)>;
+    /// @brief Give ops the source's other files (the regen's: its loose tree and archives). Unset = none.
+    void SetLooseFiles(LooseReader reader) { m_loose = std::move(reader); }
+    /// @brief File `rel` of the source, nullopt when absent or no reader is set.
+    std::optional<std::vector<std::uint8_t>> LooseFile(const std::string& rel) const {
+        return m_loose ? m_loose(rel) : std::nullopt;
+    }
+
     /// @brief Serve unit `key` as packfile bytes: the cached (possibly changed) parse, else a fresh parse.
     bool Serve(const std::string& key, std::vector<std::uint8_t>& out, std::string& err);
     /// @brief Write cached unit `key` as a reflective unit into `dir` (cleared first).
@@ -168,6 +177,7 @@ private:
     std::set<std::string>                                         m_scope;
     std::map<std::string, const decompile::ParsedHky*>            m_twins;
     std::string                                                   m_namePrefix;
+    LooseReader                                                   m_loose;
 };
 
 /// @brief What an op's Apply recorded for its Inverse: op-defined, keyed by stable identity (unit key, node FormID,

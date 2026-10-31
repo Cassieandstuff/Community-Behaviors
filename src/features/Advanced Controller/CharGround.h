@@ -3,6 +3,7 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <locomotion/Movement.h>
+#include <locomotion/Pogo.h>
 #include <locomotion/Slope.h>
 
 #include <array>
@@ -74,9 +75,25 @@ namespace CB::feature::controller {
         bool                     longBody   = false;
         float                    fx = 0, fy = 1;          ///< a long body's length axis, horizontal, unit length
         float                    halfLength = 0;          ///< half a long body's length
+        /// @brief How far the shape floats above the feet (Lift); feetZ is the shape's bottom less it.
+        float                    lift = 0;
     };
     /// @pre `ctrl` is a proxy controller (IsProxy).
     Hull GetHull(hk::bhkCharacterController& ctrl);
+
+    /// @brief The hull's collision shape as it sits in the world (Havok units), for drawing.
+    struct HullShape {
+        struct Capsule {
+            float a[3]{}, b[3]{};
+            float radius = 0;
+        };
+        std::array<Capsule, 6> capsules{};
+        int                    count = 0;
+        bool                   other = false;   ///< part of it is no capsule, or more capsules than fit
+        float                  min[3]{}, max[3]{};   ///< its world AABB
+    };
+    /// @brief Reads `hull`'s shape: a capsule, or a list shape's capsule children (nested lists walked).
+    HullShape ReadHullShape(const Hull& hull);
 
     /// @brief The squared horizontal distance from (x, y) to the hull's supporting axis: its centre, or for a long body
     ///        the segment between its two ends' centres (Havok units squared).
@@ -99,6 +116,7 @@ namespace CB::feature::controller {
     const char* Name(Ground g);
 
     struct FloorHit {
+        bool                     cast = false;   ///< the ray was cast (under the pogo the ring is skipped while the axis is sure)
         bool                     hit = false;
         float                    dz  = 0;   ///< hit height above the feet (Havok units)
         float                    nx = 0, ny = 0, nz = 0;
@@ -136,8 +154,12 @@ namespace CB::feature::controller {
         float wallNormalZ   = 0.3f;   ///< faces steeper than about 72 deg are walls, never ground
     };
 
-    /// @brief Runs the floor query: nine bhkWorld::PickObject rays from one hull radius above the feet down to the step
-    ///        height below them, with the controller's own collision filter; characters and walls never count.
+    /// @brief Runs the floor query: nine bhkWorld::PickObject rays from one hull radius above the feet (or the floating
+    ///        shape's bottom, when that is higher) down to the step height below them, with the controller's own
+    ///        collision filter; characters and walls never count. Under the pogo (a hull with a lift) the ring of eight
+    ///        is cast only when the axis ray misses or meets no walkable ground; otherwise the axis alone decides.
+    /// @note  Why from the shape's bottom: while the pogo lags a step up the feet sit below the new floor, and a ray
+    ///        starting inside the step's solid would miss its top. The floating shape is never inside a floor.
     /// @note  A long body runs it twice, under its fore and hind ends (spec H10), and combines them: Grounded with the
     ///        lower support when both ends are; when one end is, Grounded on that end alone (it stands, and moving on
     ///        steps the other end down); Airborne when neither is. Its hits are the fore end's.
@@ -205,6 +227,9 @@ namespace CB::feature::controller {
         float slideX = 0, slideY = 0;   ///< the slide velocity (Havok units/s, horizontal)
         float jumpIn    = -1;           ///< seconds until a pending ground jump launches (its wind-up), -1 for none
         float jumpSpeed = 0;            ///< that launch's vertical speed (Havok units/s) from the ground now under the feet
+        bool  pogo     = false;         ///< the pogo held the feet this step (Grounded under char_pogo)
+        float pogoRate = 0;             ///< its correction rate (Havok units/s): in the body's velocity, never its own
+        float pogoDz   = 0;             ///< the floor it holds the feet to, above the feet as this step leaves them (Havok units)
     };
     void PublishGroundNote(const hk::bhkCharacterController& ctrl, const GroundNote& note);
     /// @brief The note last published for `ctrl`; false when none is.
@@ -230,5 +255,26 @@ namespace CB::feature::controller {
     float IniFloat(const char* name, float def);
 
     using CB::engine::locomotion::SpringDamperExact;
+    using CB::engine::locomotion::GroundVelocityStep;
+
+    /// @brief Whether the pogo runs (char_pogo, under char_ground_states): the managed controller's shape floats Lift
+    ///        above its feet and a spring holds the feet on the floor, in place of the step query and stick-to-floor.
+    bool PogoOn();
+
+    /// @brief How far `ctrl`'s collision shape floats above its feet (Havok units), 0 when it does not.
+    /// @invariant The character's position (GetPositionImpl / SetPositionImpl with the center offset) is its feet: the
+    ///            lift sits between them and the shape, so the actor, saves and every vanilla reader see the feet.
+    float Lift(const hk::bhkCharacterController& ctrl);
+
+    /// @brief Floats `ctrl`'s collision shape the step height above its feet and marks this step as the pogo's; returns
+    ///        the lift. A single upright capsule is edited in place (bottom at feet + lift, top and radius from the
+    ///        character file's characterControllerInfo when it authors them); any other hull floats whole.
+    /// @pre Inside the controller's update, outside the physics step (it moves the proxy, as a teleport does).
+    float RaiseLift(hk::bhkCharacterController& ctrl, const Hull& hull);
+
+    /// @brief The pogo's floor under `v`, above the feet (Havok units): locomotion::PogoSelect over its rays (a long
+    ///        body: the higher of its two ends). False when no ray met a floor.
+    /// @param ray receives the chosen ray when not null: 0-8 under `v.hits`, 9-17 under a long body's `v.hindHits`.
+    bool PogoFloor(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray = nullptr);
 
 }  // namespace CB::feature::controller

@@ -72,8 +72,9 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 if(PROJECT_IS_TOP_LEVEL)
 include(CMakePackageConfigHelpers)
-# VFS (fetched by src/engine) is a PUBLIC dependency of the engine, so it ships in the same export set.
-install(TARGETS cb-api engine vfs
+# VFS (fetched by src/engine) is a PUBLIC dependency of the engine, so it ships in the same export set; NIFFER is a
+# PRIVATE one, but a static engine still lists it as a link dependency, so it ships too.
+install(TARGETS cb-api engine vfs niffer
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)

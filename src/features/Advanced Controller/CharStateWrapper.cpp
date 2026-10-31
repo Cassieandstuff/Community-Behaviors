@@ -80,8 +80,8 @@ namespace CB::feature {
 
         /// @brief Game units per Havok unit: bhkWorld::s_worldScaleInverse, which the plugin does not link.
         constexpr float kGameUnitsPerHavok = 69.99125f;
-        /// @brief P2: the Grounded velocity spring's halflife (seconds).
-        constexpr float kGroundHalflife = 0.08f;
+        /// @brief The pogo's spring (char_pogo), Box3D's dynamic mover numbers.
+        constexpr CB::engine::locomotion::Pogo kPogo{};
         /// @brief G2: how long after walking off a jump request is still honoured (seconds).
         constexpr float kCoyoteTime = 0.1f;
         /// @brief G3/G4: rising faster than this off the ground (Havok units/s, about 35 game units/s), measured against
@@ -138,6 +138,13 @@ namespace CB::feature {
             float    jumpHeight   = 0.0f;    ///< Havok units, this jump's height above the slope it left
             float    windup       = -1.0f;   ///< seconds left on a pending ground jump's wind-up, -1 for none
             ch::FloorVerdict lastGround;     ///< the floor of the last Grounded step with ground under the feet
+            bool     pogoHeld    = false;    ///< the pogo held the feet this step
+            float    pogoRate    = 0.0f;     ///< the pogo spring's correction rate (Havok units/s, + up)
+            float    pogoDz      = 0.0f;     ///< the floor it held the feet to, above where this step's correction leaves them
+            /// @brief The correction rate this step's m_outVelocity carries, taken back out at the next step's start.
+            float    pogoApplied = 0.0f;
+            bool     riding      = false;    ///< the pogo is riding the feet down to a floor below the foot tolerance
+            int      pogoRay     = -1;       ///< the floor ray the pogo stood on this step (ch::PogoFloor's numbering)
         };
 
         /// @brief Vertical speed `vz` against what following the ground `g` gives at horizontal velocity (vx, vy).
@@ -391,8 +398,7 @@ namespace CB::feature {
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
             ch::ClipUphill(fv, dx, dy);
-            SpringDamperExact(t.vx, t.ax, dx, kGroundHalflife, dt);
-            SpringDamperExact(t.vy, t.ay, dy, kGroundHalflife, dt);
+            ch::GroundVelocityStep(t.vx, t.vy, t.ax, t.ay, dx, dy, dt);
 
             /// @note A slide the body is not making (a wall or a ledge lip stopped it) does not keep growing: along its
             ///       own direction it is held to the body's actual speed before this step's gain.
@@ -417,8 +423,33 @@ namespace CB::feature {
                     hx *= s, hy *= s, hz *= s;
                 }
             }
-            c.m_outVelocity.set(hx + surf(0), hy + surf(1), hz + surf(2) + gz * dt, 0.0f);
+            /// @note Under the pogo the spring holds the height instead of gravity's press into the floor (the floating
+            ///       shape touches no floor to stop it); its rate moves the feet this step and is taken out of the
+            ///       velocity at the next (pogoApplied).
+            float vertical = gz * dt;
+            t.pogoHeld     = false;
+            if (ch::PogoOn()) {
+                float floor = 0.0f;
+                vertical    = 0.0f;
+                if (ch::PogoFloor(c, fv, floor, &t.pogoRay)) {
+                    vertical      = CB::engine::locomotion::PogoStep(t.pogoRate, -floor, kPogo, true, dt);
+                    t.pogoHeld    = true;
+                    t.pogoDz      = floor - vertical * dt;
+                    t.pogoApplied = vertical;
+                } else t.pogoRate = 0.0f;
+            }
+            c.m_outVelocity.set(hx + surf(0), hy + surf(1), hz + surf(2) + vertical, 0.0f);
             c.ApplyInitialVelocity();
+        }
+
+        /// @brief Under the pogo, a fall that would carry the feet below the floor its rays found this step lands on it
+        ///        instead: the floating shape would not stop them until they were the lift below it.
+        void ClampLanding(hk::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
+        {
+            float floor = 0.0f;
+            if (!ch::PogoOn() || !(dt > 0.0f) || !ch::PogoFloor(c, fv, floor) || floor > 0.0f) return;
+            const float vz = c.m_outVelocity(2);
+            if (vz * dt < floor) c.m_outVelocity(2) = floor / dt;
         }
 
         void LogTransition(const Track& t, Mode to, const char* why, const ch::FloorVerdict& fv, float vz)
@@ -438,6 +469,9 @@ namespace CB::feature {
             t.ax = t.ay  = 0.0f;
             t.sx = t.sy  = 0.0f;
             t.springInit = false;
+            t.pogoRate   = 0.0f;
+            t.pogoHeld   = false;
+            t.riding     = false;
             if (entry != AirEntry::Jumped && entry != AirEntry::OutOfWater) c.m_fallStartHeight = HeightGame(c);
             Commit(c, hk::HK_CHARACTER_IN_AIR);
         }
@@ -450,6 +484,7 @@ namespace CB::feature {
                 c.m_flags &= ~ch::kJumping;
                 c.m_fallTime = 0.0f;
                 t.springInit = false;
+                t.pogoRate   = 0.0f;
             }
             t.mode    = to;
             t.entry   = AirEntry::None;
@@ -571,13 +606,27 @@ namespace CB::feature {
                 float x, y;
                 ch::FloorRayXY(hull, k, tun, x, y, hind);
                 if (fv.longBody && k == 0) h.ends[h.endCount++] = { x, y, hull.feetZ };
-                r.top      = { x, y, hull.feetZ + hull.radius };
+                r.cast     = hit.cast;
+                r.top      = { x, y, hull.feetZ + (std::max)(hull.radius, hull.lift) };
                 r.bottom   = { x, y, hull.feetZ - c.m_stepHeight };
                 r.hit      = hit.hit;
                 r.hitZ     = hull.feetZ + hit.dz;
                 r.walkable = hit.hit && hit.nz >= ch::WalkableZ(c) && hit.layer != ch::kCharControllerLayer;
                 r.wall     = hit.hit && (hit.nz < tun.wallNormalZ || hit.layer == ch::kCharControllerLayer);
             }
+            const ch::HullShape shape = ch::ReadHullShape(hull);
+            h.capsuleCount            = (std::min)(shape.count, static_cast<int>(h.capsules.size()));
+            for (int i = 0; i < h.capsuleCount; i++) {
+                const ch::HullShape::Capsule& s = shape.capsules[i];
+                h.capsules[i] = { { s.a[0], s.a[1], s.a[2] }, { s.b[0], s.b[1], s.b[2] }, s.radius };
+            }
+            h.otherShape = shape.other || shape.count > h.capsuleCount;
+            h.boxMin     = { shape.min[0], shape.min[1], shape.min[2] };
+            h.boxMax     = { shape.max[0], shape.max[1], shape.max[2] };
+            h.lift       = hull.lift;
+            h.pogo       = t.mode == Mode::Grounded && t.pogoHeld && t.pogoRay >= 0 && t.pogoRay < h.rayCount;
+            h.pogoRay    = h.pogo ? t.pogoRay : -1;
+            h.pogoRate   = t.pogoApplied;
             ch::hud::Publish(h);
         }
 
@@ -595,6 +644,11 @@ namespace CB::feature {
             const int   cur = static_cast<int>(c.m_context.m_currentState);
             const int   previousState = t.init ? t.lastState : -1;
 
+            /// @note The pogo's correction rate moved the feet last step and stops there: the velocity this step reads
+            ///       is the body's own (Box3D's relax pass), so a stair never reads as a launch.
+            if (t.init && t.lastState == cur && t.pogoApplied != 0.0f) c.m_outVelocity(2) -= t.pogoApplied;
+            t.pogoApplied = 0.0f;
+
             if (!t.init || t.lastState != cur) {
                 const Mode before = t.mode;
                 t.mode       = cur == hk::HK_CHARACTER_IN_AIR ? Mode::Airborne : Mode::Grounded;
@@ -603,6 +657,8 @@ namespace CB::feature {
                 t.sx = t.sy  = 0.0f;
                 t.windup     = -1.0f;
                 t.airTime    = 0.0f;
+                t.pogoRate   = 0.0f;
+                t.pogoHeld   = false;
                 if (LogBudget())
                     LOG_INFO("ground states: resync to vanilla state {} ({} -> {}{})", cur, Name(before), Name(t.mode), t.init ? "" : ", first step");
                 t.init = true;
@@ -623,7 +679,11 @@ namespace CB::feature {
                 return;
             }
 
-            const ch::Hull     hull = ch::GetHull(c);
+            ch::Hull hull = ch::GetHull(c);
+            /// @note Every step CB runs claims the floating shape (or a step's integrate lowers it), in the air as well:
+            ///       the shape floats through a jump, so landing needs no re-raise.
+            const bool pogo = ch::PogoOn() && hull.valid;
+            if (pogo && ch::RaiseLift(c, hull) != hull.lift) hull = ch::GetHull(c);
             const ch::FloorVerdict fv = hull.valid ? ch::QueryFloor(c, hull) : ch::FloorVerdict{};
             const float        vz   = c.m_outVelocity(2);
             if (fv.ground != t.lastVerdict) {
@@ -644,13 +704,16 @@ namespace CB::feature {
                 } else if (fv.ground != ch::Ground::Airborne) {
                     /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
                     ///       verdict's support, which the slide and the uphill clip read.
+                    t.riding = false;
                 } else if (RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise && fv.stickable) {
-                    /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it.
-                    if (LogBudget())
-                        LOG_INFO("ground states: stick {:.3f} down in {} (vz {:.2f}, {:.2f} off the slope)", fv.stickDz, Name(t.mode), vz,
-                                 RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz));
-                    Stick(c, fv.stickDz);
-                    t.mode = Mode::Grounded;
+                    /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it. Under the
+                    ///       pogo the spring rides the feet down to it instead of a snap.
+                    if ((!pogo || !t.riding) && LogBudget())
+                        LOG_INFO("ground states: {} {:.3f} down in {} (vz {:.2f}, {:.2f} off the slope)", pogo ? "ride" : "stick", fv.stickDz,
+                                 Name(t.mode), vz, RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz));
+                    if (!pogo) Stick(c, fv.stickDz);
+                    t.riding = pogo;
+                    t.mode   = Mode::Grounded;
                 } else {
                     EnterAirborne(c, t, AirEntry::WalkedOff, fv, vz);
                     grounded = false;
@@ -681,7 +744,7 @@ namespace CB::feature {
                     GroundStep(c, t, fv, dt);
                 } else if (want == hk::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
                     /// @note G2: a forced OnGround only onto support within probe depth.
-                    if (fv.supportHits == 0) Stick(c, fv.stickDz);
+                    if (fv.supportHits == 0 && !pogo) Stick(c, fv.stickDz);
                     EnterGrounded(c, t, Mode::Grounded, "forced", fv, vz);
                     GroundStep(c, t, fv, dt);
                 } else if ((want == hk::HK_CHARACTER_JUMPING || t.windup >= 0.0f) && coyote) {
@@ -694,6 +757,7 @@ namespace CB::feature {
                         if (LogBudget()) LOG_INFO("ground states: dropped request {} in Airborne ({})", want, Name(t.entry));
                     }
                     AirStep(c, t, dt, true);
+                    ClampLanding(c, fv, dt);
                 }
             }
 
@@ -715,11 +779,22 @@ namespace CB::feature {
                 decided.support = 1.0f;
             }
             ch::PublishVerdict(c, decided);
+            /// @note The floating shape touches no floor, so the proxy's own support check never finds one: under the
+            ///       pogo kSupport is the decided verdict's, for every vanilla reader of it.
+            if (pogo) {
+                if (t.mode == Mode::Grounded && ch::Supported(decided)) c.m_flags |= ch::kSupport;
+                else                                                    c.m_flags &= ~ch::kSupport;
+            }
             ch::GroundNote note;
             note.slideX = t.sx, note.slideY = t.sy;
             if (t.windup >= 0.0f && t.mode == Mode::Grounded) {
                 note.jumpIn    = t.windup;
                 note.jumpSpeed = LaunchSpeed(c);
+            }
+            if (t.mode == Mode::Grounded && t.pogoHeld) {
+                note.pogo     = true;
+                note.pogoRate = t.pogoApplied;
+                note.pogoDz   = t.pogoDz;
             }
             ch::PublishGroundNote(c, note);
             if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, fv);
@@ -737,7 +812,7 @@ namespace CB::feature {
             if (controller->m_flags & kChaseOrRagdoll) return false;
             if (!controller->GetHavokWorld()) return false;
             /// @note While the graph moves the player, vanilla's OnGround takes the velocity the graph's motion asks for as
-            ///       the step's; the Grounded spring (kGroundHalflife) would lag it.
+            ///       the step's; the Grounded spring (locomotion::kGroundHalflife) would lag it.
             const auto  actor = ch::ManagedActor(*controller);
             const char* flag  = actor ? ch::GraphMovesActor(actor.get()) : "";
             static std::atomic<const char*> lastFlag{ "" };

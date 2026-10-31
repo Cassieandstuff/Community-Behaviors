@@ -17,7 +17,7 @@
 
 /// @file
 /// @brief The character debug HUD (char_debug_hud): the controlled character's (IsControlled: the player, or the
-///        horse it rides) floor rays, velocity arrows, predicted trajectory
+///        horse it rides) collision shape, floor rays, pogo spring, velocity arrows, predicted trajectory
 ///        and a text panel, drawn with ProgressHud's ImGui over the finished frame.
 /// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
 ///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
@@ -119,6 +119,95 @@ namespace CB::feature::controller::hud {
             }
         }
 
+        const ImU32 kShape    = IM_COL32(0, 210, 210, 200);
+        const ImU32 kPogoPush = IM_COL32(50, 205, 50, 255);    ///< Box3D's lime green: the spring pushes the feet up
+        const ImU32 kPogoPull = IM_COL32(0, 191, 255, 255);    ///< Box3D's deep sky blue: it pulls them down
+        const ImU32 kPogoIdle = IM_COL32(211, 211, 211, 255);
+        const ImU32 kPogoRest = IM_COL32(255, 255, 255, 255);
+        /// @brief Below this rate (Havok units/s, about 1 game unit/s) the spring reads as at rest.
+        constexpr float kPogoIdleRate = 0.015f;
+
+        Point Add(const Point& p, const Point& d, float s) { return { p.x + d.x * s, p.y + d.y * s, p.z + d.z * s }; }
+
+        /// @brief A circle of `radius` round `c` in the plane of the unit vectors `u`, `v`, from angle `from` to `to`.
+        void Arc(ImDrawList* dl, const Projector& proj, const Point& c, const Point& u, const Point& v, float radius, float from, float to,
+                 int segments, ImU32 color)
+        {
+            Point prev = Add(Add(c, u, radius * std::cos(from)), v, radius * std::sin(from));
+            for (int i = 1; i <= segments; i++) {
+                const float a = from + (to - from) * static_cast<float>(i) / segments;
+                const Point p = Add(Add(c, u, radius * std::cos(a)), v, radius * std::sin(a));
+                Line(dl, proj, prev, p, color, 1.5f);
+                prev = p;
+            }
+        }
+
+        /// @brief A capsule as a wireframe: a ring at each end of its segment, four side lines, and two half circles over
+        ///        each end's cap.
+        void DrawCapsule(ImDrawList* dl, const Projector& proj, const Capsule& c, ImU32 color)
+        {
+            constexpr float kPi = 3.14159265f;
+            Point       axis{ c.b.x - c.a.x, c.b.y - c.a.y, c.b.z - c.a.z };
+            const float len = std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+            axis            = len > 1.0e-5f ? Point{ axis.x / len, axis.y / len, axis.z / len } : Point{ 0.0f, 0.0f, 1.0f };
+            const Point helper = std::fabs(axis.z) < 0.9f ? Point{ 0.0f, 0.0f, 1.0f } : Point{ 1.0f, 0.0f, 0.0f };
+            Point       u{ axis.y * helper.z - axis.z * helper.y, axis.z * helper.x - axis.x * helper.z, axis.x * helper.y - axis.y * helper.x };
+            const float ul = std::sqrt(u.x * u.x + u.y * u.y + u.z * u.z);
+            u              = { u.x / ul, u.y / ul, u.z / ul };
+            const Point v{ axis.y * u.z - axis.z * u.y, axis.z * u.x - axis.x * u.z, axis.x * u.y - axis.y * u.x };
+            Arc(dl, proj, c.a, u, v, c.radius, 0.0f, 2.0f * kPi, 20, color);
+            Arc(dl, proj, c.b, u, v, c.radius, 0.0f, 2.0f * kPi, 20, color);
+            for (const Point& side : { u, v, Point{ -u.x, -u.y, -u.z }, Point{ -v.x, -v.y, -v.z } })
+                Line(dl, proj, Add(c.a, side, c.radius), Add(c.b, side, c.radius), color, 1.5f);
+            const Point down{ -axis.x, -axis.y, -axis.z };
+            Arc(dl, proj, c.b, u, axis, c.radius, 0.0f, kPi, 10, color);
+            Arc(dl, proj, c.b, v, axis, c.radius, 0.0f, kPi, 10, color);
+            Arc(dl, proj, c.a, u, down, c.radius, 0.0f, kPi, 10, color);
+            Arc(dl, proj, c.a, v, down, c.radius, 0.0f, kPi, 10, color);
+        }
+
+        void DrawBox(ImDrawList* dl, const Projector& proj, const Point& lo, const Point& hi, ImU32 color)
+        {
+            auto corner = [&](int i) { return Point{ i & 1 ? hi.x : lo.x, i & 2 ? hi.y : lo.y, i & 4 ? hi.z : lo.z }; };
+            for (int i = 0; i < 8; i++)
+                for (int bit = 1; bit < 8; bit <<= 1)
+                    if (!(i & bit)) Line(dl, proj, corner(i), corner(i | bit), color, 1.5f);
+        }
+
+        /// @brief The pogo as Box3D draws its joint: a zigzag spring from the floating shape's bottom down to the floor it
+        ///        holds the feet to, coloured by what it does, and a white cross at its rest point (the feet).
+        void DrawPogo(ImDrawList* dl, const Projector& proj, const Controller& c)
+        {
+            const Ray&  ray   = c.rays[c.pogoRay];
+            const Point top{ ray.top.x, ray.top.y, c.feet.z + c.lift };
+            const Point floor{ ray.top.x, ray.top.y, ray.hitZ };
+            const Point rest{ ray.top.x, ray.top.y, c.feet.z };
+            const ImU32 color = c.pogoRate > kPogoIdleRate ? kPogoPush : c.pogoRate < -kPogoIdleRate ? kPogoPull : kPogoIdle;
+            ImVec2      st, sf;
+            if (!proj(top, st) || !proj(floor, sf)) return;
+            const float dx = sf.x - st.x, dy = sf.y - st.y, len = std::sqrt(dx * dx + dy * dy);
+            if (len > 1.0f) {
+                constexpr int   kSegments = 12;
+                constexpr float kWidth    = 6.0f;
+                const float     nx = -dy / len, ny = dx / len;
+                ImVec2          prev = st;
+                for (int i = 1; i <= kSegments; i++) {
+                    const float  side = i == kSegments ? 0.0f : (i & 1) ? kWidth : -kWidth;
+                    const float  f    = static_cast<float>(i) / kSegments;
+                    const ImVec2 p(st.x + dx * f + nx * side, st.y + dy * f + ny * side);
+                    dl->AddLine(prev, p, color, 2.0f);
+                    prev = p;
+                }
+            }
+            dl->AddCircleFilled(st, 4.0f, color);
+            dl->AddCircleFilled(sf, 4.0f, color);
+            ImVec2 sr;
+            if (proj(rest, sr)) {
+                dl->AddLine(ImVec2(sr.x - 7, sr.y), ImVec2(sr.x + 7, sr.y), kPogoRest, 2.0f);
+                dl->AddLine(ImVec2(sr.x, sr.y - 7), ImVec2(sr.x, sr.y + 7), kPogoRest, 2.0f);
+            }
+        }
+
         /// @brief The horizontal unit direction of a Skyrim heading (radians clockwise from +y).
         Point Direction(float heading) { return { std::sin(heading), std::cos(heading), 0.0f }; }
 
@@ -178,10 +267,14 @@ namespace CB::feature::controller::hud {
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
             if (haveCtrl) {
+                for (int i = 0; i < c.capsuleCount; i++) DrawCapsule(dl, proj, c.capsules[i], kShape);
+                if (c.otherShape) DrawBox(dl, proj, c.boxMin, c.boxMax, kShape);
+                if (c.pogo) DrawPogo(dl, proj, c);
                 Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict, c.support));
                 for (int e = 0; e < c.endCount; e++) Ring(dl, proj, c.ends[e], c.radius, GroundColor(c.verdict, c.support));
                 for (int i = 0; i < c.rayCount; i++) {
-                    const Ray&  ray   = c.rays[i];
+                    const Ray& ray = c.rays[i];
+                    if (!ray.cast) continue;
                     const ImU32 color = !ray.hit ? kMiss : ray.walkable ? kWalkable : ray.wall ? kWall : kSteep;
                     const Point end   = ray.hit ? Point{ ray.top.x, ray.top.y, ray.hitZ } : ray.bottom;
                     Line(dl, proj, ray.top, end, color, 1.5f);
@@ -234,6 +327,13 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("speed %.0f   desired %.0f   vz %.0f", HorizontalSpeed(c.velocity), HorizontalSpeed(c.desired), c.velocity.z * kGameUnitsPerHavok);
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
                 if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
+                if (c.lift > 0.0f) {
+                    if (c.pogo)
+                        ImGui::Text("pogo: hull %.0f up   floor %+.0f   rate %+.0f (%s)", c.lift * kGameUnitsPerHavok,
+                                    (c.rays[c.pogoRay].hitZ - c.feet.z) * kGameUnitsPerHavok, c.pogoRate * kGameUnitsPerHavok,
+                                    c.pogoRate > kPogoIdleRate ? "push" : c.pogoRate < -kPogoIdleRate ? "pull" : "rest");
+                    else ImGui::Text("pogo: hull %.0f up   not holding", c.lift * kGameUnitsPerHavok);
+                }
             }
             if (haveMove) {
                 ImGui::Text("%s   speed %.0f / cap %.0f   engine %.0f   slope x%.2f", mv.strafe ? "strafe" : "orient", mv.speed, mv.cap, mv.full,

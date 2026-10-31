@@ -1,0 +1,8 @@
+name:   capsulefrombound
+kind:   rule
+# The character states its own capsule: each character's characterControllerInfo (capsuleHeight, capsuleRadius), which
+# Skyrim never reads and every vanilla character leaves at Havok's default, is authored from the BBX of its skeleton.nif
+# (the rig it names, as .nif) - the box the game itself sizes the controller's capsule from. Upright bounds only; a long
+# body (horse, wolf, dragon) keeps the default. See CB::engine::rules::CapsuleFromBound.
+op:     CapsuleFromBound
+runs:   [regen]
