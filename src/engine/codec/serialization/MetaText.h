@@ -52,7 +52,7 @@ namespace CB::engine::codec::io {
 /// @brief The engine's key for a speeddata project: the file stem of its path ("DefaultMaleData\DefaultMale.spd" →
 ///        "DefaultMale"; the loader drops the directory and extension). Case kept as written.
 inline std::string SpeedDataProjectStem(std::string_view path) {
-    const auto s = path.find_last_of("\/");
+    const auto s = path.find_last_of("\\/");
     std::string_view f = s == std::string_view::npos ? path : path.substr(s + 1);
     const auto d = f.find_last_of('.');
     return std::string(d == std::string_view::npos ? f : f.substr(0, d));
