@@ -9,6 +9,6 @@ fields:
   - { name: initializedOffset,          type: int16 }   # @4
   - { name: previousTargetAnglesOffset, type: int16 }   # @6
   - { skip: 8 }                           # @8 pad -> 16
-  - { name: targetBRca, type: vector4, count: 3 }        # @16 hkMatrix3 (48B)
+  - { name: target_bRca, type: vector4, count: 3 }        # @16 hkMatrix3 (48B)
   - { name: motors,     type: ptr, count: 3, ref: hkReferencedObject }  # @64 hkpConstraintMotor*[3]
   - { skip: 8 }                           # tail pad -> 96
