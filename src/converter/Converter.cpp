@@ -3520,8 +3520,13 @@ RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& ou
         std::string e;
         if (auto b = source->Read(u.prefix)) srcBytes = std::move(*b);
         else continue;
-        if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
         ++r.checked;
+        /// @note An unreadable source is a gate failure, not a skip: a unit nothing verified must not pass strict.
+        if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) {
+            r.drift.push_back(u.prefix);
+            say("  FAIL: " + u.prefix + " — source unreadable — " + e);
+            continue;
+        }
         if (!gateCtx.Serve(u.prefix, got, e)) {
             r.drift.push_back(u.prefix);
             say("  FAIL: " + u.prefix + " — " + e);
