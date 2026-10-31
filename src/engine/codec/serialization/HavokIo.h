@@ -39,7 +39,7 @@ struct FieldValue {
     std::vector<std::uint8_t>                          raw;    // Scalar / Vector4 / Quaternion / QsTransform / BoolArray / Skip / Pad / raw arrays
     std::uint64_t                                      vtable = 0;  // Vtable (ReadUSize)
     std::string                                        str;    // String / CString
-    bool                                               strNull = false;  // String read as a null pointer: written back as one while `str` is empty
+    bool                                               strNull = false;  ///< a String read as the null pointer: written back as one while `str` is empty
     std::vector<std::string>                           strs;   // StringArray
     std::shared_ptr<IHavokObject>                      obj;    // Ptr / inline Struct
     std::vector<std::shared_ptr<IHavokObject>>         objs;   // PtrArray / StructArray
