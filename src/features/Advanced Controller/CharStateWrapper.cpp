@@ -94,6 +94,8 @@ namespace CB::feature {
         constexpr float kStickMaxRise = 0.5f;
         /// @brief A wind-up with this little left (seconds) is done: the step launches.
         constexpr float kWindupDone = 1.0e-4f;
+        /// @brief Seconds for the grip to go from full to none or back (Box3D's dynamic mover slideDuration).
+        constexpr float kGripFade = 0.2f;
         /// @brief G6: the step vanilla InAir's per-step gain was tuned at; the gain becomes a halflife at this rate so
         ///        air control no longer depends on the frame rate.
         /// @note Assumed 60 Hz (vanilla's usual physics step); unverified against bhkWorld's step time.
@@ -130,6 +132,7 @@ namespace CB::feature {
             bool     springInit = false;
             float    vx = 0, vy = 0, ax = 0, ay = 0;
             float    sx = 0, sy = 0;   ///< the slide velocity (horizontal, Havok units/s), added to the spring's on the ground
+            float    grip = 1.0f;      ///< the support the slide and the uphill clip read: the verdict's, faded over kGripFade
             ch::Ground lastVerdict = ch::Ground::Airborne;
             bool     variableJump = false;   ///< this jump was pressed by the player, so its release shapes it
             bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
@@ -397,7 +400,13 @@ namespace CB::feature {
             }
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
-            ch::ClipUphill(fv, dx, dy);
+            /// @note Box3D's slideDuration: the grip follows the verdict's support at most 1/kGripFade per second, so a
+            ///       steep ray or two on rough ground cannot flip the character between walking and sliding.
+            const float gripStep = dt / kGripFade;
+            t.grip               = std::clamp(fv.support, t.grip - gripStep, t.grip + gripStep);
+            ch::FloorVerdict held = fv;
+            held.support          = t.grip;
+            ch::ClipUphill(held, dx, dy);
             ch::GroundVelocityStep(t.vx, t.vy, t.ax, t.ay, dx, dy, dt);
 
             /// @note A slide the body is not making (a wall or a ledge lip stopped it) does not keep growing: along its
@@ -411,7 +420,7 @@ namespace CB::feature {
             }
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
-            ch::SlideStep(fv, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, t.sx, t.sy, dt);
+            ch::SlideStep(held, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, t.sx, t.sy, dt);
 
             float hx = t.vx + t.sx, hy = t.vy + t.sy, hz = 0.0f;
             const float nz = fv.groundNz;

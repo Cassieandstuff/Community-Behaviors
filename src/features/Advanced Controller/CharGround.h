@@ -133,10 +133,10 @@ namespace CB::feature::controller {
     /// @brief The M4 floor query's verdict.
     struct FloorVerdict {
         Ground                   ground    = Ground::Airborne;
-        float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); 0 when Airborne
+        float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); under the pogo 1 or 0, its ray walkable or not; 0 when Airborne
         bool                     stickable = false;   ///< a floor-like hit (walls and characters excluded) within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest such hit below the foot tolerance (negative)
-        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it)
+        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it); under the pogo its ray's
         const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};       ///< axis, then the ring at the perch radius (a long body's fore end)
