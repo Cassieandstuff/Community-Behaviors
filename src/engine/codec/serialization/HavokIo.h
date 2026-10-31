@@ -50,6 +50,10 @@ public:
     SchemaObject(const schema::SchemaRegistry* reg, const schema::ClassSchema* cs);
 
     std::uint32_t Signature() const noexcept override { return m_schema->signature; }
+    std::uint32_t VanillaSignature() const noexcept override {
+        if (m_schema->vanillaSignature) return m_schema->vanillaSignature;
+        return m_schema->name.rfind("CB", 0) == 0 ? 0 : m_schema->signature;
+    }
     const char*   ClassName() const noexcept override { return m_schema->name.c_str(); }
     void Read(PackFileDeserializer& des, BinaryReaderEx& br) override;
     void Write(PackFileSerializer& s, BinaryWriterEx& bw) const override;
@@ -165,10 +169,11 @@ std::shared_ptr<SchemaObject> FindVariant(const SchemaObject& root, std::string_
 
 // Read a packfile fully through the schema path and write it back. On success `out` holds the
 // re-serialized bytes; a byte-identical `out == in` is the hkx round-trip check. Returns false
-// with `err` set on any parse/framing/schema error.
+// with `err` set on any parse/framing/schema error. `vanillaSignatures`: see PackFileSerializer.
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const schema::SchemaRegistry&    reg,
                   std::vector<std::uint8_t>&       out,
-                  std::string&                     err);
+                  std::string&                     err,
+                  bool                             vanillaSignatures = false);
 
 } // namespace CB::engine::codec::io
