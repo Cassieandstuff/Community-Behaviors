@@ -285,8 +285,12 @@ namespace CB::feature {
             /// @note Jolt's steep-slope rule: a face too steep to walk, above the feet, also blocks as a vertical plane
             ///       (one per body, its nearest contact) so the solver cannot climb it; the step query handles stepping.
             ///       Bethesda's flag 11 (no wall planes) still suppresses them.
+            /// @warning Supported only. Airborne, a ledge edge met by the capsule's lower curve gives a contact above the
+            ///          feet with a steep normal; its vertical plane plus the sloped plane meet in a horizontal line, so
+            ///          input into the ledge leaves no downward solution and the character hangs on the edge (the
+            ///          "stuck at some jump angles" bug). Unsupported, gravity on the sloped plane slides it off instead.
             int vertical = 0;
-            if (!ctrl.IsFlagSet(11)) {
+            if (supported && !ctrl.IsFlagSet(11)) {
                 const int cap = (std::min)(kMaxVertical, static_cast<int>(proxy->m_userPlanes));
                 std::array<int, kMaxPoints> pick{};
                 int picks = 0;
