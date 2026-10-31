@@ -2404,7 +2404,9 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
         const std::string setText = src.ReadText("meshes/animationsetdatasinglefile.txt").value_or(std::string{});
         if (!setText.empty()) {
             try {
-                auto           parsed  = CB::engine::animsetdata::ParseSingleFile(setText);
+                const auto* reg = CB::engine::schema::SharedRegistry();
+                if (!reg) throw std::runtime_error("schema registry not armed (" + CB::engine::schema::SharedRegistryError() + ")");
+                auto           parsed  = CB::engine::animsetdata::ReadSingleFile(*reg, setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
                 fs::create_directories(setRoot, ec);   // index.yaml + setdata/
 
@@ -2487,7 +2489,9 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
         const std::string animText = src.ReadText("meshes/animationdatasinglefile.txt").value_or(std::string{});
         if (!animText.empty()) {
             try {
-                const auto     parsed  = CB::engine::animdata::ParseSingleFile(animText);
+                const auto* reg = CB::engine::schema::SharedRegistry();
+                if (!reg) throw std::runtime_error("schema registry not armed (" + CB::engine::schema::SharedRegistryError() + ")");
+                const auto     parsed  = CB::engine::animdata::ReadSingleFile(*reg, animText);
                 const fs::path animRoot = stageHky / "meshes" / "animationdatasinglefile.txt";
                 fs::create_directories(animRoot, ec);
 
@@ -3373,20 +3377,23 @@ bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) 
         std::size_t diff = 0;
         while (diff < text.size() && diff < out.size() && text[diff] == out[diff]) ++diff;
         const bool same = out == text;
-        /// @note Record counts vs the hand-written parsers: the schema reads the same structure, not just the same bytes.
-        std::size_t projects = root->Children("projects").size(), records = 0, handRecords = 0, handProjects = 0;
+        /// @note The typed model (what regen decomposes into) read from the schema objects must emit the same bytes:
+        ///       the schema and the typed emitter agree on structure, not just the descriptors on themselves (speeddata, with
+        ///       no typed model, is counted by an independent binary walk instead).
+        std::size_t projects = root->Children("projects").size(), records = 0;
         for (const auto& po : root->Children("projects")) {
             auto& p = static_cast<CB::engine::codec::io::SchemaObject&>(*po);
             if (speedData) records += p.Children("states").size();
-            else if (setData) for (const auto& so : p.Children("sets")) { (void)so; ++records; }
-            else records += p.Children("clips").size() + p.Children("motions").size();
+            else records += setData ? p.Children("sets").size() : p.Children("clips").size() + p.Children("motions").size();
         }
+        bool typed = false;
         try {
             if (speedData) {
+                std::size_t handRecords = 0;
                 /// @note No hand-written speeddata parser exists: the bodies are counted by an independent walk of the
                 ///       binary layout (u32 version, states{int32 iState, directions{float, points{float,float}}}).
                 const std::size_t nl = text.find('\n');
-                handProjects = std::stoul(text.substr(0, nl));
+                const std::size_t handProjects = std::stoul(text.substr(0, nl));
                 std::size_t pos = nl + 1;
                 for (std::size_t k = 0; k < handProjects; ++k) pos = text.find('\n', pos) + 1;
                 const auto u32 = [&] {
@@ -3404,22 +3411,17 @@ bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) 
                     }
                 }
                 if (pos != text.size()) throw std::runtime_error("speeddata walk ends at byte " + std::to_string(pos));
-            } else if (setData) {
-                const auto hand = CB::engine::animsetdata::ParseSingleFile(text);
-                handProjects = hand.projects.size();
-                for (const auto& p : hand.projects) handRecords += p.sets.size();
+                typed = handProjects == projects && handRecords == records;
             } else {
-                const auto hand = CB::engine::animdata::ParseSingleFile(text);
-                handProjects = hand.projects.size();
-                for (const auto& p : hand.projects) handRecords += p.clips.size() + p.motions.size();
+                typed = (setData ? CB::engine::animsetdata::EmitSingleFile(CB::engine::animsetdata::ReadSingleFile(*reg, text))
+                                 : CB::engine::animdata::EmitSingleFile(CB::engine::animdata::ReadSingleFile(*reg, text))) == text;
             }
-        } catch (const std::exception& e) { say("  (hand-written parser failed: " + std::string(e.what()) + ")"); }
-        const bool counts = projects == handProjects && records == handRecords;
-        say(std::string(same && counts ? "  OK   " : "  FAIL ") + path + " — " + cls + ", " + std::to_string(projects) + " project(s), " +
-            std::to_string(records) + " record(s)" + (counts ? "" : " (hand-written: " + std::to_string(handProjects) + " / " +
-            std::to_string(handRecords) + ")") + (same ? ", byte-identical" : ", first difference at byte " + std::to_string(diff) +
-            " (" + std::to_string(text.size()) + " -> " + std::to_string(out.size()) + " bytes)"));
-        all = all && same && counts;
+        } catch (const std::exception& e) { say("  (independent check failed: " + std::string(e.what()) + ")"); }
+        say(std::string(same && typed ? "  OK   " : "  FAIL ") + path + " — " + cls + ", " + std::to_string(projects) + " project(s), " +
+            std::to_string(records) + " record(s)" + (typed ? "" : speedData ? " (binary walk counts differ)" : " (typed model re-emit differs)") +
+            (same ? ", byte-identical" : ", first difference at byte " + std::to_string(diff) + " (" + std::to_string(text.size()) + " -> " +
+            std::to_string(out.size()) + " bytes)"));
+        all = all && same && typed;
     }
     return all;
 }
