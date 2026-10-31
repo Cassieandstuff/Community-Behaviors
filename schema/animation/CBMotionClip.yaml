@@ -10,7 +10,7 @@ fields:
   - { name: frames,        type: int32 }
   - { name: frameDuration, type: float }
   - { name: duration,      type: float }
-  - { pad: 4 }
+  - { pad: 8 }
   - { name: features,      type: scalararray, scalar: float }
   - { name: rootPositions, type: scalararray, scalar: float }
   - { name: curves,        type: structarray, ref: CBAnimationCurve, roster: field:name }

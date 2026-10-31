@@ -429,8 +429,7 @@ namespace CB::feature {
             std::replace(path.begin(), path.end(), '\\', '/');
             const auto text = reader.nativeAnimation(path);
             if (!text) throw std::runtime_error("not shipped by any bundle");
-            const std::uint64_t fp = ea::MmFingerprint(std::string(compiler) + '
-' + *text);
+            const std::uint64_t fp = ea::MmFingerprint(std::string(compiler) + '\n' + *text);
             if (const auto it = cache.find(name); it != cache.end() && it->second.fingerprint == fp) {
                 hit = true;
                 return it->second;

@@ -6,6 +6,6 @@ size:      56
 # are the feature vector the rows were measured with: a cache measured under another layout is discarded whole.
 fields:
   - { name: featureDims, type: int32 }
-  - { pad: 4 }
+  - { pad: 8 }
   - { name: horizons,    type: scalararray, scalar: float }
   - { name: clips,       type: structarray, ref: CBMotionClip, roster: field:name }
