@@ -1,0 +1,10 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/ResponseType.cs.
+kind:  enum
+name:  ResponseType
+flags: false
+items:
+  - { name: RESPONSE_INVALID , value: 0 }
+  - { name: RESPONSE_SIMPLE_CONTACT , value: 1 }
+  - { name: RESPONSE_REPORTING , value: 2 }
+  - { name: RESPONSE_NONE , value: 3 }
+  - { name: RESPONSE_MAX_ID , value: 4 }

@@ -274,8 +274,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
 // patches to the Skyrim.hky model BY #NNNN with no binary deserialize/AlignTagfile — and under runtime
 // tagfile conversion.
 //
-// NOTE: QsTransform(Array), BoolArray, EmptyArray and EmptyPtr fields are not parsed — they keep Init
-// defaults, a known gap for any consumer that needs those fields verbatim.
+/// @note EmptyArray and EmptyPtr fields (SERIALIZE_IGNORED slots) are not parsed: they keep their Init defaults.
 struct ParsedTagfile {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;   // owns the graph's lifetime
     Identity                                       identity;  // ids + category over `objects`

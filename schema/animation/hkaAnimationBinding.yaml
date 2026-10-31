@@ -8,5 +8,5 @@ fields:
   - { name: animation,                   type: ptr, ref: hkaAnimation }
   - { name: transformTrackToBoneIndices, type: scalararray, scalar: int16 }
   - { name: floatTrackToFloatSlotIndices, type: scalararray, scalar: int16 }
-  - { name: blendHint, type: int8 }
+  - { name: blendHint, type: int8, enum: BlendHint }
   - { skip: 7 }

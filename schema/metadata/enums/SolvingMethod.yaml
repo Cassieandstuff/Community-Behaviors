@@ -1,0 +1,7 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/SolvingMethod.cs.
+kind:  enum
+name:  SolvingMethod
+flags: false
+items:
+  - { name: METHOD_STABILIZED , value: 0 }
+  - { name: METHOD_OLD , value: 1 }

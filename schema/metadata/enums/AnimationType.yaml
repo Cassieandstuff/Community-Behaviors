@@ -1,0 +1,12 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/AnimationType.cs.
+kind:  enum
+name:  AnimationType
+flags: false
+items:
+  - { name: HK_UNKNOWN_ANIMATION , value: 0 }
+  - { name: HK_INTERLEAVED_ANIMATION , value: 1 }
+  - { name: HK_DELTA_COMPRESSED_ANIMATION , value: 2 }
+  - { name: HK_WAVELET_COMPRESSED_ANIMATION , value: 3 }
+  - { name: HK_MIRRORED_ANIMATION , value: 4 }
+  - { name: HK_SPLINE_COMPRESSED_ANIMATION , value: 5 }
+  - { name: HK_QUANTIZED_COMPRESSED_ANIMATION , value: 6 }

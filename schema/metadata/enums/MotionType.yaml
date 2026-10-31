@@ -1,0 +1,14 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/MotionType.cs.
+kind:  enum
+name:  MotionType
+flags: false
+items:
+  - { name: MOTION_INVALID , value: 0 }
+  - { name: MOTION_DYNAMIC , value: 1 }
+  - { name: MOTION_SPHERE_INERTIA , value: 2 }
+  - { name: MOTION_BOX_INERTIA , value: 3 }
+  - { name: MOTION_KEYFRAMED , value: 4 }
+  - { name: MOTION_FIXED , value: 5 }
+  - { name: MOTION_THIN_BOX_INERTIA , value: 6 }
+  - { name: MOTION_CHARACTER , value: 7 }
+  - { name: MOTION_MAX_ID , value: 8 }

@@ -6,5 +6,5 @@ fields:
   - { name: poseMatchingBone0, type: int16, boneref: true, charprop: bone }
   - { name: poseMatchingBone1, type: int16, boneref: true, charprop: bone }
   - { name: poseMatchingBone2, type: int16, boneref: true, charprop: bone }
-  - { name: mode, type: int8 }
+  - { name: mode, type: int8, enum: WorldFromModelMode }
   - { skip: 1 }

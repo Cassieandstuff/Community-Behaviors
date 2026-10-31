@@ -1,0 +1,7 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/MeasurementMode.cs.
+kind:  enum
+name:  MeasurementMode
+flags: false
+items:
+  - { name: ZERO_WHEN_VECTORS_ALIGNED , value: 0 }
+  - { name: ZERO_WHEN_VECTORS_PERPENDICULAR , value: 1 }

@@ -4,5 +4,5 @@ signature: 0xc299090a
 size:      40
 fields:
   - { name: hands, type: structarray, ref: hkbHandIkDriverInfoHand, roster: id }
-  - { name: fadeInOutCurve, type: int8 }
+  - { name: fadeInOutCurve, type: int8, enum: BlendCurve }
   - { skip: 7 }
