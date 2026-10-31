@@ -90,6 +90,8 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
+    std::string metaType;                ///< @brief metadata scalar: the declared `type:` (string/int32/uint32/float/…) — what
+                                         ///<        an `encoding: binary` record reads off the bytes into its text value.
     std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` (`stringptr` on an `empty: ptr` slot: an
                                          ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
@@ -140,6 +142,8 @@ struct ClassSchema {
     bool               metadata  = false;        ///< @brief `kind: metadata` — a Bethesda text-file record (adsf/asdsf), not
                                                  ///<        a Havok class: no signature/size; read/written by MetaText.
     bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
+    bool               binary = false;           ///< @brief metadata `encoding: binary` — little-endian scalars, a
+                                                 ///<        recordarray = u32 count + records (the speeddata bodies).
     int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
                                                  ///<        (the engine reads it through a 16-bit truncation: 65535),
                                                  ///<        unless the writer is told the reader takes the full count.

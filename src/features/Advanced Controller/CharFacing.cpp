@@ -44,6 +44,9 @@ namespace CB::feature::controller {
         /// @brief How far ahead of the player the camera-facing target sits: far enough that its bearing is the
         ///        camera's yaw from anywhere the player moves within a frame.
         constexpr float kFaceCameraReach = 100000.0f;
+        constexpr float kFreeAttackTurn  = 12.566371f;  ///< 720 deg/s
+        constexpr float kMagnetReach     = 400.0f;      ///< units
+        constexpr float kMagnetCone      = 1.0471976f;  ///< 60 deg either side of the aim
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
@@ -152,6 +155,57 @@ namespace CB::feature::controller {
 
         /// @brief The graph flag under which the graph drives the speed itself (ch::GraphMovesActor's, or speed-synced),
         ///        the frame then left alone; empty when none is set.
+        /// @brief How fast (rad/s) an attack the graph moves may turn the player toward the aim (the stick, magnetized): the attack-steering seam.
+        /// @note Default until per-clip turnRate curves reach the runtime: free through the wind-up (kDraw), between chained
+        ///       attacks (kNextAttack) and while a bow is drawn; locked from the swing on, so a committed strike holds its line.
+        float AttackTurnRate(RE::Actor* actor)
+        {
+            using A = RE::ATTACK_STATE_ENUM;
+            switch (actor->AsActorState()->GetAttackState()) {
+            case A::kDraw:
+            case A::kNextAttack:
+            case A::kBowDraw:
+            case A::kBowAttached:
+            case A::kBowDrawn:
+            case A::kBowNextAttack:
+                return kFreeAttackTurn;
+            default:
+                return 0.0f;
+            }
+        }
+
+        /// @brief Whether the actor is in a melee attack (any attack state below the bow's).
+        bool MeleeAttacking(RE::Actor* actor)
+        {
+            using A       = RE::ATTACK_STATE_ENUM;
+            const A state = actor->AsActorState()->GetAttackState();
+            return state != A::kNone && state < A::kBowDraw;
+        }
+
+        /// @brief Melee magnetism: the attack's aim pulled toward the closest hostile combatant near it.
+        /// @note The pull fades with the angle off the aim (full at 0, none at kMagnetCone) and the closer of two candidates
+        ///       wins, so the stick still chooses who is hit; past kMagnetReach nobody pulls.
+        float MagnetizedAim(RE::Actor* player, float aim)
+        {
+            auto* lists = RE::ProcessLists::GetSingleton();
+            if (!lists) return aim;
+            const RE::NiPoint3 at = player->GetPosition();
+            float              best = kMagnetReach, pull = 0.0f;
+            for (const RE::ActorHandle& handle : lists->highActorHandles) {
+                const auto actor = handle.get();
+                if (!actor || actor.get() == player || actor->IsDead() || !actor->IsHostileToActor(player)) continue;
+                const RE::NiPoint3 p    = actor->GetPosition();
+                const float        dx   = p.x - at.x, dy = p.y - at.y;
+                const float        dist = std::hypot(dx, dy);
+                if (dist >= best) continue;
+                const float off = WrapPi(std::atan2(dx, dy) - aim);
+                if (std::abs(off) >= kMagnetCone) continue;
+                best = dist;
+                pull = off * (1.0f - std::abs(off) / kMagnetCone);
+            }
+            return aim + pull;
+        }
+
         const char* GraphDrivesSpeed(RE::Actor* actor)
         {
             static const RE::BSFixedString speedSynced("bSpeedSynced");
@@ -344,6 +398,15 @@ namespace CB::feature::controller {
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
                 d.init  = hold && !vanilla;
                 es      = EngineSpeed{};
+                /// @note The graph owns the attack's translation (root motion) but not its yaw: the turn toward the aim is
+                ///       CB's, capped by AttackTurnRate. Actor_ApplyFrameMovement adds turn[2]*dt to the heading before the move.
+                if (graphDrives && hold && !vanilla && steer == Steer::Player && deltaTime > 0.0f &&
+                    player->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone) {
+                    const float cap  = AttackTurnRate(player) * deltaTime;
+                    const float aim  = MagnetizedAim(player, haveStick ? stickHeading : heading);
+                    const float step = std::clamp(WrapPi(aim - heading), -cap, cap);
+                    out->turn[2]     = step / deltaTime;
+                }
                 if (!hold || graphDrives || vanilla) return;
             }
 
@@ -386,10 +449,16 @@ namespace CB::feature::controller {
             in.haveStick = haveStick;
             if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
+            /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
+                float face = cameraYaw;
+                if (MeleeAttacking(player)) {
+                    face = heading;
+                    if (AttackTurnRate(player) > 0.0f) face = MagnetizedAim(player, haveStick ? stickHeading : heading);
+                }
                 in.haveTarget = true;
-                in.targetX    = pos.x + kFaceCameraReach * std::sin(cameraYaw);
-                in.targetY    = pos.y + kFaceCameraReach * std::cos(cameraYaw);
+                in.targetX    = pos.x + kFaceCameraReach * std::sin(face);
+                in.targetY    = pos.y + kFaceCameraReach * std::cos(face);
             }
 
             /// @note The slope factor follows the ground under the player along the velocity, smoothed so its drops

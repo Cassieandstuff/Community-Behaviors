@@ -1,0 +1,13 @@
+name:      hkSimpleLocalFrame
+parent:    hkLocalFrame
+signature: 0xe758f63c
+size:      128
+# Reflection from the exe hkClass @0x1431b2230. transform is an hkTransform (TYPE_TRANSFORM, 3 rotation
+# columns + translation), laid out as 4 vector4s like hkMatrix4.
+fields:
+  - { name: transform,   type: vector4, count: 4 }                # @16 hkTransform
+  - { name: children,    type: ptrarray, ref: hkLocalFrame }      # @80
+  - { name: parentFrame, type: ptr, ref: hkLocalFrame }           # @96 NOT_OWNED
+  - { name: group,       type: ptr, ref: hkLocalFrameGroup }      # @104
+  - { name: name,        type: string }                           # @112
+  - { skip: 8 }                                                   # tail pad -> 128

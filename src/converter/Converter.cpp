@@ -23,6 +23,7 @@
 #include <compile/AnimDataFromBehavior.h>
 
 #include <atomic>
+#include <cstring>
 #include <process.h>   // _getpid — a private per-process staging root
 #include <mutex>
 #include <chrono>
@@ -2452,6 +2453,39 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
             }
         }
 
+        /// @note speeddata (BSSpeedSamplerDB): read through its `kind: metadata` descriptors and split per project into
+        ///       speeddata/<Stem>.yaml (the engine's key: the path's file stem) + index.yaml (the file's project order).
+        ///       Staged only when the read tree writes the source back byte-exact (the bodies are binary).
+        {
+            const std::string spdText = src.ReadText("meshes/speeddatasinglefile.txt").value_or(std::string{});
+            const auto*       reg     = CB::engine::schema::SharedRegistry();
+            if (!spdText.empty() && reg) {
+                std::string err, back;
+                const auto  root = CB::engine::codec::io::ReadMetaText(*reg, "SpeedDataSingleFile", spdText, err);
+                if (!root) say("  WARN: speeddata decompose failed: " + err);
+                else if (!CB::engine::codec::io::WriteMetaText(*root, back, err) || back != spdText)
+                    say("  WARN: speeddata does not round-trip byte-exact" + (err.empty() ? std::string() : " (" + err + ")") +
+                        " — not decomposed");
+                else {
+                    const fs::path spdRoot = stageHky / "meshes" / "speeddatasinglefile.txt";
+                    fs::create_directories(spdRoot / "speeddata", ec);
+                    std::string index = "projects:\n";
+                    int         units = 0;
+                    for (const auto& po : root->Children("projects")) {
+                        const auto&       p    = static_cast<const CB::engine::codec::io::SchemaObject&>(*po);
+                        const auto        pi   = p.IndexOf("path");
+                        const std::string path = pi ? p.Values()[*pi].str : std::string();
+                        index += "  - " + CB::engine::text::QuoteDouble(path) + "\n";
+                        const std::string stem = CB::engine::codec::io::SpeedDataProjectStem(path);
+                        if (!stem.empty() && writeStaged(spdRoot / "speeddata" / (stem + ".yaml"), CB::engine::codec::io::EmitMetaYaml(p)))
+                            ++units;
+                    }
+                    writeStaged(spdRoot / "index.yaml", index);
+                    say("  decomposed speeddatasinglefile.txt/ -> index.yaml + " + std::to_string(units) + " speeddata/");
+                }
+            }
+        }
+
         const std::string animText = src.ReadText("meshes/animationdatasinglefile.txt").value_or(std::string{});
         if (!animText.empty()) {
             try {
@@ -3322,30 +3356,70 @@ bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) 
     for (const auto& path : files) {
         /// @note Raw bytes (no BOM strip): the gate is byte-exact against the file as stored.
         const std::string text = disk::ReadFile(path).value_or(std::string{});
-        const bool setData = PathKey(path).find("animationset") != std::string::npos;
-        const std::string cls = setData ? "AnimationSetDataSingleFile" : "AnimationDataSingleFile";
+        const bool setData   = PathKey(path).find("animationset") != std::string::npos;
+        const bool speedData = PathKey(path).find("speeddata") != std::string::npos;
+        const std::string cls = speedData ? "SpeedDataSingleFile" : setData ? "AnimationSetDataSingleFile" : "AnimationDataSingleFile";
         std::string err, out;
         const auto root = CB::engine::codec::io::ReadMetaText(*reg, cls, text, err);
         if (!root) { say("  FAIL read " + path + " — " + err); all = false; continue; }
         if (!CB::engine::codec::io::WriteMetaText(*root, out, err)) { say("  FAIL write " + path + " — " + err); all = false; continue; }
+        /// @note speeddata also crosses the YAML leg the bundles carry: every project emitted, parsed back, and the
+        ///       whole file rewritten from those parses must still be the source bytes.
+        if (speedData) {
+            for (auto& po : root->FieldAt(*root->IndexOf("projects")).objs) {
+                const std::string y = CB::engine::codec::io::EmitMetaYaml(static_cast<const CB::engine::codec::io::SchemaObject&>(*po));
+                auto back = CB::engine::codec::io::ParseMetaYaml(*reg, "SpeedDataProject", y, err);
+                if (!back) { say("  FAIL yaml " + path + " — " + err); all = false; break; }
+                po = back;
+            }
+            if (!CB::engine::codec::io::WriteMetaText(*root, out, err)) { say("  FAIL yaml write " + path + " — " + err); all = false; continue; }
+        }
         std::size_t diff = 0;
         while (diff < text.size() && diff < out.size() && text[diff] == out[diff]) ++diff;
         const bool same = out == text;
         /// @note The typed model (what regen decomposes into) read from the schema objects must emit the same bytes:
-        ///       the schema and the typed emitter agree on structure, not just the descriptors on themselves.
+        ///       the schema and the typed emitter agree on structure, not just the descriptors on themselves (speeddata, with
+        ///       no typed model, is counted by an independent binary walk instead).
         std::size_t projects = root->Children("projects").size(), records = 0;
         for (const auto& po : root->Children("projects")) {
             auto& p = static_cast<CB::engine::codec::io::SchemaObject&>(*po);
-            records += setData ? p.Children("sets").size() : p.Children("clips").size() + p.Children("motions").size();
+            if (speedData) records += p.Children("states").size();
+            else records += setData ? p.Children("sets").size() : p.Children("clips").size() + p.Children("motions").size();
         }
         bool typed = false;
         try {
-            typed = (setData ? CB::engine::animsetdata::EmitSingleFile(CB::engine::animsetdata::ReadSingleFile(*reg, text))
-                             : CB::engine::animdata::EmitSingleFile(CB::engine::animdata::ReadSingleFile(*reg, text))) == text;
-        } catch (const std::exception& e) { say("  (typed read failed: " + std::string(e.what()) + ")"); }
+            if (speedData) {
+                std::size_t handRecords = 0;
+                /// @note No hand-written speeddata parser exists: the bodies are counted by an independent walk of the
+                ///       binary layout (u32 version, states{int32 iState, directions{float, points{float,float}}}).
+                const std::size_t nl = text.find('\n');
+                const std::size_t handProjects = std::stoul(text.substr(0, nl));
+                std::size_t pos = nl + 1;
+                for (std::size_t k = 0; k < handProjects; ++k) pos = text.find('\n', pos) + 1;
+                const auto u32 = [&] {
+                    if (pos + 4 > text.size()) throw std::runtime_error("speeddata body runs past the end");
+                    std::uint32_t v; std::memcpy(&v, text.data() + pos, 4); pos += 4; return v;
+                };
+                for (std::size_t k = 0; k < handProjects; ++k) {
+                    u32();
+                    const std::uint32_t ns = u32();
+                    handRecords += ns;
+                    for (std::uint32_t si = 0; si < ns; ++si) {
+                        u32();
+                        const std::uint32_t nd = u32();
+                        for (std::uint32_t di = 0; di < nd; ++di) { u32(); pos += 8 * std::size_t(u32()); }
+                    }
+                }
+                if (pos != text.size()) throw std::runtime_error("speeddata walk ends at byte " + std::to_string(pos));
+                typed = handProjects == projects && handRecords == records;
+            } else {
+                typed = (setData ? CB::engine::animsetdata::EmitSingleFile(CB::engine::animsetdata::ReadSingleFile(*reg, text))
+                                 : CB::engine::animdata::EmitSingleFile(CB::engine::animdata::ReadSingleFile(*reg, text))) == text;
+            }
+        } catch (const std::exception& e) { say("  (independent check failed: " + std::string(e.what()) + ")"); }
         say(std::string(same && typed ? "  OK   " : "  FAIL ") + path + " — " + cls + ", " + std::to_string(projects) + " project(s), " +
-            std::to_string(records) + " record(s)" + (typed ? "" : " (typed model re-emit differs)") + (same ? ", byte-identical" :
-            ", first difference at byte " + std::to_string(diff) + " (" + std::to_string(text.size()) + " -> " +
+            std::to_string(records) + " record(s)" + (typed ? "" : speedData ? " (binary walk counts differ)" : " (typed model re-emit differs)") +
+            (same ? ", byte-identical" : ", first difference at byte " + std::to_string(diff) + " (" + std::to_string(text.size()) + " -> " +
             std::to_string(out.size()) + " bytes)"));
         all = all && same && typed;
     }
@@ -3517,8 +3591,13 @@ RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& ou
         std::string e;
         if (auto b = source->Read(u.prefix)) srcBytes = std::move(*b);
         else continue;
-        if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
         ++r.checked;
+        /// @note An unreadable source is a gate failure, not a skip: a unit nothing verified must not pass strict.
+        if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) {
+            r.drift.push_back(u.prefix);
+            say("  FAIL: " + u.prefix + " — source unreadable — " + e);
+            continue;
+        }
         if (!gateCtx.Serve(u.prefix, got, e)) {
             r.drift.push_back(u.prefix);
             say("  FAIL: " + u.prefix + " — " + e);
