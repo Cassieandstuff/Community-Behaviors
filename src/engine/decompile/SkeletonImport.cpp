@@ -89,8 +89,7 @@ bool LoadSkeletonsFromHkx(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        // exotic creature collision shapes may be unported — skip, don't fail
-        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg);
         if (!root) { if (err) *err = "not a valid packfile root"; return false; }
 
         // The animation container carries the skeleton list in file order: [0]=anim skeleton, [1]=ragdoll.
@@ -117,9 +116,7 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        // creature ragdolls may use exotic, unported collision shapes;
-        // skip them (shape → null → default capsule) instead of failing.
-        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg);
         if (!root) return true;
 
         auto pd = FindVariant(*root, "hkpPhysicsData");
