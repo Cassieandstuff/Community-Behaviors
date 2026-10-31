@@ -60,6 +60,10 @@ symbols:
   - { name: AttackAnimationArrayMap_Build, kind: func, se: 24864, ae: 25387, vr: 0 }  # iterates weapon-type combos 0..12
   - { name: AnimationStreamLoadGame_ReadSetDataTriples, kind: func, se: 63090, ae: 64010, vr: 0 }  # save stream reader (unbounded count — the CRC-bloat ceiling)
 
+  # --- Speed data (SpeedDataSingleFile, BSSpeedSamplerDB) ---
+  - { name: SpeedData_OpenCall, kind: call, se: 62892+0x8f, ae: 63820+0x96, vr: 0 }  # CALL in BSSpeedSamplerDBManager's ctor that opens the speeddata stream (CB serve seam)
+  - { name: SpeedData_SingleFilePath, kind: data, se: 523019, ae: 409558, vr: 0 }  # global BSFixedString "Meshes/SpeedDataSingleFile.txt"
+
   # --- Clip binding: LoadClips, roster indices, the animation resource DB, file manager ---
   - { name: BShkbAnimationGraph_LoadGraph, kind: func, se: 62923, ae: 63846, vr: 0 }  # graph load: NullAssetLoader + LoadClips + BSSync scene slots
   - { name: LoadClips_CallSite, kind: call, se: 63028+0x8d, ae: 63846+0x101, vr: 0 }  # OAR's write_call seam; in SE it lives in a separate helper (0x140b06670)
