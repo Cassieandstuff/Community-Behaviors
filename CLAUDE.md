@@ -230,8 +230,8 @@ still belongs in the session scratchpad dir.)
   then CB's `havok/`, the cbmatch-emitted rows of `src/platform/hooks/registry/engine.yaml` (mangled, header, sig,
   this) and the takeover image (`Data/community_behaviors/runtime/havok-runtime.cbimg`) are FROZEN at what CB matched
   (537abe87): never match into havok/ or regenerate them here. engine.yaml's hand rows (game/ functions) still grow.
-- Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
-  until the schema codec reads ragdoll physics.
+- Skeletons ARE reflective units (animation + ragdoll skeletons, physics and mappers as in the source), served by
+  parse + serialize and covered by the served-bytes gate; bone tables come from `decompile::ReadSkeletonBones`.
 
 ---
 
