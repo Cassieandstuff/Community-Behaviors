@@ -3,11 +3,13 @@
 #include <codec/serialization/packfile/BinaryReaderEx.h>
 #include <common/HkTypes.h>
 #include <codec/serialization/packfile/PackFileTypes.h>
+#include <codec/serialization/tagfile/BinaryTagfile.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -17,6 +19,7 @@
 // object graph: parse header + 3 sections + class names, then walk the __data__
 // section from offset 0 via virtual fixups (class name -> registry factory ->
 // Read), resolving pointers/arrays/strings through the section fixup maps.
+// A binary tagfile is transcoded to a packfile first (BinaryTagfile.h).
 
 namespace CB::engine::codec {
 using namespace CB::engine::common;
@@ -73,7 +76,25 @@ public:
         return ConstructVirtualClass(br2, 0);
     }
 
+    /// @brief The registry a binary tagfile input is read through (nullptr = the shared registry).
+    const schema::SchemaRegistry* TagfileSchema = nullptr;
+
     void DeserializePartially(BinaryReaderEx& br) {
+        /// @note A binary tagfile is read into schema objects and written as a packfile, so everything below (and every
+        ///       caller of the sections, fixups and offsets) reads it unchanged.
+        if (br.Length() >= 8) {
+            br.StepIn(0);
+            const std::vector<std::uint8_t> head = br.ReadBytes(8);
+            br.StepOut();
+            if (IsBinaryTagfile(head)) {
+                br.StepIn(0);
+                const std::vector<std::uint8_t> tagfile = br.ReadBytes(br.Length());
+                br.StepOut();
+                BinaryReaderEx packfile(false, true, BinaryTagfileToPackfile(tagfile, TagfileSchema, _tolerateUnregistered));
+                DeserializePartially(packfile);
+                return;
+            }
+        }
         br.StepIn(0x11);
         br.BigEndian = (br.ReadByte() == 0x0);
         br.StepOut();
@@ -176,12 +197,14 @@ public:
         const std::uint32_t size = br.ReadUInt32();
         br.AssertUInt32({size | (static_cast<std::uint32_t>(0x80) << 24)});
     }
-    std::string ReadStringPointer(BinaryReaderEx& br) {
+    std::string ReadStringPointer(BinaryReaderEx& br) { return ReadOptionalStringPointer(br).value_or(std::string()); }
+    /// @brief ReadStringPointer that keeps a null pointer (no local fixup: no string at all) apart from "".
+    std::optional<std::string> ReadOptionalStringPointer(BinaryReaderEx& br) {
         PadToPointerSizeIfPaddingOption(br);
         const std::uint32_t key = static_cast<std::uint32_t>(br.Position());
         br.AssertUSize({0});
         auto it = _dataSection._localMap.find(key);
-        if (it == _dataSection._localMap.end()) return std::string();
+        if (it == _dataSection._localMap.end()) return std::nullopt;
         br.StepIn(it->second.Dst);
         std::string ret = br.ReadASCII();
         br.StepOut();

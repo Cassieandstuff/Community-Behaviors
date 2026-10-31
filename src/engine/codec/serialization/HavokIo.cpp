@@ -312,7 +312,12 @@ void SchemaObject::Read(PackFileDeserializer& des, BinaryReaderEx& br) {
             case FieldKind::Skip:        v.raw = br.ReadBytes(static_cast<std::size_t>(f.count)); break;
             case FieldKind::Pad:         v.raw = br.ReadBytes(alignUp(br.Position(), f.count) - br.Position()); break;
 
-            case FieldKind::String:      v.str = des.ReadStringPointer(br); break;
+            case FieldKind::String: {
+                std::optional<std::string> s = des.ReadOptionalStringPointer(br);
+                v.strNull = !s;
+                v.str     = s ? std::move(*s) : std::string();
+                break;
+            }
             case FieldKind::CString:     v.str = des.ReadCString(br); break;
             case FieldKind::StringArray: v.strs = des.ReadStringPointerArray(br); break;
 
@@ -394,7 +399,7 @@ void SchemaObject::Write(PackFileSerializer& s, BinaryWriterEx& bw) const {
             case FieldKind::Skip:
             case FieldKind::Pad:         bw.WriteBytes(v.raw); break;
 
-            case FieldKind::String:      s.WriteStringPointer(bw, v.str); break;
+            case FieldKind::String:      s.WriteStringPointer(bw, v.str, 16, v.strNull); break;
             case FieldKind::CString:     s.WriteCString(bw, v.str); break;
             case FieldKind::StringArray: s.WriteStringPointerArray(bw, v.strs); break;
 
@@ -442,6 +447,7 @@ std::shared_ptr<SchemaObject> DeserializeSchema(std::span<const std::uint8_t> by
                                                 bool tolerateUnregistered) {
     PackFileDeserializer des;
     des.ObjectFactory = MakeSchemaFactory(reg);
+    des.TagfileSchema = &reg;
     if (tolerateUnregistered) des.SetTolerateUnregistered(true);
     BinaryReaderEx br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);   // Deserialize re-reads both from the header
     return AsSchema(des.Deserialize(br));
@@ -467,6 +473,7 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
         BinaryReaderEx br(in);
         PackFileDeserializer des;
         des.ObjectFactory = MakeSchemaFactory(reg);
+        des.TagfileSchema = &reg;
         std::shared_ptr<IHavokObject> root = des.Deserialize(br);
         if (!root) { err = "havok-io: null root object"; return false; }
 

@@ -3,7 +3,7 @@ parent:    null
 signature: 0x33be6570
 size:      16
 fields:
-  - { name: responseType,              type: byte }   # @0 enum ResponseType
+  - { name: responseType,              type: byte, enum: ResponseType }   # @0 enum ResponseType
   - { skip: 1 }
   - { name: rollingFrictionMultiplier, type: half }   # @2
   - { name: friction,                  type: float }  # @4

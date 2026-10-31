@@ -19,7 +19,7 @@ fields:
   - { name: useTrackData,         type: bool }
   - { name: lockFeetWhenPlanted,  type: bool }
   - { name: useCharacterUpVector, type: bool }
-  - { name: alignMode,            type: int8 }
+  - { name: alignMode,            type: int8, enum: AlignMode }
   - { empty: array }                         # internalLegData (hkArray<hkbFootIkModifierInternalLegData>,
                                              # SERIALIZE_IGNORED; empty at save — but the packfile still
                                              # carries a flagged empty hkArray header (cap=0x80000000), which

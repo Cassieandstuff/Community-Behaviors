@@ -11,5 +11,5 @@ fields:
   - { name: extractedMotionMapping, type: qstransform }          # @64 (48B)
   - { name: keepUnmappedLocal, type: bool }                      # @112
   - { skip: 3 }                                                  # pad -> 116
-  - { name: mappingType,    type: uint32 }                       # @116
+  - { name: mappingType,    type: uint32, enum: MappingType }                       # @116
   - { skip: 8 }                                                  # tail pad -> 128

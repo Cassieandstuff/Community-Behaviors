@@ -1,0 +1,8 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/BuildType.cs.
+kind:  enum
+name:  BuildType
+flags: false
+items:
+  - { name: BUILT_WITH_CHUNK_SUBDIVISION , value: 0 }
+  - { name: BUILT_WITHOUT_CHUNK_SUBDIVISION , value: 1 }
+  - { name: BUILD_NOT_SET , value: 2 }

@@ -5,5 +5,5 @@ size:      40
 # hkpShape ends @32. m_bvTreeType (enum hkUint8) @32, pad to 8-align (m_code ptr follows in the
 # derived hkpMoppBvTreeShape).
 fields:
-  - { name: bvTreeType, type: int8 }   # @32  (enum BvTreeType)
+  - { name: bvTreeType, type: int8, enum: BvTreeType }   # @32  (enum BvTreeType)
   - { skip: 7 }                        # pad -> 40

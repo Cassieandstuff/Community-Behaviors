@@ -3,7 +3,7 @@ parent:    null
 signature: 0xf05d137e
 size:      16
 fields:
-  - { name: type,     type: uint16 }             # @0
+  - { name: type,     type: uint16, enum: AtomType }             # @0
   - { name: enabled,  type: bool }               # @2
   - { skip: 1 }                                  # @3 pad
   - { name: maxAngle, type: float }              # @4

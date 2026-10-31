@@ -1,0 +1,8 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/OnDestructionRemapInfo.cs.
+kind:  enum
+name:  OnDestructionRemapInfo
+flags: false
+items:
+  - { name: ON_DESTRUCTION_REMAP , value: 0 }
+  - { name: ON_DESTRUCTION_REMOVE , value: 1 }
+  - { name: ON_DESTRUCTION_RESET_REMOVE , value: 2 }

@@ -3,7 +3,7 @@ parent:    null
 signature: 0xf313aa80
 size:      12
 fields:
-  - { name: type,              type: uint16 }   # @0
+  - { name: type,              type: uint16, enum: AtomType }   # @0
   - { name: isEnabled,         type: byte }     # @2
   - { name: firstFrictionAxis, type: byte }     # @3
   - { name: numFrictionAxes,   type: byte }     # @4
