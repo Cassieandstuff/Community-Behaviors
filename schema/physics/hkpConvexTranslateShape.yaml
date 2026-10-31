@@ -1,6 +1,6 @@
 name:      hkpConvexTranslateShape
 parent:    hkpConvexTransformShapeBase
-signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+signature: 0x5ba0a5f7
 size:      80
 # Base ends @56. m_translation is 16-aligned -> pad 56->64, vector4 @64 -> 80.
 # Real object size in vanilla creature skeletons: 80 (fixed) — validated.
