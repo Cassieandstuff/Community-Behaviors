@@ -3,6 +3,7 @@
 #include <codec/serialization/packfile/BinaryReaderEx.h>
 #include <common/HkTypes.h>
 #include <codec/serialization/packfile/PackFileTypes.h>
+#include <codec/serialization/tagfile/BinaryTagfile.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -18,6 +19,7 @@
 // object graph: parse header + 3 sections + class names, then walk the __data__
 // section from offset 0 via virtual fixups (class name -> registry factory ->
 // Read), resolving pointers/arrays/strings through the section fixup maps.
+// A binary tagfile is transcoded to a packfile first (BinaryTagfile.h).
 
 namespace CB::engine::codec {
 using namespace CB::engine::common;
@@ -74,7 +76,25 @@ public:
         return ConstructVirtualClass(br2, 0);
     }
 
+    /// @brief The registry a binary tagfile input is read through (nullptr = the shared registry).
+    const schema::SchemaRegistry* TagfileSchema = nullptr;
+
     void DeserializePartially(BinaryReaderEx& br) {
+        /// @note A binary tagfile is read into schema objects and written as a packfile, so everything below (and every
+        ///       caller of the sections, fixups and offsets) reads it unchanged.
+        if (br.Length() >= 8) {
+            br.StepIn(0);
+            const std::vector<std::uint8_t> head = br.ReadBytes(8);
+            br.StepOut();
+            if (IsBinaryTagfile(head)) {
+                br.StepIn(0);
+                const std::vector<std::uint8_t> tagfile = br.ReadBytes(br.Length());
+                br.StepOut();
+                BinaryReaderEx packfile(false, true, BinaryTagfileToPackfile(tagfile, TagfileSchema, _tolerateUnregistered));
+                DeserializePartially(packfile);
+                return;
+            }
+        }
         br.StepIn(0x11);
         br.BigEndian = (br.ReadByte() == 0x0);
         br.StepOut();

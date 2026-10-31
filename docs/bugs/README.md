@@ -15,8 +15,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 
 ## Open
 
-- [CB-1](CB-1-converter-tagfile-unsupported.md) — INVESTIGATING (deferred): converter can't read Havok
-  **tagfile** format; a few CreationClub assets ship as tagfiles and are skipped by the master build.
+- [CB-1](CB-1-converter-tagfile-unsupported.md) — INVESTIGATING (fix landed, the master build needs a re-run): the
+  converter couldn't read Havok binary **tagfiles**; a few CreationClub assets ship as tagfiles and were skipped.
 - [CB-7](CB-7-fnis-not-on-formid-format.md) — OPEN: FNIS conversion isn't on the FormID .hky format yet; a load
   order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
 - [CB-9](CB-9-setdata-names-lowercased.md) — INVESTIGATING (fix landed, unexercised): set-data sets/projects a
