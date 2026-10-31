@@ -174,6 +174,14 @@ namespace CB::feature::controller {
             }
         }
 
+        /// @brief Whether the actor is in a melee attack (any attack state below the bow's).
+        bool MeleeAttacking(RE::Actor* actor)
+        {
+            using A       = RE::ATTACK_STATE_ENUM;
+            const A state = actor->AsActorState()->GetAttackState();
+            return state != A::kNone && state < A::kBowDraw;
+        }
+
         /// @brief Melee magnetism: the attack's aim pulled toward the closest hostile combatant near it.
         /// @note The pull fades with the angle off the aim (full at 0, none at kMagnetCone) and the closer of two candidates
         ///       wins, so the stick still chooses who is hit; past kMagnetReach nobody pulls.
@@ -441,10 +449,16 @@ namespace CB::feature::controller {
             in.haveStick = haveStick;
             if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
+            /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
+                float face = cameraYaw;
+                if (MeleeAttacking(player)) {
+                    face = heading;
+                    if (AttackTurnRate(player) > 0.0f) face = MagnetizedAim(player, haveStick ? stickHeading : heading);
+                }
                 in.haveTarget = true;
-                in.targetX    = pos.x + kFaceCameraReach * std::sin(cameraYaw);
-                in.targetY    = pos.y + kFaceCameraReach * std::cos(cameraYaw);
+                in.targetX    = pos.x + kFaceCameraReach * std::sin(face);
+                in.targetY    = pos.y + kFaceCameraReach * std::cos(face);
             }
 
             /// @note The slope factor follows the ground under the player along the velocity, smoothed so its drops
