@@ -79,8 +79,8 @@ public:
     const schema::SchemaRegistry* TagfileSchema = nullptr;
 
     void DeserializePartially(BinaryReaderEx& br) {
-        // A binary tagfile is read into schema objects and written as a packfile, so everything below (and every
-        // caller of the sections, fixups and offsets) reads it unchanged.
+        /// @note A binary tagfile is read into schema objects and written as a packfile, so everything below (and every
+        ///       caller of the sections, fixups and offsets) reads it unchanged.
         if (br.Length() >= 8) {
             br.StepIn(0);
             const std::vector<std::uint8_t> head = br.ReadBytes(8);
