@@ -3451,13 +3451,17 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                 continue;
             }
         }
-        /// @note A class-less map onto a node patches that node (patchField), so replacing a node with an inline object
-        ///       states the class even when it is the declared one.
-        if (f.kind == FieldKind::Ptr && vb.obj && vm.obj && isFileNode(vb.obj.get(), cb) && !isFileNode(vm.obj.get(), cm))
-            if (const auto* mo = dynamic_cast<const io::SchemaObject*>(vm.obj.get())) {
-                y += f.name + ":\n" + indentLines(reflectObject(*mo, cm), "  ", "  ");
+        /// @note A class-less map onto a node patches that node (patchField), and a node can arrive from a lower mod this
+        ///       derive never saw. So a WHOLE inline value (the base held nothing, a node, or another class) states its class
+        ///       even when it is the declared one: it replaces the field, it never leaks into a list other owners share.
+        if (const std::string head = f.name + ":\n"; f.kind == FieldKind::Ptr && vm.obj && !isFileNode(vm.obj.get(), cm) && tm.starts_with(head) &&
+                                                      tm.compare(head.size(), 8, "  class:") != 0) {
+            const schema::ClassSchema* dcs = cm.reg.Find(f.ref);
+            if (!dcs || dcs->unwrap.empty()) {
+                y += head + "  class: " + vm.obj->ClassName() + "\n" + tm.substr(head.size());
                 continue;
             }
+        }
         if (f.kind == FieldKind::ScalarArray) {
             if (const auto d = f.boneWeights ? boneWeightsDiff(f, vb, vm, cm) : boneSetDiff(f, vb, vm, cm)) {
                 if (!d->empty()) y += f.name + ":\n" + *d;

@@ -229,7 +229,7 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
 
 /// @brief `shuffle-check`: every graph unit of a .hky (or the one named) read from the archive, then with its files scattered
 ///        through random folders and names, on disk and packed; all three must serialize to the same bytes.
-/// @note  A behavior whose bones need its rig falls back to the humanoid rig; a unit readable with neither is reported and
+/// @note  A unit whose bones need a rig takes its character's, else the humanoid one; a unit readable with neither is reported and
 ///        counted, not this check's subject.
 int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, const std::string& workDir, const std::string& onlyUnit) {
     if (hkyPath.empty() || schemaDir.empty() || workDir.empty()) {
@@ -272,9 +272,19 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
             std::vector<std::uint8_t> canon;
             std::string why;
             const std::vector<std::string>* bones = nullptr;
+            std::vector<std::string> own;
             if (!bytesOf(*src, unit, nullptr, canon, why)) {
                 canon.clear();
-                bones = &humanoid;
+                const std::string key = PathKey(unit);
+                const auto cs = dc::ReadCharacterStrings(*src);
+                if (const auto at = key.rfind("/characters/"); cs && !cs->rigName.empty() && at != std::string::npos) {
+                    std::string rig = cs->rigName;
+                    std::replace(rig.begin(), rig.end(), '\\', '/');
+                    rig = key.substr(0, at + 1) + PathKey(rig);
+                    if (const auto rigSrc = arc->source(rig))
+                        if (auto names = dc::ReadSkeletonBones(*rigSrc, *reg, rig)) own = std::move(*names);
+                }
+                bones = own.empty() ? &humanoid : &own;
                 if (!bytesOf(*src, unit, bones, canon, why)) {
                     std::printf("skip %s: %s\n", unit.c_str(), why.c_str());
                     ++skipped;

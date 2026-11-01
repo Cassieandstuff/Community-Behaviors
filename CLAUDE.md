@@ -253,7 +253,7 @@ and which layer's folder wins is BK's call. CB only carries them (`Identity::fol
 - Regen and derive write flat (`<id>.yaml`; bones default to `animation/bones/`, `ragdoll/bones/`). Organizing vanilla's
   folders is a regen rule's job, not the format's.
 - A class-less map on a pointer field in a patch patches what the field holds now, a node included; stating `class:`
-  replaces it.
+  replaces it unless the field holds an inline object of that class. Derive states `class:` on every whole inline value.
 
 ---
 
