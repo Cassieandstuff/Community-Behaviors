@@ -176,8 +176,9 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" 
 # the plugin. HK_EXE_GLOBALS_BY_REFERENCE makes every global the exe owns an extern reference the schema link shim
 # binds at load, so the compiled code runs on the game's heaps, singletons and hkClass records. Its roots (<Common/…>
 # <Behavior/…> <BSHavok/…> …) share no file path with the roots above.
+set(CB_SDK_DIR "${CMAKE_SOURCE_DIR}/lib/cb-sdk" CACHE PATH "The CB SDK this plugin compiles")
 set(HK_LAYOUT_CHECK OFF CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_SOURCE_DIR}/lib/cb-sdk" EXCLUDE_FROM_ALL)
+add_subdirectory("${CB_SDK_DIR}" "${CMAKE_BINARY_DIR}/cb-sdk" EXCLUDE_FROM_ALL)
 target_compile_definitions(hkCompileOptions INTERFACE HK_EXE_GLOBALS_BY_REFERENCE)
 target_compile_definitions(CommunityBehaviors PRIVATE HK_EXE_GLOBALS_BY_REFERENCE)
 target_link_libraries(CommunityBehaviors PRIVATE HavokExtensions)
@@ -196,17 +197,17 @@ add_custom_command(
     OUTPUT  "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}"
     COMMAND "${CMAKE_COMMAND}"
             "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml"
-            "-DSDK_ROOT=${CMAKE_SOURCE_DIR}/lib/cb-sdk"
+            "-DSDK_ROOT=${CB_SDK_DIR}"
             "-DOUT_H=${_cb_engine_reg}"
             "-DOUT_SHIM_ASM=${_cb_shim_asm}"
             "-DOUT_SHIM_CPP=${_cb_shim_cpp}"
             "-DOUT_IDENTITY_H=${_cb_identity}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
     DEPENDS "${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/cbmatch/registry.yaml"
-            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/ExeClasses.yaml"
-            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/Defined.yaml"
-        "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/Referenced.yaml"
+            "${CB_SDK_DIR}/Tools/cbmatch/registry.yaml"
+            "${CB_SDK_DIR}/Tools/Reconstruction/generated/ExeClasses.yaml"
+            "${CB_SDK_DIR}/Tools/Reconstruction/generated/Defined.yaml"
+        "${CB_SDK_DIR}/Tools/Reconstruction/generated/Referenced.yaml"
     COMMENT "Generating the engine symbol registry and the schema link shim from src/platform/hooks/registry/engine.yaml"
     VERBATIM)
 add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")
