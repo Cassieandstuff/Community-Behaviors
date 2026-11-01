@@ -71,6 +71,9 @@ namespace CB::platform::hooks::detail {
                 if (c[0] != 1 || image.base + c[5] != col || c[3] >= image.size) continue;
                 const char* name = reinterpret_cast<const char*>(image.base + c[3] + 0x10);
                 if (std::strncmp(name, ".?AV", 4) != 0) continue;
+                /// @note The runtime library's classes share names across modules but not code: the plugin's streams must
+                ///       keep the plugin's CRT.
+                if (std::strstr(name, "@std@@") || std::strstr(name, "type_info@@")) continue;
                 const auto [it, added] = out.try_emplace(std::string(name) + "+" + std::to_string(c[1]), reinterpret_cast<const std::uintptr_t*>(at + 8));
                 if (!added) it->second = nullptr;
             }
