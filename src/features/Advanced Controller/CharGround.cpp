@@ -66,18 +66,18 @@ namespace CB::feature::controller {
         void ReadLongBody(const ::hkpShape* shape, const ::hkTransform& world, Hull& h)
         {
             alignas(16) ::hkTransform identity;
-            identity.m_rotation.m_col0 = ::hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
-            identity.m_rotation.m_col1 = ::hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
-            identity.m_rotation.m_col2 = ::hkVector4(0.0f, 0.0f, 1.0f, 0.0f);
-            identity.m_translation     = ::hkVector4(0.0f, 0.0f, 0.0f, 0.0f);
+            identity.getColumn(0) = ::hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
+            identity.getColumn(1) = ::hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
+            identity.getColumn(2) = ::hkVector4(0.0f, 0.0f, 1.0f, 0.0f);
+            identity.getTranslation()     = ::hkVector4(0.0f, 0.0f, 0.0f, 0.0f);
             ::hkAabb local;
             GetAabb(shape, identity, local);
             const float ex = local.m_max(0) - local.m_min(0), ey = local.m_max(1) - local.m_min(1);
             if ((std::max)(ex, ey) < kLongBodyRatio * (std::min)(ex, ey)) return;
             ::hkTransform t   = world;
             const bool      onX = ex >= ey;
-            const float     ax = t.m_rotation.m_col0(0) * (onX ? 1.0f : 0.0f) + t.m_rotation.m_col1(0) * (onX ? 0.0f : 1.0f);
-            const float     ay = t.m_rotation.m_col0(1) * (onX ? 1.0f : 0.0f) + t.m_rotation.m_col1(1) * (onX ? 0.0f : 1.0f);
+            const float     ax = t.getColumn(0)(0) * (onX ? 1.0f : 0.0f) + t.getColumn(1)(0) * (onX ? 0.0f : 1.0f);
+            const float     ay = t.getColumn(0)(1) * (onX ? 1.0f : 0.0f) + t.getColumn(1)(1) * (onX ? 0.0f : 1.0f);
             const float     len = std::sqrt(ax * ax + ay * ay);
             if (len < 1.0e-4f) return;
             const float lx = (local.m_min(0) + local.m_max(0)) * 0.5f, ly = (local.m_min(1) + local.m_max(1)) * 0.5f;
@@ -85,8 +85,8 @@ namespace CB::feature::controller {
             h.longBody   = true;
             h.fx         = ax / len;
             h.fy         = ay / len;
-            h.cx         = t.m_translation(0) + t.m_rotation.m_col0(0) * lx + t.m_rotation.m_col1(0) * ly + t.m_rotation.m_col2(0) * lz;
-            h.cy         = t.m_translation(1) + t.m_rotation.m_col0(1) * lx + t.m_rotation.m_col1(1) * ly + t.m_rotation.m_col2(1) * lz;
+            h.cx         = t.getTranslation()(0) + t.getColumn(0)(0) * lx + t.getColumn(1)(0) * ly + t.getColumn(2)(0) * lz;
+            h.cy         = t.getTranslation()(1) + t.getColumn(0)(1) * lx + t.getColumn(1)(1) * ly + t.getColumn(2)(1) * lz;
             h.radius     = (std::min)(ex, ey) * 0.5f;
             h.halfLength = (std::max)(ex, ey) * 0.5f;
         }
@@ -213,8 +213,8 @@ namespace CB::feature::controller {
                 const auto*        capsule = static_cast<const ::hkpCapsuleShape*>(shape);
                 HullShape::Capsule& c      = out.capsules[out.count++];
                 ::hkVector4      a, b;
-                a._setTransformedPos(world, capsule->m_vertexA);
-                b._setTransformedPos(world, capsule->m_vertexB);
+                a._setTransformedPos(world, capsule->getVertex(0));
+                b._setTransformedPos(world, capsule->getVertex(1));
                 for (int i = 0; i < 3; i++) c.a[i] = a(i), c.b[i] = b(i);
                 c.radius = capsule->getRadius();
                 return;
@@ -434,8 +434,8 @@ namespace CB::feature::controller {
         /// @brief calculateMovement's output for a request of `forward` along the tangent and `side` along the side.
         void Steer(const ::bhkCharacterController& c, float forward, float side, float& dx, float& dy)
         {
-            alignas(16) std::array<std::uint8_t, sizeof(::hkpMovementUtilInput)> storage{};
-            auto& in = *reinterpret_cast<::hkpMovementUtilInput*>(storage.data());
+            alignas(16) std::array<std::uint8_t, sizeof(::hkpCharacterMovementUtil::hkpMovementUtilInput)> storage{};
+            auto& in = *reinterpret_cast<::hkpCharacterMovementUtil::hkpMovementUtilInput*>(storage.data());
             in.m_forward = c.m_forward;
             in.m_up.set(0.0f, 0.0f, 1.0f, 0.0f);
             in.m_surfaceNormal.set(0.0f, 0.0f, 1.0f, 0.0f);

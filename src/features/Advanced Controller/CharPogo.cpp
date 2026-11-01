@@ -116,13 +116,15 @@ namespace CB::feature {
         void WriteCapsule(::hkpCapsuleShape& c, float lowZ, float highZ, float radius, const Slot& s)
         {
             const bool aLow = s.origA(2) <= s.origB(2);
-            c.m_vertexA     = s.origA;
-            c.m_vertexB     = s.origB;
-            c.m_vertexA(2)  = aLow ? lowZ : highZ;
-            c.m_vertexB(2)  = aLow ? highZ : lowZ;
-            c.m_vertexA(3)  = radius;
-            c.m_vertexB(3)  = radius;
-            c.m_radius      = radius;
+            ::hkVector4 a   = s.origA;
+            ::hkVector4 b   = s.origB;
+            a(2)            = aLow ? lowZ : highZ;
+            b(2)            = aLow ? highZ : lowZ;
+            a(3)            = radius;
+            b(3)            = radius;
+            c.setVertex(0, a);
+            c.setVertex(1, b);
+            c.setRadius(radius);
         }
 
         bool ChildEnabled(const ::hkpListShape& list, int i)
@@ -141,8 +143,8 @@ namespace CB::feature {
                 const auto* c = static_cast<const ::hkpCapsuleShape*>(child);
                 const float r = c->getRadius();
                 for (int k = 0; k < 3; k++) {
-                    lo[k] = (std::min)(lo[k], (std::min)(c->m_vertexA(k), c->m_vertexB(k)) - r);
-                    hi[k] = (std::max)(hi[k], (std::max)(c->m_vertexA(k), c->m_vertexB(k)) + r);
+                    lo[k] = (std::min)(lo[k], (std::min)(c->getVertex(0)(k), c->getVertex(1)(k)) - r);
+                    hi[k] = (std::max)(hi[k], (std::max)(c->getVertex(0)(k), c->getVertex(1)(k)) + r);
                 }
             }
             list.m_aabbCenter.set(0.5f * (lo[0] + hi[0]), 0.5f * (lo[1] + hi[1]), 0.5f * (lo[2] + hi[2]), 0.0f);
@@ -154,9 +156,9 @@ namespace CB::feature {
         void RestoreCapsule(Slot& s)
         {
             if (!s.capsule) return;
-            s.capsule->m_vertexA = s.origA;
-            s.capsule->m_vertexB = s.origB;
-            s.capsule->m_radius  = s.origRadius;
+            s.capsule->setVertex(0, s.origA);
+            s.capsule->setVertex(1, s.origB);
+            s.capsule->setRadius(s.origRadius);
             if (s.list) {
                 s.list->m_aabbCenter      = s.origListCenter;
                 s.list->m_aabbHalfExtents = s.origListHalf;
@@ -240,14 +242,14 @@ namespace CB::feature {
                 return why = "neither a capsule nor a list of capsules", false;
             }
             auto* capsule = const_cast<::hkpCapsuleShape*>(static_cast<const ::hkpCapsuleShape*>(shape));
-            const float dx = capsule->m_vertexA(0) - capsule->m_vertexB(0), dy = capsule->m_vertexA(1) - capsule->m_vertexB(1);
+            const float dx = capsule->getVertex(0)(0) - capsule->getVertex(1)(0), dy = capsule->getVertex(0)(1) - capsule->getVertex(1)(1);
             if (dx * dx + dy * dy > 1.0e-6f) return why = "a capsule that is not upright", false;
             s.hullShape  = hull.collidable->getShape();
             s.list       = list;
             if (list) s.origListCenter = list->m_aabbCenter, s.origListHalf = list->m_aabbHalfExtents;
             s.capsule    = capsule;
-            s.origA      = capsule->m_vertexA;
-            s.origB      = capsule->m_vertexB;
+            s.origA      = capsule->getVertex(0);
+            s.origB      = capsule->getVertex(1);
             s.origRadius = capsule->getRadius();
             s.feet       = Low(s.origA, s.origB) - s.origRadius;
             s.height     = High(s.origA, s.origB) + s.origRadius - s.feet;
@@ -275,7 +277,7 @@ namespace CB::feature {
             const float radius = s.radius;
             float       top    = s.feet + s.height;
             /// @note Growing is swept: under a low ceiling the top grows only as far as it fits, and tries again each step.
-            const float curTop = High(c.m_vertexA, c.m_vertexB) + c.getRadius();
+            const float curTop = High(c.getVertex(0), c.getVertex(1)) + c.getRadius();
             if (top > curTop + kMinChange && hull.valid) {
                 const float          up  = top - curTop;
                 const ::hkVector4& at  = hull.collidable->getTransform().getTranslation();
@@ -285,7 +287,7 @@ namespace CB::feature {
             const float ride  = std::clamp(ctrl.m_stepHeight, 0.0f, (std::max)(0.0f, top - s.feet - 2.0f * radius - kMinCore));
             const float lowZ  = s.feet + ride + radius;
             const float highZ = (std::max)(lowZ + kMinCore, top - radius);
-            if (std::fabs(Low(c.m_vertexA, c.m_vertexB) - lowZ) > kMinChange || std::fabs(High(c.m_vertexA, c.m_vertexB) - highZ) > kMinChange ||
+            if (std::fabs(Low(c.getVertex(0), c.getVertex(1)) - lowZ) > kMinChange || std::fabs(High(c.getVertex(0), c.getVertex(1)) - highZ) > kMinChange ||
                 std::fabs(c.getRadius() - radius) > kMinChange) {
                 const bool first = s.lift.load(std::memory_order_relaxed) == 0.0f;
                 WriteCapsule(c, lowZ, highZ, radius, s);

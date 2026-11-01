@@ -2,6 +2,8 @@
 
 #include "CharSweep.h"
 
+#include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
+
 #include <cfloat>
 #include <cstddef>
 #include <cstring>
@@ -56,7 +58,7 @@ namespace CB::feature::controller {
         {
             const float d = point.m_contact.getDistance();
             if (d >= self->m_earlyOutDistance) return;
-            const ::hkVector4& n = point.m_contact.m_separatingNormal;
+            const ::hkVector4& n = point.m_contact.getSeparatingNormal();
             if (n(0) * self->m_dx + n(1) * self->m_dy + n(2) * self->m_dz >= 0.0f) return;
             if (n(2) > self->m_ignoreAboveNormalZ) return;
             const ::hkpCdBody* root = point.m_cdBodyB;
@@ -133,8 +135,9 @@ namespace CB::feature::controller {
             StandIn(const ::hkpCollidable& original, const ::hkVector4& from)
             {
                 std::memcpy(static_cast<void*>(&m_transform), &original.getTransform(), sizeof(m_transform));
-                m_transform.m_translation = from;
-                const std::ptrdiff_t ownerBytes = original.m_ownerOffset < 0 ? -static_cast<std::ptrdiff_t>(original.m_ownerOffset) : 0;
+                m_transform.getTranslation() = from;
+                const std::ptrdiff_t ownerBytes = (std::max)(std::ptrdiff_t{ 0 }, reinterpret_cast<const char*>(&original) -
+                                                                       static_cast<const char*>(original.getOwner()));
                 std::uint8_t* const  at         = m_bytes + kMaxOwnerBytes;
                 std::memcpy(at - ownerBytes, reinterpret_cast<const std::uint8_t*>(&original) - ownerBytes, ownerBytes + sizeof(::hkpCollidable));
                 m_collidable           = reinterpret_cast<::hkpCollidable*>(at);

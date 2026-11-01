@@ -318,12 +318,12 @@ namespace CB::platform::relay {
             auto&      slots = cache[data];
             const auto named = [&](int i) { return i >= 0 && i < count && std::strcmp(names[i].cString(), name) == 0; };
             if (const auto it = slots.find(name); it != slots.end() && (it->second < 0 || named(it->second)))
-                return it->second < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[it->second].m_type;
+                return it->second < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : static_cast<::hkbVariableInfo::VariableType>(infos[it->second].m_type);
             int found = -1;
             for (int i = 0; i < count && found < 0; ++i)
                 if (named(i)) found = i;
             slots[name] = found;
-            return found < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[found].m_type;
+            return found < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : static_cast<::hkbVariableInfo::VariableType>(infos[found].m_type);
         }
 
         /// @brief GraphVar(name) -> the variable, typed by its declaration: Bool, Int or Float (0.0 when unreadable).

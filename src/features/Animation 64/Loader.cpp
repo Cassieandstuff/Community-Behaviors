@@ -7,7 +7,10 @@
 #include <platform/hooks/hookslib.h>
 
 #include <Common/Base/hkBase.h>
-#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
+#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorAccess.h>
 #include <Behavior/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
@@ -363,12 +366,14 @@ namespace CB::feature::widen {
             UnloadAnimation(manager, context, index);
         }
 
-        ::IAnimationClipLoader* ClipLoader() { return hooks::Live<&::g_animationClipLoader>(); }
+        using OffsetAccess = ::hkExtensionAccess<::BSOffsetAnimationGenerator>;
+
+        ::IAnimationClipLoader* ClipLoader() { return ::g_animationClipLoader; }
 
         /// @return the offset clip's binding index, -1 without one (vanilla passes hkUint16(-1)).
         std::int64_t OffsetIndex(::BSOffsetAnimationGenerator* gen)
         {
-            ::hkbClipGenerator* clip = gen->getOffsetClipGenerator();
+            ::hkbClipGenerator* clip = OffsetAccess::offsetClipGenerator(*gen);
             return clip ? BindingIndex(clip) : -1;
         }
 
@@ -379,7 +384,7 @@ namespace CB::feature::widen {
                 gen->m_userData = 8;
                 return;
             }
-            gen->sampleOffset(context);
+            (gen->*OffsetAccess::sampleOffset)(context);
             gen->m_userData = 0xc;
         }
 
@@ -387,9 +392,9 @@ namespace CB::feature::widen {
         {
             if (gen->m_userData == 0xc)
                 if (::IAnimationClipLoader* loader = ClipLoader()) UnloadAnimation(loader, context, OffsetIndex(gen));
-            gen->m_BoneIndexA.clear();
-            gen->m_BoneOffsetA.clear();
-            gen->m_bOffsetValid = false;
+            OffsetAccess::boneIndices(*gen).clear();
+            OffsetAccess::boneOffsets(*gen).clear();
+            OffsetAccess::offsetValid(*gen) = false;
         }
 
         /// @note Drops vanilla's HK_TIMER pair, as the clip readers do (Readers.cpp).
@@ -400,7 +405,7 @@ namespace CB::feature::widen {
                 if (::IAnimationClipLoader* loader = ClipLoader()) loaded = LoadAnimation(loader, context, OffsetIndex(gen));
                 if (loaded) gen->m_userData = 0xc;
             }
-            if (loaded) gen->sampleOffset(context);
+            if (loaded) (gen->*OffsetAccess::sampleOffset)(context);
         }
 
         /// @note Last: replacements, innermost, so observers still see every call.

@@ -49,8 +49,6 @@ namespace CB::feature::widen {
         {
             next(stringData, bindingSet, assetLoader, rootBehavior, path, annotationMap, unknown);
             if (!stringData || !rootBehavior) return;
-            /// @note Graphs load before kDataLoaded (the main menu's), and the walk grows hkArrays inline.
-            platform::classes::EnsureHavokGlobalsMirrored();
 
             /// @note The keys stay held for the walk: LoadClips has released its own by now, so a key's pool entry can be
             ///       this string's alone, freed with it, and its address reused by the next key (2026-10-25: most clips

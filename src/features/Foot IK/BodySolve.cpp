@@ -24,15 +24,15 @@ namespace CB::feature::footik {
         constexpr ik::Params kLimb{ 20, 0.1f };
         constexpr ik::Params kSpine{ 20, 0.1f };
 
-        ik::Vec3 V(const ::hkVector4& v) { return { v.m_quad.m128_f32[0], v.m_quad.m128_f32[1], v.m_quad.m128_f32[2] }; }
+        ik::Vec3 V(const ::hkVector4& v) { return { v.getQuad().m128_f32[0], v.getQuad().m128_f32[1], v.getQuad().m128_f32[2] }; }
         ik::Quat Q(const ::hkQuaternion& q)
         {
-            return { q.m_vec.m_quad.m128_f32[0], q.m_vec.m_quad.m128_f32[1], q.m_vec.m_quad.m128_f32[2], q.m_vec.m_quad.m128_f32[3] };
+            return { q.m_vec.getQuad().m128_f32[0], q.m_vec.getQuad().m128_f32[1], q.m_vec.getQuad().m128_f32[2], q.m_vec.getQuad().m128_f32[3] };
         }
         ::hkQuaternion HkQ(const ik::Quat& q)
         {
             ::hkQuaternion out;
-            out.m_vec.m_quad = _mm_setr_ps(q.x, q.y, q.z, q.w);
+            out.m_vec.getQuad() = _mm_setr_ps(q.x, q.y, q.z, q.w);
             return out;
         }
         ik::Vec3 Mul(ik::Vec3 a, ik::Vec3 b) { return { a.x * b.x, a.y * b.y, a.z * b.z }; }
@@ -80,7 +80,7 @@ namespace CB::feature::footik {
             Pose(const ::hkaSkeleton& skeleton, ::hkbGeneratorOutput& output) :
                 m_parents(skeleton.m_parentIndices),
                 m_out(output.accessPoseLocal()),
-                m_scale(output.accessWorldFromModel().m_scale.m_quad.m128_f32[0])
+                m_scale(output.accessWorldFromModel().m_scale.getQuad().m128_f32[0])
             {
                 const int numBones = std::min(output.getNumPoseLocal(), skeleton.m_parentIndices.getSize());
                 m_local.resize(numBones);
@@ -123,8 +123,8 @@ namespace CB::feature::footik {
                 const ik::Vec3    local  = parent >= 0 ? ik::Rotate(ik::Conjugate(m_model[parent].r), delta) : delta;
                 m_local[bone].t += local;
                 const ik::Vec3 out = local * (1.0f / m_scale);
-                m_out[bone].m_translation.m_quad =
-                    _mm_add_ps(m_out[bone].m_translation.m_quad, _mm_setr_ps(out.x, out.y, out.z, 0.0f));
+                m_out[bone].m_translation.getQuad() =
+                    _mm_add_ps(m_out[bone].m_translation.getQuad(), _mm_setr_ps(out.x, out.y, out.z, 0.0f));
             }
 
         private:

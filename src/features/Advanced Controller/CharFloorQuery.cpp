@@ -121,15 +121,15 @@ namespace CB::feature {
             const ::hkVector4& from = coll->getTransform().getTranslation();
             const ::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
             const controller::SweepHit s = controller::Sweep(world, coll, to, 0.0f, self->m_zNormal);
-            const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.m_separatingNormal(2) > 0.3f ? 2 : 0) : 0;
+            const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.getSeparatingNormal()(2) > 0.3f ? 2 : 0) : 0;
             if (key == g_lastSweepKey || g_sweepLogged >= 2000) return;
             g_lastSweepKey = key;
             ++g_sweepLogged;
             if (!s.hit) LOG_INFO("sweep #{}: {:.3f} ahead, clear", g_sweepLogged, std::sqrt(vx * vx + vy * vy));
             else
                 LOG_INFO("sweep #{}: {:.3f} ahead, hit at fraction {:.3f} n=({:.2f},{:.2f},{:.2f}) layer {}", g_sweepLogged,
-                         std::sqrt(vx * vx + vy * vy), s.fraction, s.contact.m_separatingNormal(0), s.contact.m_separatingNormal(1),
-                         s.contact.m_separatingNormal(2), s.body ? (s.body->getCollisionFilterInfo() & 0x7f) : 0u);
+                         std::sqrt(vx * vx + vy * vy), s.fraction, s.contact.getSeparatingNormal()(0), s.contact.getSeparatingNormal()(1),
+                         s.contact.getSeparatingNormal()(2), s.body ? (s.body->getCollisionFilterInfo() & 0x7f) : 0u);
         }
 
         std::mutex             g_lock;
@@ -199,7 +199,7 @@ namespace CB::feature {
             LOG_INFO("floor query #{}: ours {} (support hits {}, walkable {}, stickable {}) vanilla {} (surface {} onlyWalls {} bit9 {}) state {}{}",
                      g_logged, Name(v.ground), v.supportHits, v.walkableHits, v.stickable, vanilla ? "supported" : "unsupported",
                      static_cast<int>(ctrl.m_surfaceInfo.m_supportedState), ctrl.m_onlyWallContacts,
-                     (ctrl.m_flags & kHasPotentialSupportManifold) != 0, static_cast<int>(ctrl.m_context.m_currentState),
+                     (ctrl.m_flags & kHasPotentialSupportManifold) != 0, static_cast<int>(ctrl.m_context.getState()),
                      ours == vanilla ? "" : "  <- DISAGREE");
             if (ours != vanilla) {
                 for (int i = 0; i <= kRing; i++) {

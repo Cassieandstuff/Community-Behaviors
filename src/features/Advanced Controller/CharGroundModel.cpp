@@ -47,14 +47,14 @@ namespace CB::feature {
         ///        one whose step it accepted (it rewrote the plane upward).
         /// @note Layers 4/5/6/10 keep Bethesda's verdict: on a dynamic body there it forces the normal up (standing on
         ///       clutter), which the plane does not show.
-        bool IsRealSupport(const ::bhkCharacterController& ctrl, const ::hkRootCdPoint& point, const ::hkVector4& before,
+        bool IsRealSupport(const ::bhkCharacterController& ctrl, const ::hkpRootCdPoint& point, const ::hkVector4& before,
                            const ::hkVector4& after)
         {
             if (!::hkpGetRigidBody(point.m_rootCollidableB)) return false;
             const unsigned layer = point.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
             if (layer == kCharControllerLayer) return false;
             if (layer == 4 || layer == 5 || layer == 6 || layer == 10) return true;
-            const float nz = point.m_contact.m_separatingNormal(2);
+            const float nz = point.m_contact.getSeparatingNormal()(2);
             if (nz < 0.0f) return false;
             if (nz >= ctrl.m_zNormal) return true;
             const bool changed = before(0) != after(0) || before(1) != after(1) || before(2) != after(2) || before(3) != after(3);
@@ -68,7 +68,7 @@ namespace CB::feature {
         /// @note Bit 9 accumulates over a step's callbacks (UpdatePhysics clears it before CheckSupportImpl); one set
         ///       before this call was already judged here, so it stands.
         void OnProcess(Process::Next next, ::bhkCharProxyController* self, const ::hkpCharacterProxy* proxy,
-                       const ::hkArray<::hkRootCdPoint>& manifold, ::hkSimplexSolverInput& input)
+                       const ::hkArray<::hkpRootCdPoint>& manifold, ::hkpSimplexSolverInput& input)
         {
             ::bhkCharacterController& ctrl = *self;
             const int numPoints = (std::min)(input.m_numConstraints, manifold.getSize());
@@ -129,15 +129,15 @@ namespace CB::feature {
             const void* key       = static_cast<const void*>(&ctrl);
             const bool  supported = (ctrl.m_surfaceInfo.m_supportedState == ::hkpSurfaceInfo::SUPPORTED && !ctrl.m_onlyWallContacts)
                                  || (ctrl.m_flags & kHasPotentialSupportManifold);
-            const bool  candidate = ctrl.m_context.m_currentState == ::HK_CHARACTER_ON_GROUND && !supported && !ctrl.m_fakeSupport
+            const bool  candidate = ctrl.m_context.getState() == ::HK_CHARACTER_ON_GROUND && !supported && !ctrl.m_fakeSupport
                                  && !(ctrl.m_flags & kJumping) && ctrl.m_wantState == ::HK_CHARACTER_MAX_STATE_ID;
 
-            const bool onGroundUnsupported = ctrl.m_context.m_currentState == ::HK_CHARACTER_ON_GROUND && !supported;
+            const bool onGroundUnsupported = ctrl.m_context.getState() == ::HK_CHARACTER_ON_GROUND && !supported;
             std::scoped_lock lock(g_stickLock);
             bool         redirect = false;
             float        vz       = 0.0f;
             if (!candidate) {
-                if (supported || ctrl.m_context.m_currentState != ::HK_CHARACTER_ON_GROUND) g_sticking.erase(key);
+                if (supported || ctrl.m_context.getState() != ::HK_CHARACTER_ON_GROUND) g_sticking.erase(key);
             } else {
                 bool& sticking = g_sticking[key];
                 if (wasSupported) {

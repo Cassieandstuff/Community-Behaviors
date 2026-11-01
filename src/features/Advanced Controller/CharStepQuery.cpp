@@ -113,7 +113,7 @@ namespace CB::feature {
             Attempt a;
             a.requested  = requested;
             a.achieved   = achieved;
-            a.obstacleNz = obstacle.contact.m_separatingNormal(2);
+            a.obstacleNz = obstacle.contact.getSeparatingNormal()(2);
             const float stepHeight = ctrl.m_stepHeight;
             if (!(stepHeight > kMinUp)) {
                 a.reason = "no step height";
@@ -143,7 +143,7 @@ namespace CB::feature {
                 a.reason = "no floor beyond";
                 return Log(a);
             }
-            a.landingNz = down.contact.m_separatingNormal(2);
+            a.landingNz = down.contact.getSeparatingNormal()(2);
             if (down.fraction <= 0.0f) {
                 a.reason = "landing blocked";
                 return Log(a);

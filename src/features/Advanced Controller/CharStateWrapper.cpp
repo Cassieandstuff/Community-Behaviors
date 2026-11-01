@@ -3,6 +3,7 @@
 #include "CharDebugHud.h"
 #include "CharGround.h"
 
+#include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContextAccess.h>
 #include <core/debug/Settings.h>
 #include <platform/hooks/hookslib.h>
 #include <platform/hooks/Override.h>
@@ -560,13 +561,13 @@ namespace CB::feature {
         {
             if (!fv.supportBody) return;
             ::hkpRigidBody* body = ::hkpGetRigidBody(fv.supportBody);
-            if (body && body != c.m_supportBody.m_pntr) c.SetSupportBody(body);
+            if (body && body != c.m_supportBody.val()) c.SetSupportBody(body);
         }
 
         /// @brief Runs one managed step through the vanilla state now current (Swimming, Climbing, ...).
         void RunCurrentVanilla(::bhkCharacterController& c)
         {
-            const ::hkpCharacterState* state = c.m_context.m_stateManager->getState(c.m_context.m_currentState);
+            const ::hkpCharacterState* state = ::hkExtensionAccess<::hkpCharacterContext>::stateManager(c.m_context)->getState(c.m_context.getState());
             if (!state) return;
             const auto fn = reinterpret_cast<SimulateFn>((*reinterpret_cast<void* const* const*>(state))[kSimulateSlot]);
             fn(state, &c);
@@ -641,7 +642,7 @@ namespace CB::feature {
             Track&      t   = TrackFor(&c);
             const float dt  = c.m_stepInfo.m_deltaTime;
             if (ch::IsPlayer(&c)) JumpInput::Get().EnsureRegistered();
-            const int   cur = static_cast<int>(c.m_context.m_currentState);
+            const int   cur = static_cast<int>(c.m_context.getState());
             const int   previousState = t.init ? t.lastState : -1;
 
             /// @note The pogo's correction rate moved the feet last step and stops there: the velocity this step reads
@@ -798,7 +799,7 @@ namespace CB::feature {
             }
             ch::PublishGroundNote(c, note);
             if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, fv);
-            t.lastState = static_cast<int>(c.m_context.m_currentState);
+            t.lastState = static_cast<int>(c.m_context.getState());
         }
 
         /// @brief Whether CB's ground states run `controller` this step.

@@ -180,7 +180,7 @@ set(HK_LAYOUT_CHECK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/lib/cb-sdk" EXCLUDE_FROM_ALL)
 target_compile_definitions(hkCompileOptions INTERFACE HK_EXE_GLOBALS_BY_REFERENCE)
 target_compile_definitions(CommunityBehaviors PRIVATE HK_EXE_GLOBALS_BY_REFERENCE)
-target_link_libraries(CommunityBehaviors PRIVATE HavokSDK)
+target_link_libraries(CommunityBehaviors PRIVATE HavokExtensions)
 
 # Engine symbol registry: src/platform/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see

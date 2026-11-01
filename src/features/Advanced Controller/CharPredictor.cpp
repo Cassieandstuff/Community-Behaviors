@@ -83,7 +83,7 @@ namespace CB::feature {
         /// @note Why: 47 of 113 blocked predictions in one session hit layer 22 (ActorZone), a trigger volume.
         std::uint64_t SweepIgnoreLayers()
         {
-            const ::bhkCollisionFilter* filter = platform::hooks::Live<&::bhkCollisionFilter::s_singleton>();
+            const ::bhkCollisionFilter* filter = ::bhkCollisionFilter::s_singleton;
             return kIgnoreLayers | (filter ? static_cast<std::uint64_t>(filter->m_sensorField) : 0ull);
         }
 
@@ -536,7 +536,7 @@ namespace CB::feature {
                         const Vec2  contact = { from.x + dx * back, from.y + dy * back };
                         const float contactZ = fromZ + (toZ - fromZ) * back;
                         travelled += len * back;
-                        const ::hkVector4& n = hit.contact.m_separatingNormal;
+                        const ::hkVector4& n = hit.contact.getSeparatingNormal();
                         if (horizon) {
                             tr.hitNz     = n(2);
                             tr.hitLayer  = hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1;

@@ -135,7 +135,7 @@ namespace CB::feature::controller::motion {
 
     const ::hkClass* PoseSearchChooser::getClassType() const
     {
-        static const void* const cls = platform::classes::ClassOf(kChooserClassName);
+        static const auto* const cls = static_cast<const ::hkClass*>(platform::classes::ClassOf(kChooserClassName));
         return cls;
     }
 

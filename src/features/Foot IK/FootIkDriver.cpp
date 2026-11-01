@@ -175,7 +175,7 @@ namespace CB::feature::footik {
             for (int i = 0; i < call.numRequests; i++) {
                 const ::hkInt16 ankle = call.requests[i].setup.m_endBoneIdx;
                 const char*       name  = ankle >= 0 && ankle < skeleton->m_bones.getSize() ? skeleton->m_bones[ankle].m_name.cString() : nullptr;
-                const __m128&     t     = call.requests[i].setup.m_endTargetMS.m_quad;
+                const __m128&     t     = call.requests[i].setup.m_endTargetMS.getQuad();
                 bends += std::format(" {} ({:.1f} {:.1f} {:.1f})", name ? name : "?", t.m128_f32[0], t.m128_f32[1], t.m128_f32[2]);
             }
             LOG_INFO("foot IK: {} bends one frame (errorUpDownBias {:.2f}), ankle targets in model space:{}", CharacterName(*call.character),
@@ -235,7 +235,7 @@ namespace CB::feature::footik {
             inputs.errorUpDownBias = ErrorUpDownBias(generatorOutput);
             inputs.bendSpine       = BodyOn();
             if (const ::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr; setup && setup->m_data) {
-                const __m128& up = setup->m_data->m_modelUpMS.m_quad;
+                const __m128& up = setup->m_data->m_modelUpMS.getQuad();
                 inputs.modelUpMS = { up.m128_f32[0], up.m128_f32[1], up.m128_f32[2] };
             }
             LogBendsOnce(call, inputs.errorUpDownBias);

@@ -85,6 +85,8 @@ set(_nr 0)
 set(_identityHeaders "")
 set(_dataHeaders "")
 set(_identity "")
+set(_keys "")
+set(_nk 0)
 set(_globals "")
 set(_nf 0)
 set(_nd 0)
@@ -188,6 +190,11 @@ foreach(_l IN LISTS _lines)
     if(NOT _mangled)
         continue()
     endif()
+    # A compiler-internal function (__global_delete, ...) is the plugin's own CRT's: binding it to the exe's collides
+    # with the compiler's weak default.
+    if(_mangled MATCHES "^\\?__")
+        continue()
+    endif()
     # An SDK row binds the call and the takeover only: its converted `sig` predates the SDK's declarations, so an
     # Identity for Override comes from an engine.yaml row naming the declaration a feature overrides. A data row keeps
     # its header (the GlobalIdentity / const copy need the type).
@@ -252,9 +259,12 @@ foreach(_l IN LISTS _lines)
             list(REVERSE _parts)
             list(JOIN _parts "::" _cpp)
         endif()
-        if(NOT "${_header}" IN_LIST _identityHeaders)
-            list(APPEND _identityHeaders "${_header}")
-        endif()
+        string(REPLACE "|" ";" _fheaders "${_header}")
+        foreach(_h IN LISTS _fheaders)
+            if(NOT "${_h}" IN_LIST _identityHeaders)
+                list(APPEND _identityHeaders "${_h}")
+            endif()
+        endforeach()
         set(_owner "")
         if(_sig MATCHES "\\(([^()]*)::\\*\\)")
             set(_owner "${CMAKE_MATCH_1}")
@@ -276,14 +286,22 @@ foreach(_l IN LISTS _lines)
         else()
             set(_key "&::${_cpp}")
         endif()
+        # A protected or private member (its decorated name's access code after the scope: A-F, I-M) is named from
+        # the SDK's extension-access specialization below; any other directly, since MSVC loses a member pointer's
+        # identity through a variable when its class has several bases.
+        if(_mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[A-FI-M]")
+            string(APPEND _keys "    static constexpr auto k${_nk} = ${_key};\n")
+            set(_key "kKeys::k${_nk}")
+            math(EXPR _nk "${_nk}+1")
+        endif()
         string(APPEND _identity "template <>\nstruct Identity<${_key}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    static constexpr const engine::Symbol& symbol = engine::${_name};\n    using This                           = ${_thisType};\n};\n\n")
     elseif(_kind STREQUAL "data")
         # HK_EXE_GLOBAL (the SDK built HK_EXE_GLOBALS_BY_REFERENCE) declares the global as a reference: the row's
         # decorated name with its type wrapped in an lvalue reference (AE<cv> <type> E<cv>). Its storage is a slot the
         # shim fills with the exe's address at load. An array (P[AB] without E) or a vtable (??_7) is not one.
-        if(NOT _mangled MATCHES "@@[23]P[AB][^E]" AND _mangled MATCHES "^(\\?[^?].*@@[23])(.*)$")
+        if(NOT _mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[0-3]P[AB][^E]" AND _mangled MATCHES "^(\\?[^?][^@]*(@[^@]+)*@@[0-3])(.*)$")
             set(_refHead "${CMAKE_MATCH_1}")
-            set(_refRest "${CMAKE_MATCH_2}")
+            set(_refRest "${CMAKE_MATCH_3}")
             string(REGEX MATCH ".$" _cv "${_refRest}")
             if(_refRest MATCHES "^[PQRS]E")
                 string(REGEX REPLACE "E.$" "" _refType "${_refRest}")
@@ -303,6 +321,12 @@ foreach(_l IN LISTS _lines)
         # `header` may name several, `|`-separated: the declaring header, then whatever completes the type.
         string(REPLACE "|" ";" _headers "${_header}")
         if(NOT _mangled MATCHES "B$")
+            # A global the SDK declares is an HK_EXE_GLOBAL reference, bound above: code reads it by name, with no
+            # Live<&global> (a reference's address is no constant).
+            list(GET _headers 0 _h0)
+            if(EXISTS "${SDK_ROOT}/Source/${_h0}" OR EXISTS "${SDK_ROOT}/Bethesda/${_h0}")
+                set(_globalIdentity OFF)
+            endif()
             if(NOT _globalIdentity)
                 continue()
             endif()
@@ -311,8 +335,14 @@ foreach(_l IN LISTS _lines)
                     list(APPEND _identityHeaders "${_h}")
                 endif()
             endforeach()
+            set(_gkey "&::${_cpp}")
+            if(_mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[01]")
+                string(APPEND _keys "    static constexpr auto k${_nk} = &::${_cpp};\n")
+                set(_gkey "kKeys::k${_nk}")
+                math(EXPR _nk "${_nk}+1")
+            endif()
             string(APPEND _globals "template <>
-struct GlobalIdentity<&::${_cpp}> {
+struct GlobalIdentity<${_gkey}> {
     static constexpr const engine::Symbol& symbol = engine::${_name};
 };
 
@@ -535,8 +565,20 @@ _cb_write("${OUT_IDENTITY_H}"
 
 #include <platform/hooks/registry/EngineRegistry.gen.h>
 
+#include <Common/Base/Config/hkExtensionAccess.h>
 ${_identityIncludes}
+namespace CB::platform::hooks { struct IdentityKeys; }
+
+/// @brief Every key below, named from a specialization of the SDK's extension-access family: a hooked member may be
+///        protected or private (MSVC access-checks even an explicit specialization's template arguments).
+template <>
+struct hkExtensionAccess<CB::platform::hooks::IdentityKeys> {
+    static constexpr int kNone = 0;
+${_keys}};
+
 namespace CB::platform::hooks {
+
+using kKeys = ::hkExtensionAccess<IdentityKeys>;
 
 template <auto F>
 struct Identity;

@@ -45,7 +45,7 @@ namespace CB::feature {
         }
         V3 Rotate(const ::hkTransform& t, V3 v)
         {
-            const V3 c0 = Of(t.m_rotation.m_col0), c1 = Of(t.m_rotation.m_col1), c2 = Of(t.m_rotation.m_col2);
+            const V3 c0 = Of(t.getColumn(0)), c1 = Of(t.getColumn(1)), c2 = Of(t.getColumn(2));
             return { c0.x * v.x + c1.x * v.y + c2.x * v.z, c0.y * v.x + c1.y * v.y + c2.y * v.z, c0.z * v.x + c1.z * v.y + c2.z * v.z };
         }
 
@@ -57,10 +57,10 @@ namespace CB::feature {
             unsigned weldingType = 0;
         };
 
-        Face FaceOf(const ::hkRootCdPoint& point)
+        Face FaceOf(const ::hkpRootCdPoint& point)
         {
             Face face;
-            if (point.m_shapeKeyB == ::HK_INVALID_SHAPE_KEY) return face;
+            if (point.m_shapeKeyB == HK_INVALID_SHAPE_KEY) return face;
             const ::hkpShape* root = point.m_rootCollidableB->getShape();
             const ::hkpShape* mesh = root ? ::bhkGetMeshShape(root) : nullptr;
             if (!mesh) return face;
@@ -72,27 +72,27 @@ namespace CB::feature {
             face.childType = child->getType();
             if (face.childType != ::HK_SHAPE_TRIANGLE) return face;
             const auto* tri = static_cast<const ::hkpTriangleShape*>(child);
-            const V3    a = Of(tri->m_vertexA), b = Of(tri->m_vertexB), c = Of(tri->m_vertexC);
+            const V3    a = Of(tri->getVertex(0)), b = Of(tri->getVertex(1)), c = Of(tri->getVertex(2));
             face.normal      = Normalized(Rotate(point.m_rootCollidableB->getTransform(), Cross(Sub(b, a), Sub(c, a))));
-            face.weldingInfo = tri->m_weldingInfo;
-            face.weldingType = tri->m_weldingType;
+            face.weldingInfo = tri->getWeldingInfo();
+            face.weldingType = tri->getWeldingType();
             return face;
         }
 
         /// @note Coarse on purpose: a contact sliding along one face must not re-log every frame. The state, wanted state
         ///       and support bits are in it, so a state change logs even when the contacts hold still.
-        std::uint64_t Signature(const ::bhkCharacterController& ctrl, const ::hkArray<::hkRootCdPoint>& manifold)
+        std::uint64_t Signature(const ::bhkCharacterController& ctrl, const ::hkArray<::hkpRootCdPoint>& manifold)
         {
             std::uint64_t h = 1469598103934665603ull ^ static_cast<std::uint64_t>(manifold.getSize());
             auto          mix = [&h](std::uint64_t v) { h = (h ^ v) * 1099511628211ull; };
-            mix(static_cast<std::uint64_t>(ctrl.m_context.m_currentState));
+            mix(static_cast<std::uint64_t>(ctrl.m_context.getState()));
             mix(static_cast<std::uint64_t>(ctrl.m_wantState));
             mix(ctrl.m_flags & 0x2300u);
             for (int i = 0; i < manifold.getSize(); i++) {
-                const ::hkRootCdPoint& p = manifold[i];
+                const ::hkpRootCdPoint& p = manifold[i];
                 mix(reinterpret_cast<std::uintptr_t>(p.m_rootCollidableB));
                 mix(p.m_shapeKeyB);
-                const V3 n = Of(p.m_contact.m_separatingNormal);
+                const V3 n = Of(p.m_contact.getSeparatingNormal());
                 mix(static_cast<std::uint64_t>(static_cast<std::int64_t>(std::lround(n.x * 20) * 1600 + std::lround(n.y * 20) * 40 + std::lround(n.z * 20))));
             }
             return h;
@@ -124,7 +124,7 @@ namespace CB::feature {
         constexpr std::uint32_t kMaxLogged = 20000;
 
         void OnProcess(Process::Next next, ::bhkCharProxyController* self, const ::hkpCharacterProxy* proxy,
-                       const ::hkArray<::hkRootCdPoint>& manifold, ::hkSimplexSolverInput& input)
+                       const ::hkArray<::hkpRootCdPoint>& manifold, ::hkpSimplexSolverInput& input)
         {
             if (!IsPlayer(self)) return next(self, proxy, manifold, input);
 
@@ -147,13 +147,13 @@ namespace CB::feature {
             const V3 v = Of(input.m_velocity);
             LOG_INFO("ccprobe #{}: call {} state {} want {} fake {} points {} constraints {}->{} v=({:.2f},{:.2f},{:.2f}) flags {:#x} support {} "
                      "onlyWalls {} supportNorm=({:.2f},{:.2f},{:.2f}) zNormal {:.3f}",
-                     g_logged, g_calls, static_cast<int>(ctrl.m_context.m_currentState), static_cast<int>(ctrl.m_wantState), ctrl.m_fakeSupport,
+                     g_logged, g_calls, static_cast<int>(ctrl.m_context.getState()), static_cast<int>(ctrl.m_wantState), ctrl.m_fakeSupport,
                      manifold.getSize(), constraintsBefore, input.m_numConstraints, v.x, v.y, v.z, ctrl.m_flags, ctrl.m_supportCount,
                      ctrl.m_onlyWallContacts, ctrl.m_supportNorm(0), ctrl.m_supportNorm(1), ctrl.m_supportNorm(2), ctrl.m_zNormal);
             for (int i = 0; i < manifold.getSize(); i++) {
-                const ::hkRootCdPoint& p   = manifold[i];
-                const V3                 n   = Of(p.m_contact.m_separatingNormal);
-                const V3                 pos = Of(p.m_contact.m_position);
+                const ::hkpRootCdPoint& p   = manifold[i];
+                const V3                 n   = Of(p.m_contact.getSeparatingNormal());
+                const V3                 pos = Of(p.m_contact.getPosition());
                 const Face               f   = FaceOf(p);
                 const unsigned           layer = p.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
                 const char* outcome = i < numPoints ? Outcome(n.z, ctrl.m_zNormal, before[i], input.m_constraints[i].m_plane) : "unconstrained";

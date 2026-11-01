@@ -7,9 +7,17 @@
 
 #include <Common/Base/hkBase.h>
 #include <Animation/Animation/Animation/hkaAnimationBinding.h>
+#include <Animation/Animation/Playback/Control/Default/hkaDefaultAnimationControl.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraphStringData.h>
+#include <Behavior/Behavior/Character/hkbAnimationBindingSet.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Character/hkbCharacterSetup.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
+#include <Behavior/Behavior/Utils/hkbSymbolIdMap.h>
 #include <Animation/Animation/Rig/hkaSkeleton.h>
-#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.h>
-#include <Behavior/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
+#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorAccess.h>
+#include <Behavior/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGeneratorAccess.h>
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <cstdarg>
@@ -29,6 +37,15 @@
 ///        index to the clip loader's loadAnimation / unloadAnimation (an hkInt16 parameter of the exe's
 ///        AnimationFileManagerSingleton). They convert with the loader.
 
+namespace CB::feature::widen { struct OffsetSampler; }
+
+/// @brief BSOffsetAnimationGenerator::sampleOffset as the SDK has it, the offset clip's index read at 64 bits: a
+///        specialization of the SDK's extension-access family, so it reads the generator's protected state.
+template <>
+struct hkExtensionAccess<CB::feature::widen::OffsetSampler> {
+    static void sample(::BSOffsetAnimationGenerator* gen, const ::hkbContext& context);
+};
+
 namespace CB::feature::widen {
 
     namespace {
@@ -39,7 +56,7 @@ namespace CB::feature::widen {
         constexpr const char* kFlag = "animation64_readers";
 
         /// @note The clip loader and hkError's instance are mutable globals the link shim leaves unbound: read live.
-        ::IAnimationClipLoader* Loader() { return hooks::Live<&::g_animationClipLoader>(); }
+        ::IAnimationClipLoader* Loader() { return ::g_animationClipLoader; }
 
         /// @return the role prefix an unset m_SyncAnimPrefix stands for: the exe's g_bssyncEmptyString, read through its
         ///         pin; "NPC", vanilla's value, on a runtime without one.
@@ -64,7 +81,7 @@ namespace CB::feature::widen {
             va_start(args, format);
             std::vsnprintf(text, sizeof text, format, args);
             va_end(args);
-            hooks::Live<&::hkError::s_instance>()->message(::hkError::MESSAGE_WARNING, id, text, file, line);
+            ::hkError::s_instance->message(::hkError::MESSAGE_WARNING, id, text, file, line);
         }
 
         /// @return the binding at `index` in `set`, or null when there is no set or the index is outside it.
@@ -79,14 +96,12 @@ namespace CB::feature::widen {
         using ClipDeactivate = hooks::Override<&::hkbClipGenerator::deactivate>;
         using ClipIsValid    = hooks::Override<&::hkbClipGenerator::isValid>;
         using ClipRebind     = hooks::Override<&::hkbClipGenerator::rebindFromBindingSet>;
-        using OffsetSample   = hooks::Override<&::BSOffsetAnimationGenerator::sampleOffset>;
-        using SyncMark       = hooks::Override<&::BSSynchronizedClipGenerator::sampleSyncMark>;
-        using SyncActivate   = hooks::Override<&::BSSynchronizedClipGenerator::activateClipGenerator>;
+        using OffsetSample   = hooks::Override<::hkExtensionAccess<::BSOffsetAnimationGenerator>::sampleOffset>;
+        using SyncMark       = hooks::Override<::hkExtensionAccess<::BSSynchronizedClipGenerator>::sampleSyncMark>;
+        using SyncActivate   = hooks::Override<::hkExtensionAccess<::BSSynchronizedClipGenerator>::activateClipGenerator>;
 
         void OnClipActivate(ClipActivate::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            /// @note Its `new`s and reserve run Havok's allocation inline, which can come before kDataLoaded.
-            platform::classes::EnsureHavokGlobalsMirrored();
             if (clip->m_userData == 0 && Loader()) Loader()->queue(context, clip, HK_NULL);
 
             if (clip->m_userData == 8) {
@@ -99,7 +114,7 @@ namespace CB::feature::widen {
                     hkaAnimationBinding*             binding = bwt ? bwt->m_binding : HK_NULL;
 
                     if (clip->m_animationControl) {
-                        clip->m_animationControl->setBinding(binding);
+                        clip->m_animationControl->setAnimationBinding(binding);
                     } else {
                         clip->m_animationControl.setAndDontIncrementRefCount(
                             new hkaDefaultAnimationControl((binding && binding->m_animation) ? binding : HK_NULL, true, 2));
@@ -140,7 +155,7 @@ namespace CB::feature::widen {
                     }
                 }
 
-                if (!clip->m_animationControl->m_binding) {
+                if (!clip->m_animationControl->getAnimationBinding()) {
                     hkbBehaviorGraph* graph = context.m_character->m_behaviorGraph;
                     Warn(int(0xa781b89f), "Generator\\Clip\\hkbClipGenerator.cpp", 0x122,
                          "%s's %s: Animation control exists but binding was not created.  Was the animation loaded and connected to the "
@@ -164,7 +179,7 @@ namespace CB::feature::widen {
 
         void OnClipDeactivate(ClipDeactivate::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            clip->fn_140ad11e0();
+            clip->resetIgnoreStartTime();
 
             clip->m_echos.setSize(0);
 
@@ -182,7 +197,7 @@ namespace CB::feature::widen {
             }
 
             clip->m_binding = HK_NULL;
-            if (clip->m_animationControl) clip->m_animationControl->setBinding(HK_NULL);
+            if (clip->m_animationControl) clip->m_animationControl->setAnimationBinding(HK_NULL);
 
             if (clip->m_userData != 0 && Loader()) Loader()->unload(context, clip, HK_NULL);
         }
@@ -200,7 +215,7 @@ namespace CB::feature::widen {
                 return false;
             }
             const hkReal duration =
-                clip->m_animationControl->m_binding->m_animation->m_duration - (clip->m_cropEndAmountLocalTime + clip->m_cropStartAmountLocalTime);
+                clip->m_animationControl->getAnimationBinding()->m_animation->m_duration - (clip->m_cropEndAmountLocalTime + clip->m_cropStartAmountLocalTime);
             if (duration <= 0.0f) {
                 errorString = "The clip is cropped to a duration of zero.";
                 return false;
@@ -213,51 +228,13 @@ namespace CB::feature::widen {
             hkbAnimationBindingSet*          bindingSet = context.m_character ? context.m_character->getAnimationBindingSet() : HK_NULL;
             hkbAnimationBindingWithTriggers* bwt        = BindingAt(bindingSet, BindingIndex(clip));
             hkaAnimationBinding*             binding    = bwt ? bwt->m_binding : HK_NULL;
-            if (clip->m_animationControl) clip->m_animationControl->setBinding(binding);
+            if (clip->m_animationControl) clip->m_animationControl->setAnimationBinding(binding);
             clip->m_binding = binding;
         }
 
         void OnOffsetSample(OffsetSample::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
         {
-            /// @note Its setSize calls grow hkArrays inline.
-            platform::classes::EnsureHavokGlobalsMirrored();
-            const hkReal range      = gen->m_fOffsetRangeEnd - gen->m_fOffsetRangeStart;
-            hkReal       percentage = (range > HK_REAL_EPSILON) ? gen->m_fOffsetVariable / range : 0.0f;
-            percentage              = (percentage < 0.0f) ? 0.0f : hkMath::min2(percentage, 1.0f);
-            if (gen->m_bOffsetValid && hkMath::fabs(percentage - gen->m_fCurrentPercentage) <= HK_REAL_EPSILON) return;
-            gen->m_fCurrentPercentage = percentage;
-
-            hkbClipGenerator*                clip       = gen->getOffsetClipGenerator();
-            hkbCharacter*                    character  = context.m_character;
-            hkbAnimationBindingSet*          bindingSet = character ? character->getAnimationBindingSet() : HK_NULL;
-            hkbAnimationBindingWithTriggers* bwt        = clip ? BindingAt(bindingSet, BindingIndex(clip)) : HK_NULL;
-            const hkaAnimationBinding*       binding    = bwt ? bwt->m_binding : HK_NULL;
-            hkaAnimation*                    animation  = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();
-
-            if (!animation || binding->m_blendHint != hkaAnimationBinding::ADDITIVE) {
-                gen->m_bZeroOffset = true;
-                if (animation)
-                    Warn(0, "Generator\\BSOffsetAnimation\\BSOffsetAnimationGenerator.cpp", 0x122,
-                         "The BSOffsetAnimationGenerator, %s, pointed to a non-additive animation %s.", gen->m_name.cString(), clip->m_name.cString());
-            } else {
-                const hkReal   frameDuration = animation->m_duration * (1.0f / hkReal(animation->getNumOriginalFrames() - 1));
-                const hkReal   time          = (animation->m_duration - frameDuration) * percentage + frameDuration;
-                const hkUint32 numFrames     = animation->getNumOriginalFrames();
-                hkUint32       frame         = hkUint32(__int64((time / animation->m_duration) * hkReal(numFrames - 1)));
-                if (frame > numFrames - 2) frame = numFrames - 2;
-                if (frame != gen->m_iCurrentFrame) {
-                    gen->m_iCurrentFrame = frame;
-                    if (!gen->m_bOffsetValid) {
-                        const int numTracks = animation->m_numberOfTransformTracks;
-                        if (numTracks > 0) {
-                            gen->m_BoneIndexA.setSize(numTracks, -1);
-                            gen->m_BoneOffsetA.setSize(numTracks);
-                        }
-                        gen->m_bOffsetValid = true;
-                    }
-                    gen->m_bZeroOffset = !gen->sampleBoneOffsets(binding, animation, time);
-                }
-            }
+            ::hkExtensionAccess<OffsetSampler>::sample(gen, context);
         }
 
         /// @note The game's paired-idle start (0x1405463f0) calls this for every participant and aborts the scene when
@@ -301,6 +278,8 @@ namespace CB::feature::widen {
         }
 
         /// @note The scene slot (m_sAnimationBindingIndex) is still 16-bit: it widens on its own (Animation64.h).
+        using SyncAccess = ::hkExtensionAccess<::BSSynchronizedClipGenerator>;
+
         void OnSyncActivate(SyncActivate::Next, ::BSSynchronizedClipGenerator* sync, const ::hkbContext& context, ::hkbClipGenerator* clip)
         {
             const ::hkInt16  sceneIndex = sync->m_sAnimationBindingIndex;
@@ -308,7 +287,8 @@ namespace CB::feature::widen {
             if (sceneIndex != -1) SetBindingIndex(clip, sceneIndex);
             clip->activate(context);
             if (sceneIndex == -1) {
-                if (clip->m_animationControl && sync->m_pLocalSyncBinding) clip->m_animationControl->setBinding(sync->m_pLocalSyncBinding);
+                if (const ::hkaAnimationBinding* local = SyncAccess::localSyncBinding(*sync); clip->m_animationControl && local)
+                    clip->m_animationControl->setAnimationBinding(local);
             } else {
                 SetBindingIndex(clip, clipIndex);
             }
@@ -328,3 +308,46 @@ namespace CB::feature::widen {
     }  // namespace
 
 }  // namespace CB::feature::widen
+
+
+void hkExtensionAccess<CB::feature::widen::OffsetSampler>::sample(::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
+{
+    namespace widen = CB::feature::widen;
+        const hkReal range      = gen->m_fOffsetRangeEnd - gen->m_fOffsetRangeStart;
+        hkReal       percentage = (range > HK_REAL_EPSILON) ? gen->m_fOffsetVariable / range : 0.0f;
+        percentage              = (percentage < 0.0f) ? 0.0f : hkMath::min2(percentage, 1.0f);
+        if (gen->m_bOffsetValid && hkMath::fabs(percentage - gen->m_fCurrentPercentage) <= HK_REAL_EPSILON) return;
+        gen->m_fCurrentPercentage = percentage;
+
+        hkbClipGenerator*                clip       = gen->getOffsetClipGenerator();
+        hkbCharacter*                    character  = context.m_character;
+        hkbAnimationBindingSet*          bindingSet = character ? character->getAnimationBindingSet() : HK_NULL;
+        hkbAnimationBindingWithTriggers* bwt        = clip ? widen::BindingAt(bindingSet, widen::BindingIndex(clip)) : HK_NULL;
+        const hkaAnimationBinding*       binding    = bwt ? bwt->m_binding : HK_NULL;
+        hkaAnimation*                    animation  = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();
+
+        if (!animation || binding->m_blendHint != hkaAnimationBinding::ADDITIVE) {
+            gen->m_bZeroOffset = true;
+            if (animation)
+                widen::Warn(0, "Generator\\BSOffsetAnimation\\BSOffsetAnimationGenerator.cpp", 0x122,
+                     "The BSOffsetAnimationGenerator, %s, pointed to a non-additive animation %s.", gen->m_name.cString(), clip->m_name.cString());
+        } else {
+            const hkReal   frameDuration = animation->m_duration * (1.0f / hkReal(animation->getNumOriginalFrames() - 1));
+            const hkReal   time          = (animation->m_duration - frameDuration) * percentage + frameDuration;
+            const hkUint32 numFrames     = animation->getNumOriginalFrames();
+            hkUint32       frame         = hkUint32(__int64((time / animation->m_duration) * hkReal(numFrames - 1)));
+            if (frame > numFrames - 2) frame = numFrames - 2;
+            if (frame != gen->m_iCurrentFrame) {
+                gen->m_iCurrentFrame = frame;
+                if (!gen->m_bOffsetValid) {
+                    const int numTracks = animation->m_numberOfTransformTracks;
+                    if (numTracks > 0) {
+                        gen->m_BoneIndexA.setSize(numTracks, -1);
+                        gen->m_BoneOffsetA.setSize(numTracks);
+                    }
+                    gen->m_bOffsetValid = true;
+                }
+                gen->m_bZeroOffset = !gen->sampleBoneOffsets(binding, animation, time);
+            }
+        }
+}
