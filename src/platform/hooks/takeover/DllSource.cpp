@@ -19,6 +19,22 @@ extern "C" const std::uintptr_t cb_stub_table[];
 
 namespace CB::platform::hooks {
 
+    namespace {
+
+        /// @brief The class a decorated member name belongs to (`?f@Class@@...`, `??0Class@@...`, `??_GClass@@...`): what
+        ///        [HavokRuntime] <Class>= and sOnly name. A generated row's own name carries no class.
+        std::string ClassOfDecorated(std::string_view m)
+        {
+            std::size_t at = 0;
+            if (m.starts_with("??_")) at = 4;
+            else if (m.starts_with("??")) at = 3;
+            else if (const auto first = m.find('@'); first != std::string_view::npos) at = first + 1;
+            const auto end = m.find('@', at);
+            return std::string(m.substr(at, end == std::string_view::npos ? end : end - at));
+        }
+
+    }  // namespace
+
     DllSource::DllSource()
     {
         const auto* funcs   = detail::ShimFunctions();
@@ -28,8 +44,7 @@ namespace CB::platform::hooks {
         for (std::size_t i = 0, n = detail::ShimFunctionCount(); i < n; ++i) {
             if (!cb_impl_table[i] || cb_impl_table[i] == cb_stub_table[i] || !engine::Available(*funcs[i])) continue;
             if (!mangled[i] || !shipped.contains(mangled[i])) continue;
-            const std::string_view name = funcs[i]->name;
-            slots_[std::string(name.substr(0, name.find('_')))].push_back(i);
+            slots_[ClassOfDecorated(mangled[i])].push_back(i);
             ++count_;
         }
     }
