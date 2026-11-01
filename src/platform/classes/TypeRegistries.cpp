@@ -264,13 +264,18 @@ namespace CB::platform::classes {
                 /// @note An object the plugin's SDK code built (a shipped cloneNode's `new`) has the plugin's copy of its
                 ///       vtable, which the exe never registered. Its getClassType (slot 1 of hkReferencedObject) answers.
                 const Word* vtable = *reinterpret_cast<const Word* const*>(obj);
-                HMODULE     owner  = nullptr;
-                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                   reinterpret_cast<LPCSTR>(vtable), &owner);
-                HMODULE self = nullptr;
-                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                   reinterpret_cast<LPCSTR>(&S), &self);
-                return owner && owner == self ? reinterpret_cast<Word (*)(Word)>(vtable[1])(obj) : 0;
+                const Word  answer = reinterpret_cast<Word (*)(Word)>(vtable[1])(obj);
+                static std::atomic<int> logged{ 0 };
+                if (logged.fetch_add(1, std::memory_order_relaxed) < 40) {
+                    HMODULE owner = nullptr;
+                    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       reinterpret_cast<LPCSTR>(vtable), &owner);
+                    char path[MAX_PATH]{};
+                    if (owner) GetModuleFileNameA(owner, path, MAX_PATH);
+                    LOG_WARN("type registries: no class for vtable {:#x} ({}); getClassType answered {:#x} ({})",
+                             reinterpret_cast<Word>(vtable), path, answer, ClassName(answer));
+                }
+                return answer;
             }
             virtual Word GetClasses(Word out) { return Vanilla(S().vtableVt, 5, Ready(), out); }
 
