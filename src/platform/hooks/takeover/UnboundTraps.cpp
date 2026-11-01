@@ -30,12 +30,6 @@ extern "C" {
 [[noreturn]] void cb_unbound_trap_4() { Trapped("?handleEndian@hkaQuantizedAnimation@@AEAAXXZ", _ReturnAddress()); }
 [[noreturn]] void cb_unbound_trap_5() { Trapped("?handleEndian@hkaSplineCompressedAnimation@@AEAAXXZ", _ReturnAddress()); }
 [[noreturn]] void cb_unbound_trap_6() { Trapped("sampleDynamicScalarsInternal", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_7() { Trapped("unpackSignedQuaternion128", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_8() { Trapped("unpackSignedQuaternion16", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_9() { Trapped("unpackSignedQuaternion24", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_10() { Trapped("unpackSignedQuaternion32", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_11() { Trapped("unpackSignedQuaternion40", _ReturnAddress()); }
-[[noreturn]] void cb_unbound_trap_12() { Trapped("unpackSignedQuaternion48", _ReturnAddress()); }
 
 }
 
@@ -45,9 +39,3 @@ extern "C" {
 #pragma comment(linker, "/alternatename:?handleEndian@hkaQuantizedAnimation@@AEAAXXZ=cb_unbound_trap_4")
 #pragma comment(linker, "/alternatename:?handleEndian@hkaSplineCompressedAnimation@@AEAAXXZ=cb_unbound_trap_5")
 #pragma comment(linker, "/alternatename:sampleDynamicScalarsInternal=cb_unbound_trap_6")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion128=cb_unbound_trap_7")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion16=cb_unbound_trap_8")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion24=cb_unbound_trap_9")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion32=cb_unbound_trap_10")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion40=cb_unbound_trap_11")
-#pragma comment(linker, "/alternatename:unpackSignedQuaternion48=cb_unbound_trap_12")
