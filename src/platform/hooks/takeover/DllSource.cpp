@@ -7,6 +7,8 @@
 
 #include <PluginLogger.h>
 
+#include "core/debug/Settings.h"
+
 #include <codec/image/RuntimeImage.h>
 
 #include <string_view>
@@ -41,9 +43,25 @@ namespace CB::platform::hooks {
         const auto* mangled = detail::ShimFunctionMangled();
         std::unordered_set<std::string_view> shipped;
         for (const char* const* s = detail::ShimShipped(); *s; ++s) shipped.insert(*s);
+        /// @note [HavokRuntime] sFunctionsOff: `method@Class` entries, comma-separated, left to vanilla: bisects a class.
+        std::vector<std::string> functionsOff;
+        {
+            std::string list = core::debug::Value("HavokRuntime", "sFunctionsOff");
+            for (std::size_t at = 0; at < list.size();) {
+                const auto end = (std::min)(list.find(',', at), list.size());
+                if (end > at) functionsOff.push_back(list.substr(at, end - at));
+                at = end + 1;
+            }
+        }
         for (std::size_t i = 0, n = detail::ShimFunctionCount(); i < n; ++i) {
             if (!cb_impl_table[i] || cb_impl_table[i] == cb_stub_table[i] || !engine::Available(*funcs[i])) continue;
             if (!mangled[i] || !shipped.contains(mangled[i])) continue;
+            const std::string_view decorated = mangled[i];
+            if (std::any_of(functionsOff.begin(), functionsOff.end(),
+                            [&](const std::string& off) { return decorated.find(off) != std::string_view::npos; })) {
+                LOG_INFO("havok runtime: {} left to vanilla by sFunctionsOff", decorated);
+                continue;
+            }
             slots_[ClassOfDecorated(mangled[i])].push_back(i);
             ++count_;
         }
