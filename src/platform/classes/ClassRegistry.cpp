@@ -8,6 +8,7 @@
 
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Generator/hkbGenerator.h>
+#include <Behavior/Behavior/Modifier/hkbModifier.h>
 #include <Common/Base/Container/hkContainerAllocators.h>
 #include <Common/Base/Reflection/hkClassAccess.h>
 #include <Common/Base/Reflection/hkClassMemberAccess.h>
@@ -78,6 +79,7 @@ namespace CB::platform::classes {
         const ::hkClass* GameClass(const std::string& name)
         {
             if (name == "hkbGenerator") return &::hkbGeneratorClass;
+            if (name == "hkbModifier") return &::hkbModifierClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }
