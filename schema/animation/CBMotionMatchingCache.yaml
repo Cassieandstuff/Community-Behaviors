@@ -1,0 +1,11 @@
+name:      CBMotionMatchingCache
+parent:    hkReferencedObject
+size:      56
+# Motion matching's warm-up cache (Data\community_behaviors_cache\motionmatching.hkx): every measured clip's curves and
+# raw (unnormalized) feature rows, written and read by the plugin alone, never served to the engine. The layout fields
+# are the feature vector the rows were measured with: a cache measured under another layout is discarded whole.
+fields:
+  - { name: featureDims, type: int32 }
+  - { pad: 8 }
+  - { name: horizons,    type: scalararray, scalar: float }
+  - { name: clips,       type: structarray, ref: CBMotionClip, roster: field:name }

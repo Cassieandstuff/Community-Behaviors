@@ -2010,7 +2010,7 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
     const fs::path bakeTmp = stageDir / "anim_bake";
     fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
-    const auto dc = CB::engine::anim::DecompileAnimation(abytes, bakeTmp, bones);
+    const auto dc = CB::engine::anim::DecompileAnimation(abytes, bakeTmp, bones, unitPath.stem().string());
     if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
 
     /// @note A decompile that reported ok but left no animation.yaml is a Fail — never an empty unit counted as baked.
@@ -3743,7 +3743,7 @@ bool AnimFloatOffsetsGate(const std::string& meshesDir, const std::string& workR
         if (!comp.ok) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — compile: " + comp.error); continue; }
         const auto ours     = ReadSplineLayout(comp.bytes, *reg, err);
         const auto oursWalk = ours ? DecodedFloatStarts(*ours) : std::nullopt;
-        if (!oursWalk) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — our output does not decode"); continue; }
+        if (!oursWalk) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — our output does not decode: " + err); continue; }
         if (*oursWalk == ours->floatBlockOffsets) ++oursAgree;
         else if (oursDisagree++ < 5)
             say("  FAIL " + rel + ": ours stored [" + JoinU32(ours->floatBlockOffsets) + "] walked [" + JoinU32(*oursWalk) + "]");

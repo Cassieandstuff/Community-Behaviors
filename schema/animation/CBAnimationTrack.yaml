@@ -1,0 +1,9 @@
+name:      CBAnimationTrack
+parent:    null
+size:      56
+# One bone's keys, the bone named byte-exact (an unbound clip names its tracks track<N>). An empty channel = none.
+fields:
+  - { name: bone,        type: string }
+  - { name: translation, type: structarray, ref: CBVec3Key }
+  - { name: rotation,    type: structarray, ref: CBQuatKey }
+  - { name: scale,       type: structarray, ref: CBVec3Key }

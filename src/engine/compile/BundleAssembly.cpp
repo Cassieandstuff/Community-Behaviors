@@ -145,20 +145,6 @@ bool SameCurves(const std::vector<CB::engine::anim::AnimCurveDef>& a, const std:
     return true;
 }
 
-/// @brief `v` as YAML flow text (JSON's own escaping; YAML's double-quoted strings read it the same).
-std::string Flow(const Json& v) {
-    std::string s;
-    if (v.is_object()) {
-        for (const auto& [k, x] : v.items()) s += (s.empty() ? "" : ", ") + Json(k).dump() + ": " + Flow(x);
-        return "{" + s + "}";
-    }
-    if (v.is_array()) {
-        for (const auto& x : v) s += (s.empty() ? "" : ", ") + Flow(x);
-        return "[" + s + "]";
-    }
-    return v.dump();
-}
-
 struct Injection {
     std::string field;
     Json        values;
@@ -187,34 +173,35 @@ std::vector<CB::engine::anim::AnimCurveDef> MergedCurves(const std::vector<Injec
     return out;
 }
 
-/// @brief `text` with every injection written in, each as a child of the root `animation:` mapping.
-/// @throws std::runtime_error with why, when a field is already present or does not read back as written.
-/// @note  Appended as text, so every other byte of the clip is kept. That relies on `animation:` being the file's last
-///        top-level key with 2-space children; the read-back through the loader proves it for each file.
+/// @brief `text` with every injection written in, the unit re-emitted whole through the schema (EmitAnimationYaml).
+/// @throws std::runtime_error with why, when a field is already set or does not read back as written.
+/// @note  "Already set" = holds other than its default: the schema writes every field, so a key's presence says nothing.
 std::string InjectAnimation(const std::string& path, std::string text, const std::vector<Injection>& injections) {
+    using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
+    auto       edit  = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     const auto claim = [&](const std::string& field, const std::string& config) {
-        const std::string key = "  " + field + ":";
-        for (std::size_t at = 0; at < text.size();) {
-            const std::size_t end = (std::min)(text.find('\n', at), text.size());
-            if (std::string_view(text).substr(at, end - at).starts_with(key))
-                throw std::runtime_error("already has '" + field + "' (" + config + ")");
-            at = end + 1;
-        }
-        if (!text.empty() && text.back() != '\n') text += '\n';
+        const bool set = field == "motionTarget" ? edit.motionTarget != MotionTarget::AnimationData
+                       : field == "preload"      ? edit.preload
+                       : field == "curves"       ? !edit.curves.empty()
+                                                 : false;
+        if (set) throw std::runtime_error("already has '" + field + "' (" + config + ")");
     };
     for (const auto& in : injections) {
         if (in.field == "curves") continue;
         claim(in.field, in.config);
-        text += "  " + in.field + ": " + Flow(in.values) + "\n";
+        if (in.field == "motionTarget")
+            edit.motionTarget = in.values.get<std::string>() == "motionMatching" ? MotionTarget::MotionMatching : MotionTarget::AnimationData;
+        else if (in.field == "preload")
+            edit.preload = in.values.get<bool>();
     }
-    /// @note Every curves injection lands as ONE `curves:` block, measured and hand-authored merged by name.
+    /// @note Every curves injection lands as ONE `curves` list, measured and hand-authored merged by name.
     const auto curvesIn = std::find_if(injections.begin(), injections.end(), [](const auto& in) { return in.field == "curves"; });
     const auto curves   = MergedCurves(injections);
     if (curvesIn != injections.end()) {
         claim("curves", curvesIn->config);
-        text += CB::engine::anim::EmitAnimCurvesYaml(curves);
+        edit.curves = curves;
     }
-    using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
+    text           = CB::engine::anim::EmitAnimationYaml(edit);
     const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     for (const auto& in : injections) {
         bool same = false;
@@ -227,7 +214,7 @@ std::string InjectAnimation(const std::string& path, std::string text, const std
             same = def.preload == in.values.get<bool>();
         }
         if (!same)
-            throw std::runtime_error("'" + in.field + "' did not read back as written (is `animation:` the last top-level key?)");
+            throw std::runtime_error("'" + in.field + "' did not read back as written");
     }
     return text;
 }

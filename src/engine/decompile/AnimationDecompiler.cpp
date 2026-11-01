@@ -19,6 +19,7 @@
 
 #include <codec/format/AnimDataYaml.h>      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"
+#include <codec/format/AnimationYamlLoader.h>
 #include <codec/motion/RootMotion.h>
 
 #include <codec/serialization/HavokIo.h>          // io::SchemaObject + DeserializeSchema
@@ -146,7 +147,7 @@ bool DecodeAnimation(const std::uint8_t* hkx, std::size_t size, DecodedAnimation
 }
 
 AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, const fs::path& dir,
-                                       const std::vector<std::string>* boneNames) {
+                                       const std::vector<std::string>* boneNames, const std::string& name) {
     DecodedAnimation dec;
     std::string      decErr;
     if (!DecodeAnimation(hkx.data(), hkx.size(), dec, decErr)) return { false, decErr };
@@ -158,7 +159,6 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     const float fd        = dec.frameDuration;
     const auto& poses     = dec.poses;
     const auto& floatVals = dec.floats;
-    const std::string& warn     = dec.warning;
     const std::string& skeleton = dec.skeleton;
 
     // Phase 2 (inverse membrane): when a skeleton bone roster is supplied, resolve each track to its bone
@@ -175,95 +175,64 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         return "track" + std::to_string(t);
     };
 
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-
-    std::string y;
-    y += "animation:\n";
-    y += "  name: " + dir.filename().string() + "\n";
-    y += "  duration: " + text::FormatFloat(duration) + "\n";
-    // Native frame timing, so a recompile reproduces the source's exact frame count/spacing instead of
-    // resampling to a fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
-    y += "  numFrames: " + std::to_string(numFrames) + "\n";
-    y += "  frameDuration: " + text::FormatFloat(fd) + "\n";
-    y += "  skeleton: " + text::YamlScalar(skeleton) + "\n";
-    if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
-    y += "  tracks:\n";
+    AnimationDef def;
+    def.name          = name;
+    def.duration      = duration;
+    // Native frame timing, so a recompile reproduces the source's exact frame count/spacing instead of resampling to a
+    // fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
+    def.numFrames     = numFrames;
+    def.frameDuration = fd;
+    def.skeleton      = skeleton;
 
     for (int t = 0; t < numTracks; ++t) {
-        y += "    - bone: " + text::YamlScalar(trackName(t)) + "\n";
-        y += "      translation:\n";
+        AnimTrackDef& tr = def.tracks.emplace_back();
+        tr.bone          = trackName(t);
+        bool anyScale    = false;
         for (int f = 0; f < numFrames; ++f) {
-            const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
-               + text::FormatFloat(p.t[0]) + ", " + text::FormatFloat(p.t[1]) + ", " + text::FormatFloat(p.t[2]) + "] }\n";
-        }
-        y += "      rotation:\n";
-        for (int f = 0; f < numFrames; ++f) {
-            const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
-               + text::FormatFloat(p.q[0]) + ", " + text::FormatFloat(p.q[1]) + ", " + text::FormatFloat(p.q[2]) + ", " + text::FormatFloat(p.q[3]) + "] }\n";
-        }
-        bool anyScale = false;
-        for (int f = 0; f < numFrames && !anyScale; ++f) {
-            const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
+            const auto& p  = poses[static_cast<std::size_t>(f) * numTracks + t];
+            const float tm = f * fd;
+            tr.translation.push_back({ tm, { p.t[0], p.t[1], p.t[2] } });
+            tr.rotation.push_back({ tm, { p.q[0], p.q[1], p.q[2], p.q[3] } });
             if (p.s[0] != 1.f || p.s[1] != 1.f || p.s[2] != 1.f) anyScale = true;
         }
-        if (anyScale) {
-            y += "      scale:\n";
+        if (anyScale)
             for (int f = 0; f < numFrames; ++f) {
                 const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-                y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
-                   + text::FormatFloat(p.s[0]) + ", " + text::FormatFloat(p.s[1]) + ", " + text::FormatFloat(p.s[2]) + "] }\n";
+                tr.scale.push_back({ f * fd, { p.s[0], p.s[1], p.s[2] } });
             }
-        }
     }
 
     for (int ft = 0; ft < numFloat; ++ft) {
-        if (ft == 0) y += "  floatTracks:\n";
-        y += "    - name: float" + std::to_string(ft) + "\n";
-        bool varying = false;
+        AnimFloatTrackDef& track = def.floatTracks.emplace_back();
+        track.name               = "float" + std::to_string(ft);
+        bool varying             = false;
         for (int f = 1; f < numFrames && !varying; ++f)
-            if (floatVals[static_cast<std::size_t>(f) * numFloat + ft] !=
-                floatVals[static_cast<std::size_t>(ft)]) varying = true;
-        y += "      keyframes:\n";
+            if (floatVals[static_cast<std::size_t>(f) * numFloat + ft] != floatVals[static_cast<std::size_t>(ft)]) varying = true;
         const int last = varying ? numFrames : 1;
-        for (int f = 0; f < last; ++f)
-            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: "
-               + text::FormatFloat(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
+        for (int f = 0; f < last; ++f) track.keyframes.push_back({ f * fd, floatVals[static_cast<std::size_t>(f) * numFloat + ft] });
     }
 
-    std::optional<CB::engine::animdata::MotionRecord> amrMotion;
     // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
-    /// @note Always double-quoted: vanilla annotations carry control bytes (e.g. "FootBack\r\n") a single-quoted
-    ///       scalar can't hold on one line, and the escapes keep the exact bytes round-tripping.
-    const auto& annTracks = dec.annotationTracks;
-    if (!annTracks.empty()) {
-        y += "  annotationTracks:\n";
-        for (const auto& at : annTracks) {
-            y += "    - trackName: " + text::QuoteDouble(at.trackName) + "\n";
-            if (at.annotations.empty()) {
-                y += "      annotations: []\n";
-            } else {
-                y += "      annotations:\n";
-                for (const auto& a : at.annotations)
-                    y += "        - { time: " + text::FormatFloat(a.time) + ", text: "
-                       + text::QuoteDouble(a.text) + " }\n";
-            }
-        }
+    def.annotationTracks = dec.annotationTracks;
 
-        /// @note AMR annotations (animmotion/animrotation) are the clip's actor motion; vanilla clips carry none (the
-        ///       base reunion supplies theirs).
+    /// @note AMR annotations (animmotion/animrotation) are the clip's actor motion; vanilla clips carry none (the base
+    ///       reunion supplies theirs).
+    std::optional<CB::engine::animdata::MotionRecord> amrMotion;
+    if (!def.annotationTracks.empty()) {
         std::vector<std::pair<float, std::string>> allAnns;
-        for (const auto& at : annTracks)
+        for (const auto& at : def.annotationTracks)
             for (const auto& a : at.annotations) allAnns.emplace_back(a.time, a.text);
         amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, text::FormatFloat(duration));
     }
 
+    std::string y, err;
+    try { y = EmitAnimationYaml(def); }
+    catch (const std::exception& e) { return { false, e.what() }; }
     /// @note The unit's motion form: AMR motion folds onto the root where it round-trips (else stays explicit); a
     ///       moving root with no motion is marked visual-only.
-    CB::engine::anim::FinalizeUnitMotion(y, amrMotion);
-    std::string err;
+    CB::engine::anim::FinalizeUnitMotion(y, amrMotion, &err);
+    std::error_code ec;
+    fs::create_directories(dir, ec);
     if (!disk::WriteFile(dir / "animation.yaml", y, {}, &err)) return { false, err };
     return { true, "" };
 }

@@ -157,6 +157,7 @@ namespace anim {
     using CB::engine::anim::AnimCurveKey;            ///< one curve key (time, value, interpolation)
     using CB::engine::anim::AnimCurveDef;            ///< a named curve over the clip
     using CB::engine::anim::EmitAnimCurvesYaml;      ///< curves → the unit's `curves:` block
+    using CB::engine::anim::EmitAnimationYaml;       ///< Def → the unit's text (CBAnimation, through the schema)
 
     using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file

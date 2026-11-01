@@ -1,0 +1,25 @@
+name:      CBAnimation
+parent:    hkaAnimation
+size:      208
+# An animation unit: a bare `.hkx` YAML file whose `animation:` map is this class (metadata/AnimationFile). Never
+# serialized to a packfile: the compile reads it and writes an hkaSplineCompressedAnimation + binding, so the engine
+# never sees it. Every new per-animation field goes here.
+# Tracks are per bone by name (not hkaInterleavedUncompressedAnimation's frame-major array); the compile rebuilds the
+# binding from the rig. The inherited counts are derived from `tracks` / `floatTracks`; extractedMotion stays null.
+# `motion` is the animationdata record carried verbatim (empty = none authored); `rootMotionVisual` = the root's travel
+# is visual only (never extracted).
+fields:
+  - { name: name,             type: string }
+  - { name: skeleton,         type: string }
+  - { name: numFrames,        type: int32 }
+  - { name: frameDuration,    type: float }
+  - { name: compression,      type: struct, ref: CBAnimationCompression }
+  - { pad: 8 }
+  - { name: tracks,           type: structarray, ref: CBAnimationTrack }
+  - { name: floatTracks,      type: structarray, ref: CBAnimationFloatTrack }
+  - { name: motion,           type: struct, ref: CBAnimationMotion }
+  - { name: curves,           type: structarray, ref: CBAnimationCurve, roster: field:name }
+  - { name: motionTarget,     type: int8, enum: AnimationMotionTarget }
+  - { name: rootMotionVisual, type: bool }
+  - { name: preload,          type: bool }
+  - { pad: 8 }

@@ -1,0 +1,9 @@
+name:      CBAnimationMotion
+parent:    null
+size:      40
+# The animationdata root-motion record, its tokens VERBATIM (byte-exact with the animationdata .txt): the duration and
+# the translation / rotation samples. Empty duration = no record.
+fields:
+  - { name: duration,    type: string }
+  - { name: translation, type: stringarray }
+  - { name: rotation,    type: stringarray }
