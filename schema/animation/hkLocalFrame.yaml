@@ -1,0 +1,6 @@
+name:      hkLocalFrame
+parent:    hkReferencedObject
+signature: 0xda8c7d7d
+size:      16
+# Abstract base of a skeleton/rigid-body local frame (exe hkClass @0x1431b2160: no members).
+fields:    []

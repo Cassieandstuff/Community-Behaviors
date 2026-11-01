@@ -215,6 +215,10 @@ still belongs in the session scratchpad dir.)
 - **Served bytes** — `generate-base-master` parses every behavior / character / project unit back through
   the runtime's reader (rig-bound bones) and byte-compares its serialization to the source binary's
   canonical re-serialization (1238/1238 on Skyrim.hky).
+- **Schema coverage** — the served-bytes gate cannot see a member the schema drops (it is dropped on both sides).
+  `py -3 -I tools/schema-coverage/schema_coverage.py schema <file-or-dir>...` walks each packfile's own fixup
+  tables and flags pointers landing on slots the schema does not read (empty/skip/pad/scalar), non-empty
+  `empty: array` slots, unknown classes and size mismatches (0 on vanilla). Run it after any schema change.
 - **Reflective round-trips** (BehaviorConverter verbs) — `--hky-roundtrip [--all-kinds]` (emit→parse→serialize),
   `--patch-roundtrip` (merge(base, derive(base, mod)) == mod), `--multilayer-roundtrip` (every mod's derived
   patch merged in order vs today's merge of all).
@@ -230,8 +234,8 @@ still belongs in the session scratchpad dir.)
   then CB's `havok/`, the cbmatch-emitted rows of `src/platform/hooks/registry/engine.yaml` (mangled, header, sig,
   this) and the takeover image (`Data/community_behaviors/runtime/havok-runtime.cbimg`) are FROZEN at what CB matched
   (537abe87): never match into havok/ or regenerate them here. engine.yaml's hand rows (game/ functions) still grow.
-- Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
-  until the schema codec reads ragdoll physics.
+- Skeletons ARE reflective units (animation + ragdoll skeletons, physics and mappers as in the source), served by
+  parse + serialize and covered by the served-bytes gate; bone tables come from `decompile::ReadSkeletonBones`.
 
 ---
 

@@ -266,6 +266,7 @@ namespace CB::feature::controller {
         }
 
         FloorVerdict Footprint(hk::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t);
+        bool         PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which);
 
         /// @brief A long body's verdict from its two ends (see QueryFloor).
         FloorVerdict Combine(const FloorVerdict& fore, const FloorVerdict& hind)
@@ -384,6 +385,17 @@ namespace CB::feature::controller {
             if (len > 1.0e-6f) v.groundNx = sx / len, v.groundNy = sy / len, v.groundNz = sz / len;
             v.support = v.supportHits == 0 ? 0.0f : Support(ctrl, v.groundNz);
             v.ground  = v.supportHits == 0 ? Ground::Airborne : Ground::Grounded;
+            /// @note Under the pogo the ray it holds the feet to is the one floor source (Box3D's dynamic mover): its
+            ///       normal is the ground's and walkable or not is all the support there is, so an edge's steep face
+            ///       never outvotes the walkable top a skirt ray found. The ground states fade the grip over time
+            ///       (Box3D's slideDuration), which is what keeps rough steep terrain from flickering.
+            float pogoDz = 0.0f;
+            int   chosen = -1;
+            if (hull.lift > 0.0f && v.supportHits > 0 && PogoEnd(v.hits, walkZ, pogoDz, chosen) && chosen >= 0) {
+                const FloorHit& h = v.hits[chosen];
+                v.groundNx = h.nx, v.groundNy = h.ny, v.groundNz = h.nz;
+                v.support  = h.nz >= walkZ ? 1.0f : 0.0f;
+            }
             if (Supported(v) && !v.supportBody) {
                 for (const FloorHit& h : v.hits)
                     if (h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ && h.dz >= -t.footTolerance) {

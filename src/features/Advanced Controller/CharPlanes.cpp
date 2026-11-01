@@ -30,8 +30,10 @@
 ///        processConstraintsCallback for the managed controller (the player's proxy).
 /// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (havok/.../Bethesda), with
 ///       the spec's rules in place of its per-contact walkability, TryStep and wall planes: blocking follows the
-///       contact normal only (M1/M2), walkability comes from one floor query per callback, and a steep obstacle above
-///       the feet gets one vertical plane per body (Jolt CharacterVirtual's rule). Its gameplay side effects (hurtful
+///       contact normal only (M1/M2) and walkability comes from one floor query per callback. No wall planes: a steep
+///       face blocks along its own normal, and the ground states' grip (their slide and uphill clip) is what keeps the
+///       character off it; a vertical plane once met a ledge lip's sloped one in a horizontal line and hung a jump
+///       there. Its gameplay side effects (hurtful
 ///       bodies, character pushes and collision handler, footstep material, support body, orientation controller, the
 ///       animated-static and stuck-quad flags) are kept.
 /// @warning The callback also runs inside the proxy's checkSupport, which is the call whose bit 9 / m_onlyWallContacts
@@ -54,7 +56,6 @@ namespace CB::feature {
         constexpr float        kSteepMinZ        = 1.0e-3f;
         constexpr float        kPenetrationScale = 1.25f;
         constexpr int          kMaxPoints        = 64;
-        constexpr int          kMaxVertical      = 4;            ///< Bethesda's cap; the proxy reserves m_userPlanes (4)
 
         /// @brief How a contact's plane is treated after the layer rules.
         enum class Kind : std::uint8_t { Block, Zeroed, Character };
@@ -77,11 +78,11 @@ namespace CB::feature {
 
         /// @brief One line per change of (contacts, zeroed, planes added, support contacts, verdict, bits).
         /// @note The player runs on one thread, so the last signature is plain.
-        void Log(int contacts, int zeroed, int characters, int vertical, int penetration, int support, const ch::FloorVerdict& v, hk::hkUint32 flags)
+        void Log(int contacts, int zeroed, int characters, int penetration, int support, const ch::FloorVerdict& v, hk::hkUint32 flags)
         {
             static std::uint64_t last = ~0ull;
             const std::uint64_t  sig  = static_cast<std::uint64_t>(contacts) | (static_cast<std::uint64_t>(zeroed) << 8)
-                                    | (static_cast<std::uint64_t>(characters) << 16) | (static_cast<std::uint64_t>(vertical) << 24)
+                                    | (static_cast<std::uint64_t>(characters) << 16)
                                     | (static_cast<std::uint64_t>(penetration) << 32) | (static_cast<std::uint64_t>(support) << 40)
                                     | (static_cast<std::uint64_t>(v.ground) << 48) | (static_cast<std::uint64_t>((flags >> 9) & 3) << 56);
             if (sig == last) return;
@@ -92,9 +93,9 @@ namespace CB::feature {
                 LOG_INFO("planes: {} lines logged, stopping", kMaxLogged);
                 return;
             }
-            LOG_INFO("planes: contacts {} (zeroed {}, characters {}, penetration-dropped {}) vertical planes +{} support contacts {} "
+            LOG_INFO("planes: contacts {} (zeroed {}, characters {}, penetration-dropped {}) support contacts {} "
                      "-> {} (support hits {}, walkable {}) n=({:.2f},{:.2f},{:.2f}) bit9 {} canJump {}",
-                     contacts, zeroed, characters, penetration, vertical, support, ch::Name(v.ground), v.supportHits, v.walkableHits,
+                     contacts, zeroed, characters, penetration, support, ch::Name(v.ground), v.supportHits, v.walkableHits,
                      v.groundNx, v.groundNy, v.groundNz, (flags >> 9) & 1, (flags >> 10) & 1);
         }
 
@@ -282,37 +283,6 @@ namespace CB::feature {
                     ctrl.SetSupportBody(hk::hkpGetRigidBody(verdict.supportBody));
             }
 
-            /// @note Jolt's steep-slope rule: a face too steep to walk, above the feet, also blocks as a vertical plane
-            ///       (one per body, its nearest contact) so the solver cannot climb it; the step query handles stepping.
-            ///       Bethesda's flag 11 (no wall planes) still suppresses them.
-            int vertical = 0;
-            if (!ctrl.IsFlagSet(11)) {
-                const int cap = (std::min)(kMaxVertical, static_cast<int>(proxy->m_userPlanes));
-                std::array<int, kMaxPoints> pick{};
-                int picks = 0;
-                for (int i = 0; i < numPoints; i++) {
-                    if (kind[i] != Kind::Block) continue;
-                    const hk::hkContactPoint& cp = manifold[i].m_contact;
-                    const float               nz = cp.m_separatingNormal(2);
-                    if (nz <= kSteepMinZ || nz >= ch::WalkableZ(ctrl) || cp.m_position(2) <= hull.feetZ + tun.footTolerance) continue;
-                    int k = 0;
-                    while (k < picks && manifold[pick[k]].m_rootCollidableB != manifold[i].m_rootCollidableB) ++k;
-                    if (k == picks) pick[picks++] = i;
-                    else if (cp.m_separatingNormal(3) < manifold[pick[k]].m_contact.m_separatingNormal(3)) pick[k] = i;
-                }
-                for (int k = 0; k < picks && vertical < cap; k++) {
-                    const hk::hkSurfaceConstraintInfo& src = input.m_constraints[pick[k]];
-                    hk::hkSurfaceConstraintInfo&       v   = input.m_constraints[input.m_numConstraints];
-                    v                                      = src;
-                    Flatten(v.m_plane);
-                    if (v.m_plane(0) == 0.0f && v.m_plane(1) == 0.0f) continue;
-                    v.m_velocity.set(src.m_velocity(0), src.m_velocity(1), 0.0f, 0.0f);
-                    v.m_extraDownStaticFriction = 0.0f;
-                    input.m_numConstraints++;
-                    ++vertical;
-                }
-            }
-
             if (animStatic) ctrl.m_flags |= kAnimStaticContact;
             else            ctrl.m_flags &= ~kAnimStaticContact;
             /// @note UpdatePhysics' kSupport = (surface SUPPORTED && !m_onlyWallContacts) || bit 9: supported ground sets bit 9,
@@ -326,7 +296,7 @@ namespace CB::feature {
             ctrl.m_supportCount     = support;
             ctrl.m_supportNorm.set(verdict.groundNx, verdict.groundNy, verdict.groundNz, 0.0f);
 
-            Log(numPoints, zeroed, characters, vertical, penetration, support, verdict, ctrl.m_flags);
+            Log(numPoints, zeroed, characters, penetration, support, verdict, ctrl.m_flags);
         }
 
         /// @note Last = innermost: observers (the contact probe) still wrap it. It replaces Bethesda's callback, so
