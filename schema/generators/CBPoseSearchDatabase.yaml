@@ -1,6 +1,7 @@
 name:      CBPoseSearchDatabase
 parent:    null
 size:      72
+view:      { kind: clipgroup, label: name, first: firstChild, count: numChildren }
 # One motion-matching database (a dance card): a contiguous range of its CBPoseSearchGenerator's children, with the
 # per-database cost biases of Unreal's PoseSearchDatabase (added to a candidate's cost; negative = preferred) and its
 # tags. Keyed by name in the .hky, so a mod adds or edits a database by name.

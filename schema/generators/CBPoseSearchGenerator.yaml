@@ -1,6 +1,7 @@
 name:      CBPoseSearchGenerator
 parent:    hkbGenerator
 size:      152
+view:      { kind: clipset, children: generators, flags: childFlags, ranges: childRanges, groups: databases }
 runtime:
   source: self
 # CB's own generator (motion matching, stage A): plays the one child `selectedIndex` names. A stock

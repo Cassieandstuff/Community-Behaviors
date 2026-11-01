@@ -160,6 +160,9 @@ struct ClassSchema {
     ///        signature effect.
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
+    ///        `clipset` (children, flags, ranges, groups) — a node over clips an editor opens as a database workspace:
+    ///        the child list, its per-child flag bytes and (start, end) range pairs, and the groups over it;
+    ///        `clipgroup` (label, first, count) — one group, a contiguous child range.
     struct View {
         std::string                        kind;
         std::map<std::string, std::string> roles;   ///< role -> field name

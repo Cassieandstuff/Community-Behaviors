@@ -542,11 +542,13 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         static const std::map<std::string, std::vector<std::string>> kViewRoles{
             { "curve", { "keys", "label" } },
             { "curvekey", { "time", "value", "interp" } },
+            { "clipset", { "children", "flags", "ranges", "groups" } },
+            { "clipgroup", { "label", "first", "count" } },
         };
         for (const auto& [name, cs] : m_byName) {
             if (cs.view.kind.empty()) continue;
             const auto known = kViewRoles.find(cs.view.kind);
-            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey)"; return false; }
+            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey, clipset, clipgroup)"; return false; }
             for (const auto& role : known->second)
                 if (!cs.view.roles.count(role)) { err = "class '" + name + "': view '" + cs.view.kind + "' has no '" + role + "'"; return false; }
             for (const auto& [role, field] : cs.view.roles) {
