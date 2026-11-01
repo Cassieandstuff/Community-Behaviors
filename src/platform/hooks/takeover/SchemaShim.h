@@ -45,6 +45,8 @@ namespace CB::platform::hooks {
         /// @return the shimmed functions, in slot order (cb_impl_table / cb_stub_table's order).
         const engine::Symbol* const* ShimFunctions();
         const char* const*           ShimFunctionMangled();
+        /// @return the decorated names of the bodies the SDK ships, null-terminated.
+        const char* const*           ShimShipped();
         std::size_t                  ShimFunctionCount();
 
     }  // namespace detail

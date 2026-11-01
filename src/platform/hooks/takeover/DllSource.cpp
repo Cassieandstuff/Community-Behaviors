@@ -9,6 +9,9 @@
 
 #include <codec/image/RuntimeImage.h>
 
+#include <string_view>
+#include <unordered_set>
+
 /// @brief cmake/EmbedEngineRegistry.cmake's tables, one QWORD per shim slot: what the slot's decorated name linked to,
 ///        and the slot's own stub (equal: the plugin has no definition of it).
 extern "C" const std::uintptr_t cb_impl_table[];
@@ -18,9 +21,13 @@ namespace CB::platform::hooks {
 
     DllSource::DllSource()
     {
-        const auto* funcs = detail::ShimFunctions();
+        const auto* funcs   = detail::ShimFunctions();
+        const auto* mangled = detail::ShimFunctionMangled();
+        std::unordered_set<std::string_view> shipped;
+        for (const char* const* s = detail::ShimShipped(); *s; ++s) shipped.insert(*s);
         for (std::size_t i = 0, n = detail::ShimFunctionCount(); i < n; ++i) {
             if (!cb_impl_table[i] || cb_impl_table[i] == cb_stub_table[i] || !engine::Available(*funcs[i])) continue;
+            if (!mangled[i] || !shipped.contains(mangled[i])) continue;
             const std::string_view name = funcs[i]->name;
             slots_[std::string(name.substr(0, name.find('_')))].push_back(i);
             ++count_;

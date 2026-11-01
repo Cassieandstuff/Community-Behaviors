@@ -29,7 +29,16 @@ string(ASCII 5 _sdkMark)
 # engine.yaml's, each line marked. They own every SDK declaration: an engine.yaml row still spelled in CB::havok is
 # skipped, and an SDK row whose name engine.yaml already has yields to it. Their `header` paths are matched to the
 # SDK tree by file name (the converted rows keep the old havok/ paths).
+set(_shipped "")
 if(DEFINED SDK_ROOT)
+    # The bodies the SDK ships, the only functions the takeover jumps: the plugin also holds inline copies of other
+    # functions, built by another compiler and never compared with the exe.
+    file(STRINGS "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" _definedRows REGEX "mangled:")
+    foreach(_row IN LISTS _definedRows)
+        if(_row MATCHES "mangled: \"([^\"]*)\"")
+            string(APPEND _shipped "    \"${CMAKE_MATCH_1}\",\n")
+        endif()
+    endforeach()
     foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Referenced.yaml")
         file(READ "${_sdkFile}" _sdkText)
         string(REGEX REPLACE "(^|\n)([ ]*-[ ]*{)" "\\1${_sdkMark}\\2" _sdkText "${_sdkText}")
@@ -540,6 +549,10 @@ ${_shimMangled}};
 
 const engine::Symbol* const* ShimFunctions() { return kFuncs; }
 const char* const*           ShimFunctionMangled() { return kFuncMangled; }
+const char* const kShipped[] = {
+${_shipped}    nullptr,
+};
+const char* const*           ShimShipped() { return kShipped; }
 std::size_t                 ShimFunctionCount() { return kFuncCount; }
 
 } // namespace CB::platform::hooks::detail
