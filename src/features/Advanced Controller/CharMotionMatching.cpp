@@ -16,7 +16,8 @@
 #include <platform/hooks/Override.h>
 #include <platform/profile/Profile.h>
 
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <algorithm>
 #include <array>
@@ -993,7 +994,7 @@ namespace CB::feature {
 
         /// @brief How often clips are sampled: the proof that CBPoseSearchGenerator's skipped children are not.
         /// @note  Kept every child active, so a skip the engine ignored would sample all 252 add-on clips every frame.
-        using ClipGenerate = hooks::Override<&CB::havok::hkbClipGenerator::generate>;
+        using ClipGenerate = hooks::Override<&::hkbClipGenerator::generate>;
         constexpr std::string_view kClipPrefix = "animations\\MotionMatching\\";   ///< the add-on's clips, as authored
         constexpr double           kReportEvery = 5.0;   ///< seconds
         struct GenerateCount {
@@ -1002,9 +1003,9 @@ namespace CB::feature {
         };
         GenerateCount g_generates;
 
-        void OnClipGenerate(ClipGenerate::Next next, CB::havok::hkbClipGenerator* clip, const CB::havok::hkbContext& context,
-                            const CB::havok::hkbGeneratorOutput** activeChildrenOutput, CB::havok::hkbGeneratorOutput& output,
-                            CB::havok::hkReal timeOffset)
+        void OnClipGenerate(ClipGenerate::Next next, ::hkbClipGenerator* clip, const ::hkbContext& context,
+                            const ::hkbGeneratorOutput** activeChildrenOutput, ::hkbGeneratorOutput& output,
+                            ::hkReal timeOffset)
         {
             g_generates.all.fetch_add(1, std::memory_order_relaxed);
             if (const char* name = clip->m_animationName.cString(); name && std::string_view(name).starts_with(kClipPrefix)) {

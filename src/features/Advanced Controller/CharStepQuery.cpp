@@ -5,7 +5,8 @@
 
 #include <platform/hooks/Override.h>
 
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Common/Base/hkBase.h>
+#include <BSHavok/bhkCharProxyController.h>
 
 #include <algorithm>
 #include <cmath>
@@ -29,9 +30,8 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
-        using Integrate   = platform::hooks::Override<&hk::bhkCharProxyController::Unk_0B>;
+        using Integrate   = platform::hooks::Override<&::bhkCharProxyController::Unk_0B>;
 
         constexpr float         kHavokToGame       = 69.99125f;
         constexpr float         kMinRequested      = 0.002f;   ///< Havok units this step; below it nothing is blocked
@@ -87,15 +87,15 @@ namespace CB::feature {
                          g_sameReason ? " (repeating)" : "");
         }
 
-        hk::hkVector4 Offset(const hk::hkVector4& p, float dx, float dy, float dz) { return hk::hkVector4(p(0) + dx, p(1) + dy, p(2) + dz, p(3)); }
+        ::hkVector4 Offset(const ::hkVector4& p, float dx, float dy, float dz) { return ::hkVector4(p(0) + dx, p(1) + dy, p(2) + dz, p(3)); }
 
         /// @brief The up / forward / down sweeps from the slid position (`after`, the controller's position) along the
         ///        horizontal unit direction (ux, uy).
         /// @pre The slide fell short by `remainder` Havok units; `ctrl` is managed.
-        void TryStep(hk::bhkCharacterController* self, const hk::hkVector4& before, const hk::hkVector4& after, float ux, float uy,
+        void TryStep(::bhkCharacterController* self, const ::hkVector4& before, const ::hkVector4& after, float ux, float uy,
                      float requested, float achieved)
         {
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             const ch::Hull hull = ch::GetHull(ctrl);
             if (!hull.valid) return;
             const float remainder = requested - achieved;
@@ -105,7 +105,7 @@ namespace CB::feature {
             if (!ch::Supported(ch::QueryFloorAt(ctrl, hull, before(0) - after(0), before(1) - after(1), before(2) - after(2))))
                 return;
 
-            const hk::hkVector4& at = hull.collidable->getTransform().getTranslation();
+            const ::hkVector4& at = hull.collidable->getTransform().getTranslation();
             const ch::SweepHit   obstacle =
                 ch::Sweep(hull.world, hull.collidable, Offset(at, ux * remainder, uy * remainder, 0.0f), 0.0f, ch::WalkableZ(ctrl), kCharacters);
             if (!obstacle.hit) return;
@@ -128,7 +128,7 @@ namespace CB::feature {
             }
 
             const float          forward = (std::max)(remainder, kMinForward);
-            const hk::hkVector4  raised  = Offset(at, 0.0f, 0.0f, a.up);
+            const ::hkVector4  raised  = Offset(at, 0.0f, 0.0f, a.up);
             const ch::SweepHit   ahead   = ch::SweepFrom(hull.world, hull.collidable, raised, Offset(raised, ux * forward, uy * forward, 0.0f), 0.0f);
             a.forward = ahead.hit ? (std::max)(forward * ahead.fraction - kSkin, 0.0f) : forward;
             if (a.forward < kMinForwardGain) {
@@ -137,7 +137,7 @@ namespace CB::feature {
             }
 
             const float          drop    = a.up + kDownExtra;
-            const hk::hkVector4  over    = Offset(raised, ux * a.forward, uy * a.forward, 0.0f);
+            const ::hkVector4  over    = Offset(raised, ux * a.forward, uy * a.forward, 0.0f);
             const ch::SweepHit   down    = ch::SweepFrom(hull.world, hull.collidable, over, Offset(over, 0.0f, 0.0f, -drop), 0.0f, 2.0f, kCharacters);
             if (!down.hit) {
                 a.reason = "no floor beyond";
@@ -171,18 +171,18 @@ namespace CB::feature {
 
         /// @note A floating shape (char_pogo) clears what the step query would step over, and the pogo carries the feet
         ///       up: the query stands down.
-        bool OnIntegrate(Integrate::Next next, hk::bhkCharacterController* self)
+        bool OnIntegrate(Integrate::Next next, ::bhkCharacterController* self)
         {
             if (!self || !ch::IsManaged(*self) || (self->m_flags & ch::kJumping) || ch::Lift(*self) > 0.0f) return next(self);
             const float dt = self->m_stepInfo.m_deltaTime;
             const float rx = self->m_outVelocity(0) * dt, ry = self->m_outVelocity(1) * dt;
             const float requested = std::sqrt(rx * rx + ry * ry);
-            hk::hkVector4 before;
+            ::hkVector4 before;
             self->GetPositionImpl(before, false);
             const bool result = next(self);
             if (!(requested >= kMinRequested)) return result;
 
-            hk::hkVector4 after;
+            ::hkVector4 after;
             self->GetPositionImpl(after, false);
             const float ux = rx / requested, uy = ry / requested;
             const float achieved = (after(0) - before(0)) * ux + (after(1) - before(1)) * uy;

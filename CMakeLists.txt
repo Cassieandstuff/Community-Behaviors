@@ -172,10 +172,15 @@ target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 # <platform/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
 # (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
-# havok last: features call and override the reimplemented classes as declared (the schema link shim).
-# Its roots (<Common/…> <Animation/…> <Behavior/…> <Physics/…>) share no file path with the roots above, so a
-# case-insensitive filesystem can't confuse <Common/…> with the engine's <common/…>.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/havok")
+# The CB SDK (lib/cb-sdk, github.com/Cassieandstuff/CB-SDK): the reconstructed Havok + Bethesda source, compiled into
+# the plugin. HK_EXE_GLOBALS_BY_REFERENCE makes every global the exe owns an extern reference the schema link shim
+# binds at load, so the compiled code runs on the game's heaps, singletons and hkClass records. Its roots (<Common/…>
+# <Behavior/…> <BSHavok/…> …) share no file path with the roots above.
+set(HK_LAYOUT_CHECK OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_SOURCE_DIR}/lib/cb-sdk" EXCLUDE_FROM_ALL)
+target_compile_definitions(hkCompileOptions INTERFACE HK_EXE_GLOBALS_BY_REFERENCE)
+target_compile_definitions(CommunityBehaviors PRIVATE HK_EXE_GLOBALS_BY_REFERENCE)
+target_link_libraries(CommunityBehaviors PRIVATE HavokSDK)
 
 # Engine symbol registry: src/platform/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see
@@ -191,12 +196,16 @@ add_custom_command(
     OUTPUT  "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}"
     COMMAND "${CMAKE_COMMAND}"
             "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml"
+            "-DSDK_ROOT=${CMAKE_SOURCE_DIR}/lib/cb-sdk"
             "-DOUT_H=${_cb_engine_reg}"
             "-DOUT_SHIM_ASM=${_cb_shim_asm}"
             "-DOUT_SHIM_CPP=${_cb_shim_cpp}"
             "-DOUT_IDENTITY_H=${_cb_identity}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
     DEPENDS "${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/cbmatch/registry.yaml"
+            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/ExeClasses.yaml"
+            "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/Defined.yaml"
     COMMENT "Generating the engine symbol registry and the schema link shim from src/platform/hooks/registry/engine.yaml"
     VERBATIM)
 add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")

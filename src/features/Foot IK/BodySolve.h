@@ -4,7 +4,8 @@
 
 #include <platform/ik/Math.h>
 
-#include <Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
+#include <Common/Base/hkBase.h>
+#include <Animation/Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
 
 #include <span>
 
@@ -13,19 +14,17 @@
 ///        the fore and hind ends, then every leg reaches its ankle target with FABRIK; and the world-from-model tilt
 ///        toward the ground CB computes in vanilla's place.
 
-namespace CB::havok {
-    class hkbFootIkDriver;
-    struct hkbFootIkGains;
-    struct hkbGeneratorOutput;
-    struct hkVector4;
-}
+class hkbFootIkDriver;
+class hkbFootIkGains;
+class hkbGeneratorOutput;
+class hkVector4;
 
 namespace CB::feature::footik {
 
     /// @brief One leg's bend as vanilla's doFootPlacement asked for it (its two-joint setup, target included), deferred.
     struct LegRequest {
         const RigLeg*                                rigLeg = nullptr;
-        CB::havok::hkaTwoJointsIkSolver::Setup       setup;
+        ::hkaTwoJointsIkSolver::Setup       setup;
     };
 
     struct BodyInputs {
@@ -49,8 +48,8 @@ namespace CB::feature::footik {
     ///        and that gain is vanilla's per-frame convergence rate, not a fraction, so feet reached only short steps.
     /// @note  The ankles keep the model rotations vanilla gave them (the foot roll to the ground); every bone below the
     ///        ones moved here keeps its local transform and follows.
-    void SolveBodyAndLegs(const Rig& rig, const CB::havok::hkaSkeleton& skeleton, std::span<const LegRequest> requests, const BodyInputs& inputs,
-                          CB::havok::hkbGeneratorOutput& output);
+    void SolveBodyAndLegs(const Rig& rig, const ::hkaSkeleton& skeleton, std::span<const LegRequest> requests, const BodyInputs& inputs,
+                          ::hkbGeneratorOutput& output);
 
     /// @brief CB's tilt of the world-from-model toward the ground: the slope runs between the mean ground point of the
     ///        legs on each of the two anchors (hind and fore), across the model's right axis; the turn toward it is
@@ -58,7 +57,7 @@ namespace CB::feature::footik {
     ///        character controller's pitch) and pre-multiplied onto the world-from-model.
     /// @return False when the rig does not have exactly two anchors or the legs' ground points are not valid; the
     ///         caller then leaves the tilt to vanilla.
-    bool AlignToGround(const Rig& rig, CB::havok::hkbFootIkDriver& driver, const CB::havok::hkVector4& modelUpMS,
-                       const CB::havok::hkVector4& modelRightMS, CB::havok::hkbGeneratorOutput& output, const CB::havok::hkbFootIkGains& gains);
+    bool AlignToGround(const Rig& rig, ::hkbFootIkDriver& driver, const ::hkVector4& modelUpMS,
+                       const ::hkVector4& modelRightMS, ::hkbGeneratorOutput& output, const ::hkbFootIkGains& gains);
 
 }  // namespace CB::feature::footik

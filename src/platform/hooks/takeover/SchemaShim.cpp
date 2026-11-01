@@ -36,4 +36,19 @@ namespace CB::platform::hooks::detail {
         if (count) LOG_INFO("schema shim: {} const global(s) copied from the exe", count);
     }
 
+    void BindShimRefs(const ShimRef* rows, std::size_t count)
+    {
+        std::size_t bound = 0;
+        for (std::size_t i = 0; i < count; i++) {
+            const ShimRef& r = rows[i];
+            if (!engine::Available(*r.symbol)) {
+                LOG_WARN("schema shim: {} has no address on this runtime; a use of it faults", r.symbol->name);
+                continue;
+            }
+            *r.slot = reinterpret_cast<void*>(engine::Resolve(*r.symbol));
+            ++bound;
+        }
+        if (count) LOG_INFO("schema shim: {} of {} exe global(s) bound by reference", bound, count);
+    }
+
 }  // namespace CB::platform::hooks::detail

@@ -9,10 +9,11 @@
 #include <platform/classes/ClassRegistry.h>
 #include <platform/profile/Profile.h>
 
-#include <Behavior/BehaviorGraph/hkbNodeInfo.h>
-#include <Behavior/Character/hkbCharacter.h>
-#include <Behavior/Generator/hkbGeneratorOutput.h>
-#include <Behavior/Generator/hkbGeneratorOutputUtils.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbNodeInfo.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
+#include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
 
 #include <algorithm>
 #include <atomic>
@@ -36,7 +37,7 @@ namespace CB::feature::controller::motion {
     namespace detail {
 
         namespace loco = CB::engine::locomotion;
-        static_assert(sizeof(loco::Bone) == sizeof(CB::havok::hkQsTransform), "Bone mirrors hkQsTransform");
+        static_assert(sizeof(loco::Bone) == sizeof(::hkQsTransform), "Bone mirrors hkQsTransform");
 
         /// @brief The blend's tuning, read once from settings.ini [Character].
         inline const loco::DeadBlendTuning& Tuning()
@@ -86,13 +87,12 @@ namespace CB::feature::controller::motion {
 
     namespace {
 
-        namespace hk = CB::havok;
 
         constexpr const char* kClassName = "CBPoseSearchGenerator";
 
         void Finish(void* object)
         {
-            if (object) new (object) PoseSearchGenerator(hk::hkFinishLoadedObjectFlag{});
+            if (object) new (object) PoseSearchGenerator(::hkFinishLoadedObjectFlag{});
         }
         void Cleanup(void* object) { static_cast<PoseSearchGenerator*>(object)->~PoseSearchGenerator(); }
         /// @note As the exe's own type infos take it: a finish constructor run on a scratch buffer, its vtable read off.
@@ -110,7 +110,7 @@ namespace CB::feature::controller::motion {
 
         void FinishChooser(void* object)
         {
-            if (object) new (object) PoseSearchChooser(hk::hkFinishLoadedObjectFlag{});
+            if (object) new (object) PoseSearchChooser(::hkFinishLoadedObjectFlag{});
         }
         void CleanupChooser(void* object) { static_cast<PoseSearchChooser*>(object)->~PoseSearchChooser(); }
         const void* ChooserVtable()
@@ -126,20 +126,20 @@ namespace CB::feature::controller::motion {
     }  // namespace
 
     /// @note Only the runtime members reset: the children and the selected index are the loaded bytes.
-    PoseSearchChooser::PoseSearchChooser(hk::hkFinishLoadedObjectFlag flag)
+    PoseSearchChooser::PoseSearchChooser(::hkFinishLoadedObjectFlag flag)
     :   hkReferencedObject(flag),
         m_rows(flag),
         m_fallback(flag)
     {
     }
 
-    const void* PoseSearchChooser::getClassType() const
+    const ::hkClass* PoseSearchChooser::getClassType() const
     {
         static const void* const cls = platform::classes::ClassOf(kChooserClassName);
         return cls;
     }
 
-    PoseSearchGenerator::PoseSearchGenerator(hk::hkFinishLoadedObjectFlag flag)
+    PoseSearchGenerator::PoseSearchGenerator(::hkFinishLoadedObjectFlag flag)
     :   hkbGenerator(flag),
         m_generators(flag),
         m_databases(flag),
@@ -164,18 +164,18 @@ namespace CB::feature::controller::motion {
             if (m_generators[i]) m_generators[i]->removeReference();
     }
 
-    const void* PoseSearchGenerator::getClassType() const
+    const ::hkClass* PoseSearchGenerator::getClassType() const
     {
-        static const void* const cls = platform::classes::ClassOf(kClassName);
+        static const auto* const cls = static_cast<const ::hkClass*>(platform::classes::ClassOf(kClassName));
         return cls;
     }
 
-    void PoseSearchGenerator::activate(const hk::hkbContext& context)
+    void PoseSearchGenerator::activate(const ::hkbContext& context)
     {
         m_currentIndex = computeCurrentIndex();
     }
 
-    void PoseSearchGenerator::update(const hk::hkbContext& context, hk::hkReal timestep)
+    void PoseSearchGenerator::update(const ::hkbContext& context, ::hkReal timestep)
     {
         if (timestep > 0.0f) {
             BlendTable& table = Blends();
@@ -185,7 +185,7 @@ namespace CB::feature::controller::motion {
         const int previous = m_currentIndex;
         m_currentIndex     = computeCurrentIndex();
         if (previous != m_currentIndex && m_generators[previous] != m_generators[m_currentIndex]) {
-            hk::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
+            ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
             rootBehavior->m_updateActiveNodes  = true;
         }
     }
@@ -223,7 +223,7 @@ namespace CB::feature::controller::motion {
             if (i != m_currentIndex) put(i, false);
     }
 
-    bool PoseSearchGenerator::isValid(hk::hkStringPtr& errorString) const
+    bool PoseSearchGenerator::isValid(::hkStringPtr& errorString) const
     {
         const int n = m_generators.getSize();
         if (n == 0) {
@@ -243,26 +243,26 @@ namespace CB::feature::controller::motion {
         return true;
     }
 
-    hk::hkbNode* PoseSearchGenerator::cloneNode(hk::hkbBehaviorGraph& rootBehavior) const
+    ::hkbNode* PoseSearchGenerator::cloneNode(::hkbBehaviorGraph& rootBehavior) const
     {
         return new PoseSearchGenerator(*this);
     }
 
-    void PoseSearchGenerator::generate(const hk::hkbContext& context, const hk::hkbGeneratorOutput** activeChildrenOutput,
-                                       hk::hkbGeneratorOutput& output, hk::hkReal timeOffset)
+    void PoseSearchGenerator::generate(const ::hkbContext& context, const ::hkbGeneratorOutput** activeChildrenOutput,
+                                       ::hkbGeneratorOutput& output, ::hkReal timeOffset)
     {
         CB_ZONE(zone, "MM generate");
-        if (&output != activeChildrenOutput[0]) hk::hkbGeneratorOutputUtils::copyGeneratorOutput(*activeChildrenOutput[0], output);
+        if (&output != activeChildrenOutput[0]) ::hkbGeneratorOutputUtils::copyGeneratorOutput(*activeChildrenOutput[0], output);
         deadBlend(context, output);
     }
 
     /// @note The engine's dead blend (locomotion/DeadBlend.h) on the playing child's pose, per character: a switch of
     ///       child coasts the pose then shown into the new child's. The pose is copied out of the output and back
     ///       (Bone mirrors hkQsTransform) so the engine stays Havok-free.
-    void PoseSearchGenerator::deadBlend(const hk::hkbContext& context, hk::hkbGeneratorOutput& output)
+    void PoseSearchGenerator::deadBlend(const ::hkbContext& context, ::hkbGeneratorOutput& output)
     {
         CB_ZONE(zone, "MM dead blend");
-        using Out = hk::hkbGeneratorOutput;
+        using Out = ::hkbGeneratorOutput;
         if (!output.isValid(Out::TRACK_POSE)) return;
         const Out::TrackHeader& header = output.getTrackHeader(Out::TRACK_POSE);
         const int               bones  = header.m_numData;
@@ -291,7 +291,7 @@ namespace CB::feature::controller::motion {
             b.Reset(0, m_currentIndex);
             return;
         }
-        hk::hkQsTransform*       out  = output.accessPoseLocal();
+        ::hkQsTransform*       out  = output.accessPoseLocal();
         std::vector<loco::Bone>& pose = slot.pose;
         pose.resize(static_cast<std::size_t>(bones));
         std::memcpy(pose.data(), out, sizeof(loco::Bone) * static_cast<std::size_t>(bones));
@@ -334,10 +334,10 @@ namespace CB::feature::controller::motion {
         return true;
     }
 
-    void PoseSearchGenerator::updateSync(const hk::hkbContext& context, hk::hkbNodeInfo& info)
+    void PoseSearchGenerator::updateSync(const ::hkbContext& context, ::hkbNodeInfo& info)
     {
-        hk::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
-        const hk::hkbNode*    child        = m_generators[m_currentIndex];
+        ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
+        const ::hkbNode*    child        = m_generators[m_currentIndex];
         if (child->m_cloneState == CLONE_STATE_CLONE) child = rootBehavior->getNodeTemplate(child);
         const int index   = rootBehavior->m_activeNodeTemplateToIndexMap->getWithDefault(child, 0);
         info.m_isProxy    = true;

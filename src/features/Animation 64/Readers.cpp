@@ -5,11 +5,12 @@
 #include <platform/classes/ClassRegistry.h>
 #include <platform/hooks/hookslib.h>
 
-#include <Animation/Animation/hkaAnimationBinding.h>
-#include <Animation/Rig/hkaSkeleton.h>
-#include <Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.h>
-#include <Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Animation/Animation/Animation/hkaAnimationBinding.h>
+#include <Animation/Animation/Rig/hkaSkeleton.h>
+#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.h>
+#include <Behavior/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <cstdarg>
 #include <cstdint>
@@ -32,14 +33,13 @@ namespace CB::feature::widen {
 
     namespace {
 
-        namespace hk    = CB::havok;
         namespace hooks = CB::platform::hooks;
 
         constexpr const char* kWho  = "Animation64";
         constexpr const char* kFlag = "animation64_readers";
 
         /// @note The clip loader and hkError's instance are mutable globals the link shim leaves unbound: read live.
-        hk::IAnimationClipLoader* Loader() { return hooks::Live<&hk::g_animationClipLoader>(); }
+        ::IAnimationClipLoader* Loader() { return hooks::Live<&::g_animationClipLoader>(); }
 
         /// @return the role prefix an unset m_SyncAnimPrefix stands for: the exe's g_bssyncEmptyString, read through its
         ///         pin; "NPC", vanilla's value, on a runtime without one.
@@ -64,28 +64,27 @@ namespace CB::feature::widen {
             va_start(args, format);
             std::vsnprintf(text, sizeof text, format, args);
             va_end(args);
-            hooks::Live<&hk::hkError::s_instance>()->message(hk::hkError::MESSAGE_WARNING, id, text, file, line);
+            hooks::Live<&::hkError::s_instance>()->message(::hkError::MESSAGE_WARNING, id, text, file, line);
         }
 
         /// @return the binding at `index` in `set`, or null when there is no set or the index is outside it.
         /// @note  Vanilla compares a signed index against the size only, so -1 reached m_bindings[-1] wherever the
         ///        caller had not ruled it out first; here no negative index has a binding.
-        hk::hkbAnimationBindingWithTriggers* BindingAt(const hk::hkbAnimationBindingSet* set, std::int64_t index)
+        ::hkbAnimationBindingWithTriggers* BindingAt(const ::hkbAnimationBindingSet* set, std::int64_t index)
         {
             return (set && index >= 0 && index < set->m_bindings.getSize()) ? set->m_bindings[static_cast<int>(index)] : HK_NULL;
         }
 
-        using ClipActivate   = hooks::Override<&hk::hkbClipGenerator::activate>;
-        using ClipDeactivate = hooks::Override<&hk::hkbClipGenerator::deactivate>;
-        using ClipIsValid    = hooks::Override<&hk::hkbClipGenerator::isValid>;
-        using ClipRebind     = hooks::Override<&hk::hkbClipGenerator::rebindFromBindingSet>;
-        using OffsetSample   = hooks::Override<&hk::BSOffsetAnimationGenerator::sampleOffset>;
-        using SyncMark       = hooks::Override<&hk::BSSynchronizedClipGenerator::sampleSyncMark>;
-        using SyncActivate   = hooks::Override<&hk::BSSynchronizedClipGenerator::activateClipGenerator>;
+        using ClipActivate   = hooks::Override<&::hkbClipGenerator::activate>;
+        using ClipDeactivate = hooks::Override<&::hkbClipGenerator::deactivate>;
+        using ClipIsValid    = hooks::Override<&::hkbClipGenerator::isValid>;
+        using ClipRebind     = hooks::Override<&::hkbClipGenerator::rebindFromBindingSet>;
+        using OffsetSample   = hooks::Override<&::BSOffsetAnimationGenerator::sampleOffset>;
+        using SyncMark       = hooks::Override<&::BSSynchronizedClipGenerator::sampleSyncMark>;
+        using SyncActivate   = hooks::Override<&::BSSynchronizedClipGenerator::activateClipGenerator>;
 
-        void OnClipActivate(ClipActivate::Next, hk::hkbClipGenerator* clip, const hk::hkbContext& context)
+        void OnClipActivate(ClipActivate::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            using namespace CB::havok;
             /// @note Its `new`s and reserve run Havok's allocation inline, which can come before kDataLoaded.
             platform::classes::EnsureHavokGlobalsMirrored();
             if (clip->m_userData == 0 && Loader()) Loader()->queue(context, clip, HK_NULL);
@@ -163,9 +162,8 @@ namespace CB::feature::widen {
             }
         }
 
-        void OnClipDeactivate(ClipDeactivate::Next, hk::hkbClipGenerator* clip, const hk::hkbContext& context)
+        void OnClipDeactivate(ClipDeactivate::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            using namespace CB::havok;
             clip->fn_140ad11e0();
 
             clip->m_echos.setSize(0);
@@ -191,9 +189,8 @@ namespace CB::feature::widen {
 
         /// @note BindingIndex() takes a mutable clip (it adopts a mirror an unconverted writer changed); isValid is
         ///       const in Havok's interface only.
-        bool OnClipIsValid(ClipIsValid::Next, const hk::hkbClipGenerator* clip, hk::hkStringPtr& errorString)
+        bool OnClipIsValid(ClipIsValid::Next, const ::hkbClipGenerator* clip, ::hkStringPtr& errorString)
         {
-            using namespace CB::havok;
             if (!clip->m_animationControl && BindingIndex(const_cast<hkbClipGenerator*>(clip)) == -1) {
                 errorString = "The animation has not been loaded.";
                 return false;
@@ -211,9 +208,8 @@ namespace CB::feature::widen {
             return true;
         }
 
-        void OnClipRebind(ClipRebind::Next, hk::hkbClipGenerator* clip, const hk::hkbContext& context)
+        void OnClipRebind(ClipRebind::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            using namespace CB::havok;
             hkbAnimationBindingSet*          bindingSet = context.m_character ? context.m_character->getAnimationBindingSet() : HK_NULL;
             hkbAnimationBindingWithTriggers* bwt        = BindingAt(bindingSet, BindingIndex(clip));
             hkaAnimationBinding*             binding    = bwt ? bwt->m_binding : HK_NULL;
@@ -221,9 +217,8 @@ namespace CB::feature::widen {
             clip->m_binding = binding;
         }
 
-        void OnOffsetSample(OffsetSample::Next, hk::BSOffsetAnimationGenerator* gen, const hk::hkbContext& context)
+        void OnOffsetSample(OffsetSample::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
         {
-            using namespace CB::havok;
             /// @note Its setSize calls grow hkArrays inline.
             platform::classes::EnsureHavokGlobalsMirrored();
             const hkReal range      = gen->m_fOffsetRangeEnd - gen->m_fOffsetRangeStart;
@@ -267,9 +262,8 @@ namespace CB::feature::widen {
 
         /// @note The game's paired-idle start (0x1405463f0) calls this for every participant and aborts the scene when
         ///       it returns false, so it must resolve an unset prefix exactly as vanilla does (DefaultSyncPrefix).
-        bool OnSyncMark(SyncMark::Next, hk::BSSynchronizedClipGenerator* sync, const hk::hkbContext& context, hk::hkQsTransform& markOut)
+        bool OnSyncMark(SyncMark::Next, ::BSSynchronizedClipGenerator* sync, const ::hkbContext& context, ::hkQsTransform& markOut)
         {
-            using namespace CB::havok;
             bool                       found     = false;
             hkbClipGenerator*          clip      = sync->m_pClipGenerator;
             const hkaAnimationBinding* binding   = (clip && clip->m_animationControl) ? clip->m_animationControl->getAnimationBinding() : HK_NULL;
@@ -307,9 +301,9 @@ namespace CB::feature::widen {
         }
 
         /// @note The scene slot (m_sAnimationBindingIndex) is still 16-bit: it widens on its own (Animation64.h).
-        void OnSyncActivate(SyncActivate::Next, hk::BSSynchronizedClipGenerator* sync, const hk::hkbContext& context, hk::hkbClipGenerator* clip)
+        void OnSyncActivate(SyncActivate::Next, ::BSSynchronizedClipGenerator* sync, const ::hkbContext& context, ::hkbClipGenerator* clip)
         {
-            const hk::hkInt16  sceneIndex = sync->m_sAnimationBindingIndex;
+            const ::hkInt16  sceneIndex = sync->m_sAnimationBindingIndex;
             const std::int64_t clipIndex  = BindingIndex(clip);
             if (sceneIndex != -1) SetBindingIndex(clip, sceneIndex);
             clip->activate(context);

@@ -64,7 +64,7 @@ namespace CB::core::debug {
         { "havok_runtime", FlagKind::IniBool, "HavokRuntime", "bEnable", true, true,
           "Havok runtime takeover",
           "Run CB's reimplemented Havok behavior runtime in place of vanilla's (per class: [HavokRuntime] "
-          "<Class>=off, or sOnly=<Class>,...). Inert without community_behaviors/runtime/havok-runtime.cbimg." },
+          "<Class>=off, or sOnly=<Class>,...): the CB SDK compiled into the plugin." },
         { "havok_type_registry", FlagKind::IniBool, "HavokRuntime", "bTypeRegistry", true, true,
           "Havok type registries",
           "Put CB's type-info, vtable-class and class-name registries in place of Havok's before the game starts it. "

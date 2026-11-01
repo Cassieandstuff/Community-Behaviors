@@ -7,14 +7,15 @@
 
 #include <platform/hooks/Override.h>
 
-#include <Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
-#include <Animation/Rig/hkaSkeleton.h>
-#include <Behavior/Character/hkbCharacter.h>
-#include <Behavior/Context/hkbContext.h>
-#include <Behavior/Driver/FootIk/hkbFootIkDriver.h>
-#include <Behavior/Driver/FootIk/hkbFootIkDriverInfo.h>
-#include <Behavior/Generator/hkbGeneratorOutput.h>
-#include <Behavior/Modifier/FootIk/hkbFootIkGains.h>
+#include <Common/Base/hkBase.h>
+#include <Animation/Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
+#include <Animation/Animation/Rig/hkaSkeleton.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
+#include <Behavior/Behavior/Driver/FootIk/hkbFootIkDriver.h>
+#include <Behavior/Behavior/Driver/FootIk/hkbFootIkDriverInfo.h>
+#include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
+#include <Behavior/Behavior/Modifier/FootIk/hkbFootIkGains.h>
 
 #include <PluginLogger.h>
 
@@ -48,19 +49,18 @@ namespace CB::feature::footik {
 
     namespace {
 
-        namespace hk    = CB::havok;
         namespace hooks = platform::hooks;
 
-        using DoFootIk      = hooks::Override<&hk::hkbFootIkDriver::doFootIk>;
-        using Bend          = hooks::Override<&hk::hkaTwoJointsIkSolver::solve>;
-        using Align         = hooks::Override<&hk::hkbFootIkDriver::alignWorldFromModelUpWithGroundNormal>;
-        using VerticalError = hooks::Override<&hk::hkbFootIkDriver::computeVerticalError>;
+        using DoFootIk      = hooks::Override<&::hkbFootIkDriver::doFootIk>;
+        using Bend          = hooks::Override<&::hkaTwoJointsIkSolver::solve>;
+        using Align         = hooks::Override<&::hkbFootIkDriver::alignWorldFromModelUpWithGroundNormal>;
+        using VerticalError = hooks::Override<&::hkbFootIkDriver::computeVerticalError>;
 
         /// @brief One doFootIk call on this thread, while vanilla's driver runs inside it.
         struct Call {
-            const hk::hkbCharacter*        character = nullptr;
-            const hk::hkaSkeleton*         skeleton  = nullptr;
-            const hk::hkbFootIkDriverInfo* info      = nullptr;
+            const ::hkbCharacter*        character = nullptr;
+            const ::hkaSkeleton*         skeleton  = nullptr;
+            const ::hkbFootIkDriverInfo* info      = nullptr;
             std::shared_ptr<const Rig>     rig;
             /// @brief The legs' bends vanilla asked for and CB deferred, solved once vanilla returns.
             std::array<LegRequest, 8>      requests;
@@ -73,8 +73,8 @@ namespace CB::feature::footik {
         ///        Shared, so a call still holding the old rig keeps it alive across that swap.
         struct RigCache {
             struct Entry {
-                const hk::hkaSkeleton*     skeleton = nullptr;
-                std::vector<hk::hkInt16>   bones;   ///< every leg's hip, knee and ankle
+                const ::hkaSkeleton*     skeleton = nullptr;
+                std::vector<::hkInt16>   bones;   ///< every leg's hip, knee and ankle
                 std::shared_ptr<const Rig> rig;
             };
             std::mutex                              lock;
@@ -88,19 +88,19 @@ namespace CB::feature::footik {
             return *cache;
         }
 
-        std::vector<hk::hkInt16> LegBones(const hk::hkbFootIkDriverInfo& info)
+        std::vector<::hkInt16> LegBones(const ::hkbFootIkDriverInfo& info)
         {
-            std::vector<hk::hkInt16> bones;
+            std::vector<::hkInt16> bones;
             for (int i = 0; i < info.m_legs.getSize(); i++)
                 bones.insert(bones.end(), { info.m_legs[i].m_hipIndex, info.m_legs[i].m_kneeIndex, info.m_legs[i].m_ankleIndex });
             return bones;
         }
 
         /// @return Null when the data cannot be used (Rig::problem set).
-        std::shared_ptr<const Rig> RigFor(const hk::hkaSkeleton& skeleton, const hk::hkbFootIkDriverInfo& info)
+        std::shared_ptr<const Rig> RigFor(const ::hkaSkeleton& skeleton, const ::hkbFootIkDriverInfo& info)
         {
             RigCache&                      cache = Rigs();
-            std::vector<hk::hkInt16>       bones = LegBones(info);
+            std::vector<::hkInt16>       bones = LegBones(info);
             std::scoped_lock               lock(cache.lock);
             RigCache::Entry&               entry = cache.entries[&info];
             if (!entry.rig || entry.skeleton != &skeleton || entry.bones != bones) {
@@ -111,7 +111,7 @@ namespace CB::feature::footik {
             return entry.rig->problem.empty() ? entry.rig : nullptr;
         }
 
-        const RigLeg* LegEndingAt(const Rig& rig, hk::hkInt16 ankle)
+        const RigLeg* LegEndingAt(const Rig& rig, ::hkInt16 ankle)
         {
             for (const RigLeg& leg : rig.legs)
                 if (!leg.chain.empty() && leg.chain.back() == ankle) return &leg;
@@ -144,24 +144,24 @@ namespace CB::feature::footik {
             return (logged.*set).insert(key).second;
         }
 
-        const char* CharacterName(const hk::hkbCharacter& character)
+        const char* CharacterName(const ::hkbCharacter& character)
         {
             const char* name = character.m_name.cString();
             return name ? name : "?";
         }
 
-        const hk::hkbFootIkDriverInfo* InfoOf(const hk::hkbCharacter& character, const hk::hkaSkeleton*& skeletonOut)
+        const ::hkbFootIkDriverInfo* InfoOf(const ::hkbCharacter& character, const ::hkaSkeleton*& skeletonOut)
         {
-            const hk::hkbCharacterSetup* setup = character.m_setup;
+            const ::hkbCharacterSetup* setup = character.m_setup;
             if (!setup || !setup->m_data || !setup->m_animationSkeleton) return nullptr;
             skeletonOut = setup->m_animationSkeleton;
             return setup->m_data->m_footIkDriverInfo;
         }
 
-        void LogRigOnce(const hk::hkbCharacter& character)
+        void LogRigOnce(const ::hkbCharacter& character)
         {
-            const hk::hkaSkeleton*         skeleton = nullptr;
-            const hk::hkbFootIkDriverInfo* info     = InfoOf(character, skeleton);
+            const ::hkaSkeleton*         skeleton = nullptr;
+            const ::hkbFootIkDriverInfo* info     = InfoOf(character, skeleton);
             if (!info || !FirstOf(&Logged::rigs, info)) return;
             LOG_INFO("foot IK: {} ({} legs): {}", CharacterName(character), info->m_legs.getSize(),
                      Describe(DeriveRig(*skeleton, *info), *skeleton));
@@ -169,11 +169,11 @@ namespace CB::feature::footik {
 
         void LogBendsOnce(const Call& call, float errorUpDownBias)
         {
-            const hk::hkaSkeleton* skeleton = call.skeleton;
+            const ::hkaSkeleton* skeleton = call.skeleton;
             if (!call.character || !skeleton || !call.numRequests || !FirstOf(&Logged::bends, call.info)) return;
             std::string bends;
             for (int i = 0; i < call.numRequests; i++) {
-                const hk::hkInt16 ankle = call.requests[i].setup.m_endBoneIdx;
+                const ::hkInt16 ankle = call.requests[i].setup.m_endBoneIdx;
                 const char*       name  = ankle >= 0 && ankle < skeleton->m_bones.getSize() ? skeleton->m_bones[ankle].m_name.cString() : nullptr;
                 const __m128&     t     = call.requests[i].setup.m_endTargetMS.m_quad;
                 bends += std::format(" {} ({:.1f} {:.1f} {:.1f})", name ? name : "?", t.m128_f32[0], t.m128_f32[1], t.m128_f32[2]);
@@ -184,10 +184,10 @@ namespace CB::feature::footik {
 
         /// @brief The graph's errorUpDownBias (vanilla's sink blends its legs' errors by it); 0.5 without the controls
         ///        track.
-        float ErrorUpDownBias(hk::hkbGeneratorOutput& output)
+        float ErrorUpDownBias(::hkbGeneratorOutput& output)
         {
-            if (!output.isValid(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS)) return 0.5f;
-            const auto* controls = static_cast<const hk::hkbFootIkControlData*>(output.getTrackData(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS));
+            if (!output.isValid(::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS)) return 0.5f;
+            const auto* controls = static_cast<const ::hkbFootIkControlData*>(output.getTrackData(::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS));
             return controls->m_gains.m_errorUpDownBias;
         }
 
@@ -213,8 +213,8 @@ namespace CB::feature::footik {
             if (!done.exchange(true, std::memory_order_relaxed)) LOG_INFO("foot IK: vanilla's {} reached CB's Override", what);
         }
 
-        void OnDoFootIk(DoFootIk::Next next, hk::hkbFootIkDriver* driver, const hk::hkbContext& context,
-                        hk::hkbGeneratorOutput& generatorOutput)
+        void OnDoFootIk(DoFootIk::Next next, ::hkbFootIkDriver* driver, const ::hkbContext& context,
+                        ::hkbGeneratorOutput& generatorOutput)
         {
             Call call;
             if (context.m_character) {
@@ -234,7 +234,7 @@ namespace CB::feature::footik {
             BodyInputs inputs;
             inputs.errorUpDownBias = ErrorUpDownBias(generatorOutput);
             inputs.bendSpine       = BodyOn();
-            if (const hk::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr; setup && setup->m_data) {
+            if (const ::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr; setup && setup->m_data) {
                 const __m128& up = setup->m_data->m_modelUpMS.m_quad;
                 inputs.modelUpMS = { up.m128_f32[0], up.m128_f32[1], up.m128_f32[2] };
             }
@@ -247,7 +247,7 @@ namespace CB::feature::footik {
         /// @note  Vanilla's doFootPlacement ignores what the solve returns, reads the ankle straight after only to roll it
         ///        to the ground (a model-space rotation, kept through CB's solve), and asks for the end position, never the
         ///        end rotation.
-        hk::hkBool OnBend(Bend::Next next, const hk::hkaTwoJointsIkSolver::Setup& setup, hk::hkaPose& pose)
+        ::hkBool OnBend(Bend::Next next, const ::hkaTwoJointsIkSolver::Setup& setup, ::hkaPose& pose)
         {
             Call* call = t_call;
             if (!call || !call->rig || !LegsOn()) return next(setup, pose);
@@ -259,13 +259,13 @@ namespace CB::feature::footik {
         }
 
         /// @note CB's tilt for a rig with a hind and a fore anchor (the horse); any other rig keeps vanilla's.
-        void OnAlign(Align::Next next, hk::hkbFootIkDriver* driver, const hk::hkbContext& context, const hk::hkVector4& upWS,
-                     hk::hkbGeneratorOutput& generatorOutput, const hk::hkbFootIkGains& gains)
+        void OnAlign(Align::Next next, ::hkbFootIkDriver* driver, const ::hkbContext& context, const ::hkVector4& upWS,
+                     ::hkbGeneratorOutput& generatorOutput, const ::hkbFootIkGains& gains)
         {
             static std::atomic<bool> logged{ false };
             LogFirstCall(logged, "world-from-model tilt");
             const Call*                  call  = t_call;
-            const hk::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr;
+            const ::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr;
             if (TiltOn() && call && call->rig && setup && setup->m_data &&
                 AlignToGround(*call->rig, *driver, setup->m_data->m_modelUpMS, setup->m_data->m_modelRightMS, generatorOutput, gains))
                 return;
@@ -274,7 +274,7 @@ namespace CB::feature::footik {
 
         /// @note Passes through: vanilla's sink owns the whole body's height (BodySolve only bends spines for the
         ///       difference between the fore and hind ends).
-        hk::hkReal OnVerticalError(VerticalError::Next next, const hk::hkbFootIkDriver* driver, hk::hkReal errorUpDownBias)
+        ::hkReal OnVerticalError(VerticalError::Next next, const ::hkbFootIkDriver* driver, ::hkReal errorUpDownBias)
         {
             static std::atomic<bool> logged{ false };
             LogFirstCall(logged, "vertical feedback");

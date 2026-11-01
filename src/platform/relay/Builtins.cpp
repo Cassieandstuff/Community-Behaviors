@@ -16,7 +16,8 @@
 #include "Relay.h"
 #include <PluginLogger.h>
 
-#include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 
 #include <algorithm>
 #include <array>
@@ -298,18 +299,17 @@ namespace CB::platform::relay {
         /// @note   The name is compared byte-exact. Cached per thread by (graph data, name) and re-checked against the
         ///         graph's name table on every hit, so a reloaded graph at a recycled address is never misread.
         std::int8_t RootVariableType(RE::Actor* actor, const char* name) {
-            namespace hk = CB::havok;
             RE::BSTSmartPointer<RE::BSAnimationGraphManager> manager;
-            if (!actor->GetAnimationGraphManager(manager) || !manager) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            if (!actor->GetAnimationGraphManager(manager) || !manager) return ::hkbVariableInfo::VARIABLE_TYPE_INVALID;
             /// @note activeGraph moved between runtimes (SE 0x98 / AE 0xA0): read through the versioned accessor.
             const std::uint32_t active = manager->GetRuntimeData().activeGraph;
-            if (active >= manager->graphs.size()) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            if (active >= manager->graphs.size()) return ::hkbVariableInfo::VARIABLE_TYPE_INVALID;
             const auto& graph = manager->graphs[active];
-            if (!graph || !graph->behaviorGraph) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            if (!graph || !graph->behaviorGraph) return ::hkbVariableInfo::VARIABLE_TYPE_INVALID;
             /// @note CB's hkbBehaviorGraph is the exe's layout (cbmatch-proven): m_data at +0x88, as CommonLib's `data`.
-            const auto* root = reinterpret_cast<const hk::hkbBehaviorGraph*>(graph->behaviorGraph);
-            const hk::hkbBehaviorGraphData* data = root->m_data.val();
-            if (!data || !data->m_stringData) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            const auto* root = reinterpret_cast<const ::hkbBehaviorGraph*>(graph->behaviorGraph);
+            const ::hkbBehaviorGraphData* data = root->m_data.val();
+            if (!data || !data->m_stringData) return ::hkbVariableInfo::VARIABLE_TYPE_INVALID;
             const auto& names = data->m_stringData->m_variableNames;
             const auto& infos = data->m_variableInfos;
             const int   count = std::min(names.getSize(), infos.getSize());
@@ -318,12 +318,12 @@ namespace CB::platform::relay {
             auto&      slots = cache[data];
             const auto named = [&](int i) { return i >= 0 && i < count && std::strcmp(names[i].cString(), name) == 0; };
             if (const auto it = slots.find(name); it != slots.end() && (it->second < 0 || named(it->second)))
-                return it->second < 0 ? hk::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[it->second].m_type;
+                return it->second < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[it->second].m_type;
             int found = -1;
             for (int i = 0; i < count && found < 0; ++i)
                 if (named(i)) found = i;
             slots[name] = found;
-            return found < 0 ? hk::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[found].m_type;
+            return found < 0 ? ::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[found].m_type;
         }
 
         /// @brief GraphVar(name) -> the variable, typed by its declaration: Bool, Int or Float (0.0 when unreadable).
@@ -334,7 +334,6 @@ namespace CB::platform::relay {
         /// @note  A variable the root graph does not declare (one a referenced behavior declares) is read as a float,
         ///        logged once per name: give such a variable its declaration in the root graph, or a VariableSource.
         Value Prim_GraphVar(const EvalContext& c, std::span<const Value> a) {
-            namespace hk = CB::havok;
             if (a.empty() || a[0].type != VType::String || !a[0].str) return Value::Float(0.0f);
             const char* name = a[0].str;
             if (Value v; c.variables && c.variables->Read(name, v)) return v;
@@ -343,12 +342,12 @@ namespace CB::platform::relay {
             std::int32_t word = 0;
             if (!c.actor->GetGraphVariableInt(RE::BSFixedString(name), word)) return Value::Float(0.0f);
             switch (RootVariableType(c.actor, name)) {
-                case hk::hkbVariableInfo::VARIABLE_TYPE_BOOL:  return Value::Bool(word != 0);
-                case hk::hkbVariableInfo::VARIABLE_TYPE_INT8:
-                case hk::hkbVariableInfo::VARIABLE_TYPE_INT16:
-                case hk::hkbVariableInfo::VARIABLE_TYPE_INT32: return Value::Int(word);
-                case hk::hkbVariableInfo::VARIABLE_TYPE_REAL:  return Value::Float(std::bit_cast<float>(word));
-                case hk::hkbVariableInfo::VARIABLE_TYPE_INVALID: {
+                case ::hkbVariableInfo::VARIABLE_TYPE_BOOL:  return Value::Bool(word != 0);
+                case ::hkbVariableInfo::VARIABLE_TYPE_INT8:
+                case ::hkbVariableInfo::VARIABLE_TYPE_INT16:
+                case ::hkbVariableInfo::VARIABLE_TYPE_INT32: return Value::Int(word);
+                case ::hkbVariableInfo::VARIABLE_TYPE_REAL:  return Value::Float(std::bit_cast<float>(word));
+                case ::hkbVariableInfo::VARIABLE_TYPE_INVALID: {
                     static std::mutex                      lock;
                     static std::unordered_set<const char*> warned;
                     bool                                   first = false;

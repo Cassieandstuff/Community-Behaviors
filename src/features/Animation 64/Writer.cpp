@@ -6,8 +6,9 @@
 #include <platform/game/AnimationLoad.h>
 #include <platform/hooks/hookslib.h>
 
-#include <Behavior/Character/hkbCharacter.h>
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <cstdint>
 #include <cstring>
@@ -31,7 +32,6 @@ namespace CB::feature::widen {
 
     namespace {
 
-        namespace hk    = CB::havok;
         namespace game  = CB::platform::game;
         namespace hooks = CB::platform::hooks;
 
@@ -55,7 +55,7 @@ namespace CB::feature::widen {
             /// @note The keys stay held for the walk: LoadClips has released its own by now, so a key's pool entry can be
             ///       this string's alone, freed with it, and its address reused by the next key (2026-10-25: most clips
             ///       took one late roster position). Held, an equal name interns to the same entry.
-            const auto&                                   names = static_cast<const hk::hkbCharacterStringData*>(stringData)->m_animationNames;
+            const auto&                                   names = static_cast<const ::hkbCharacterStringData*>(stringData)->m_animationNames;
             std::vector<RE::BSFixedString>                keys;
             std::unordered_map<const char*, std::int64_t> positions;
             keys.reserve(static_cast<std::size_t>(names.getSize()));
@@ -68,14 +68,14 @@ namespace CB::feature::widen {
             }
 
             std::uint64_t               stamped = 0, disagreed = 0;
-            std::vector<hk::hkbNode*>   pending{ static_cast<hk::hkbNode*>(rootBehavior) };
-            std::unordered_set<hk::hkbNode*> seen{ pending.front() };
+            std::vector<::hkbNode*>   pending{ static_cast<::hkbNode*>(rootBehavior) };
+            std::unordered_set<::hkbNode*> seen{ pending.front() };
             while (!pending.empty()) {
-                hk::hkbNode* node = pending.back();
+                ::hkbNode* node = pending.back();
                 pending.pop_back();
 
-                if (node->getClassType() == &hk::hkbClipGenerator::staticClass()) {
-                    auto* clip = static_cast<hk::hkbClipGenerator*>(node);
+                if (node->getClassType() == &::hkbClipGenerator::staticClass()) {
+                    auto* clip = static_cast<::hkbClipGenerator*>(node);
                     if (const char* name = clip->m_animationName.cString(); name && !clip->m_animationControl) {
                         const auto         at       = positions.find(KeyOf(name).data());
                         const std::int64_t position = at != positions.end() ? at->second : -1;
@@ -85,12 +85,12 @@ namespace CB::feature::widen {
                     }
                 }
 
-                hk::hkArray<hk::hkbNode::ChildInfo> children;
-                children.reserve(node->getMaxNumChildren(hk::hkbNode::FLAG_GENERATORS_ONLY));
-                hk::hkbNode::ChildrenInfo info(children);
-                node->getChildren(hk::hkbNode::FLAG_GENERATORS_ONLY, info);
+                ::hkArray<::hkbNode::ChildInfo> children;
+                children.reserve(node->getMaxNumChildren(::hkbNode::FLAG_GENERATORS_ONLY));
+                ::hkbNode::ChildrenInfo info(children);
+                node->getChildren(::hkbNode::FLAG_GENERATORS_ONLY, info);
                 for (int i = 0; i < children.getSize(); ++i)
-                    if (hk::hkbNode* child = children[i].m_node; child && seen.insert(child).second) pending.push_back(child);
+                    if (::hkbNode* child = children[i].m_node; child && seen.insert(child).second) pending.push_back(child);
             }
             /// @note A disagreement means this key differs from LoadClips' own: the 16-bit stamp is the low half of the
             ///       position it found, so the two match whenever they name the same roster slot.

@@ -6,8 +6,9 @@
 
 #include <interface/reflection/HavokSchema.h>
 
-#include <Behavior/Generator/hkbGenerator.h>
-#include <Common/Base/Memory/hkMemory.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/hkbGenerator.h>
+#include <Common/Base/Container/hkContainerAllocators.h>
 #include <Common/Base/Reflection/hkClass.h>
 #include <Common/Base/Reflection/hkClassMember.h>
 #include <Common/Serialize/Util/hkBuiltinTypeRegistry.h>
@@ -35,14 +36,13 @@ extern "C" {
 }
 #pragma comment(linker, "/alternatename:?s_alloc@hkContainerHeapAllocator@havok@CB@@2UAllocator@123@A=cb_mirror_containerHeapAllocator")
 #pragma comment(linker, "/alternatename:?hkMemoryRouter_s_memoryRouter@havok@CB@@3KA=cb_mirror_memoryRouterTlsIndex")
-static_assert(sizeof(CB::havok::hkContainerHeapAllocator::Allocator) == sizeof(cb_mirror_containerHeapAllocator));
-static_assert(sizeof(CB::havok::hkMemoryRouter_s_memoryRouter) == sizeof(cb_mirror_memoryRouterTlsIndex));
+static_assert(sizeof(::hkContainerHeapAllocator::Allocator) == sizeof(cb_mirror_containerHeapAllocator));
+static_assert(sizeof(::hkMemoryRouter_s_memoryRouter) == sizeof(cb_mirror_memoryRouterTlsIndex));
 
 namespace CB::platform::classes {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace sc = CB::engine::schema;
 
         /// @brief Havok's hkTypeInfo, laid out as the exe's static initializers fill it (BSSynchronizedClipGenerator's
@@ -65,8 +65,8 @@ namespace CB::platform::classes {
             ClassBehavior                 behavior{};
             std::string                   name, scopedName;
             std::vector<std::string>      memberNames;
-            std::vector<hk::hkClassMember> members;
-            hk::hkClass                   cls{};
+            std::vector<::hkClassMember> members;
+            ::hkClass                   cls{};
             TypeInfo                      info{};
             bool                          declared   = false;   ///< a C++ type stands behind it (Declare)
             bool                          built      = false;
@@ -88,9 +88,9 @@ namespace CB::platform::classes {
         /// @brief The game's hkClass for a parent or a member's target class, by name; null for any other.
         /// @note The link shim binds these to the exe's own class objects, so names and parent chains read the same,
         ///       which is what the registries and the parent-chain class tests use.
-        const hk::hkClass* GameClass(const std::string& name)
+        const ::hkClass* GameClass(const std::string& name)
         {
-            if (name == "hkbGenerator") return &hk::hkbGeneratorClass;
+            if (name == "hkbGenerator") return &::hkbGeneratorClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }
@@ -98,9 +98,9 @@ namespace CB::platform::classes {
         bool Build(Entry& e, const sc::SchemaRegistry& schema, std::string& why);
 
         /// @brief The hkClass for `name`: the game's, else a CB entry's (a struct class gets one, built now).
-        const hk::hkClass* ClassFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
+        const ::hkClass* ClassFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
         {
-            if (const hk::hkClass* gameClass = GameClass(name)) return gameClass;
+            if (const ::hkClass* gameClass = GameClass(name)) return gameClass;
             Entry* entry = nullptr;
             for (Entry& e : S().entries)
                 if (e.name == name) entry = &e;
@@ -124,9 +124,9 @@ namespace CB::platform::classes {
             return &entry->cls;
         }
 
-        bool ScalarType(sc::Scalar s, hk::hkClassMember::Type& out)
+        bool ScalarType(sc::Scalar s, ::hkClassMember::Type& out)
         {
-            using M = hk::hkClassMember;
+            using M = ::hkClassMember;
             switch (s) {
             case sc::Scalar::Int8:   out = M::TYPE_INT8; return true;
             case sc::Scalar::Byte:   out = M::TYPE_UINT8; return true;
@@ -144,9 +144,9 @@ namespace CB::platform::classes {
         }
 
         /// @brief `f` as a Havok member type; false with `why` set for a kind no CB class needs yet.
-        bool MemberType(const sc::Field& f, hk::hkClassMember& m, const sc::SchemaRegistry& schema, std::string& why)
+        bool MemberType(const sc::Field& f, ::hkClassMember& m, const sc::SchemaRegistry& schema, std::string& why)
         {
-            using M = hk::hkClassMember;
+            using M = ::hkClassMember;
             M::Type t{};
             switch (f.kind) {
             case sc::FieldKind::Scalar:
@@ -174,7 +174,7 @@ namespace CB::platform::classes {
                 why = "no Havok member type for its scalar";
                 return false;
             }
-            m.m_class = const_cast<hk::hkClass*>(ClassFor(f.ref, schema, why));
+            m.m_class = const_cast<::hkClass*>(ClassFor(f.ref, schema, why));
             return m.m_class != nullptr;
         }
 
@@ -199,7 +199,7 @@ namespace CB::platform::classes {
         {
             const sc::ClassSchema* cs = schema.Find(e.name);
             if (!cs) { why = "no schema descriptor"; return false; }
-            const hk::hkClass* parent = nullptr;
+            const ::hkClass* parent = nullptr;
             if (!cs->parent.empty()) {
                 parent = ClassFor(cs->parent, schema, why);
                 if (!parent) { why = "its parent '" + cs->parent + "': " + why; return false; }
@@ -226,11 +226,11 @@ namespace CB::platform::classes {
             for (std::size_t i = 0; i < cs->fields.size(); ++i) {
                 const sc::Field& f = cs->fields[i];
                 if (!IsMember(f)) continue;
-                hk::hkClassMember m{};
+                ::hkClassMember m{};
                 m.m_name   = e.memberNames[named++].c_str();
-                m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
+                m.m_offset = static_cast<::hkUint16>(offsets[i]);
                 const bool empty = f.kind == sc::FieldKind::EmptyPtr || f.kind == sc::FieldKind::EmptyArray;
-                m.m_flags  = static_cast<hk::hkUint16>(f.ignored || empty ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                m.m_flags  = static_cast<::hkUint16>(f.ignored || empty ? ::hkClassMember::SERIALIZE_IGNORED : 0);
                 if (!MemberType(f, m, schema, why)) {
                     e.building = false;
                     why        = "member '" + f.name + "': " + why;
@@ -264,21 +264,21 @@ namespace CB::platform::classes {
 
         /// @brief The exe's class named `name`, from the class-name registry: the same object its getClassType and
         ///        staticClass return. Null when none is registered.
-        hk::hkClass* ExeClass(hk::hkBuiltinTypeRegistry* registry, const char* name)
+        ::hkClass* ExeClass(::hkBuiltinTypeRegistry* registry, const char* name)
         {
             void* names = registry->getClassNameRegistry();
             if (!names) return nullptr;
             /// @note getClassByName is the class-name registry's slot 4 (0x140b14930, AE 1.6.1170).
-            using GetClassByName = hk::hkClass* (*)(void*, const char*);
+            using GetClassByName = ::hkClass* (*)(void*, const char*);
             return (*reinterpret_cast<GetClassByName* const*>(names))[4](names, name);
         }
 
         /// @brief A vanilla class the schema extends: the member list CB gave the exe's hkClass, and what it replaced.
         struct Extension {
             std::string                    name;
-            hk::hkClass*                   cls = nullptr;
+            ::hkClass*                   cls = nullptr;
             std::deque<std::string>        memberNames;
-            std::vector<hk::hkClassMember> members;
+            std::vector<::hkClassMember> members;
         };
         std::deque<Extension>& Extensions()
         {
@@ -295,11 +295,11 @@ namespace CB::platform::classes {
         ///        whose stored signature differs. Each class is checked against the engine's own hash twice: before (the
         ///        exe's description is the one the schema's vanilla signature describes) and after (the engine now
         ///        computes the signature CB writes into every packfile). A failed check leaves the exe's description.
-        void ExtendVanillaClasses(hk::hkBuiltinTypeRegistry* registry, const sc::SchemaRegistry& schema)
+        void ExtendVanillaClasses(::hkBuiltinTypeRegistry* registry, const sc::SchemaRegistry& schema)
         {
             for (const auto& [name, cs] : schema.All()) {
                 if (!cs.vanillaSignature) continue;
-                hk::hkClass* cls = ExeClass(registry, name.c_str());
+                ::hkClass* cls = ExeClass(registry, name.c_str());
                 if (!cls) {
                     LOG_ERROR("classes: {} extends no class the exe registers - not extended", name);
                     continue;
@@ -324,10 +324,10 @@ namespace CB::platform::classes {
                 for (std::size_t i = 0; i < cs.fields.size() && ok; ++i) {
                     const sc::Field& f = cs.fields[i];
                     if (!f.cbAdded) continue;
-                    hk::hkClassMember m{};
+                    ::hkClassMember m{};
                     m.m_name   = x.memberNames.emplace_back(f.name).c_str();
-                    m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
-                    m.m_flags  = static_cast<hk::hkUint16>(f.ignored ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                    m.m_offset = static_cast<::hkUint16>(offsets[i]);
+                    m.m_flags  = static_cast<::hkUint16>(f.ignored ? ::hkClassMember::SERIALIZE_IGNORED : 0);
                     if (!MemberType(f, m, schema, why)) {
                         LOG_ERROR("classes: {}.{}: {} - not extended", name, f.name, why);
                         ok = false;
@@ -339,7 +339,7 @@ namespace CB::platform::classes {
                     Extensions().pop_back();
                     continue;
                 }
-                const hk::hkClassMember* oldMembers = cls->m_declaredMembers;
+                const ::hkClassMember* oldMembers = cls->m_declaredMembers;
                 const int                oldCount   = cls->m_numDeclaredMembers;
                 cls->m_declaredMembers    = x.members.data();
                 cls->m_numDeclaredMembers = static_cast<int>(x.members.size());
@@ -365,9 +365,9 @@ namespace CB::platform::classes {
     {
         static std::once_flag mirrored;
         std::call_once(mirrored, [] {
-            std::memcpy(cb_mirror_containerHeapAllocator, &hooks::Live<&hk::hkContainerHeapAllocator::s_alloc>(),
+            std::memcpy(cb_mirror_containerHeapAllocator, &hooks::Live<&::hkContainerHeapAllocator::s_alloc>(),
                         sizeof(cb_mirror_containerHeapAllocator));
-            std::memcpy(cb_mirror_memoryRouterTlsIndex, &hooks::Live<&hk::hkMemoryRouter_s_memoryRouter>(),
+            std::memcpy(cb_mirror_memoryRouterTlsIndex, &hooks::Live<&::hkMemoryRouter_s_memoryRouter>(),
                         sizeof(cb_mirror_memoryRouterTlsIndex));
             LOG_INFO("classes: Havok's container allocator and memory router index mirrored for CB's inline Havok code");
         });
@@ -387,7 +387,7 @@ namespace CB::platform::classes {
     void RegisterAll(const sc::SchemaRegistry& schema)
     {
         std::scoped_lock lock(S().lock);
-        hk::hkBuiltinTypeRegistry* registry = hooks::Live<&hk::hkBuiltinTypeRegistry::s_instance>();
+        ::hkBuiltinTypeRegistry* registry = hooks::Live<&::hkBuiltinTypeRegistry::s_instance>();
         if (!registry) {
             LOG_ERROR("classes: Havok's type registry does not exist yet - {} CB class(es) not registered", S().entries.size());
             return;
@@ -407,7 +407,7 @@ namespace CB::platform::classes {
             /// @note addType is the registry's virtual slot 6 (+0x30): 0x140b143d0 in the vtable at 0x141966200 (AE
             ///       1.6.1170, verified 2026-10-20). It files the class by name, the type info, and, since the parent
             ///       chain implements an interface, the vtable -> class map the graph's clone fixups read.
-            using AddType = void (*)(hk::hkBuiltinTypeRegistry*, TypeInfo*, const hk::hkClass&);
+            using AddType = void (*)(::hkBuiltinTypeRegistry*, TypeInfo*, const ::hkClass&);
             const auto addType = (*reinterpret_cast<AddType* const*>(registry))[6];
             addType(registry, &e.info, e.cls);
             e.registered = true;

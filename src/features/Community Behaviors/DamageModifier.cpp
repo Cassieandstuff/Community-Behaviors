@@ -28,7 +28,6 @@ namespace CB::feature::combat {
 
     namespace {
 
-        namespace hk    = CB::havok;
         namespace hooks = platform::hooks;
         namespace game  = platform::game;
 
@@ -36,7 +35,7 @@ namespace CB::feature::combat {
 
         void Finish(void* object)
         {
-            if (object) new (object) DamageModifier(hk::hkFinishLoadedObjectFlag{});
+            if (object) new (object) DamageModifier(::hkFinishLoadedObjectFlag{});
         }
         void Cleanup(void* object) { static_cast<DamageModifier*>(object)->~DamageModifier(); }
         /// @note As the exe's own type infos take it: a finish constructor run on a scratch buffer, its vtable read off.
@@ -73,7 +72,7 @@ namespace CB::feature::combat {
             return *table;
         }
 
-        void Publish(const DamageModifier& node, const hk::hkbContext& context)
+        void Publish(const DamageModifier& node, const ::hkbContext& context)
         {
             Table&           t = Active();
             std::scoped_lock lock(t.lock);
@@ -173,7 +172,7 @@ namespace CB::feature::combat {
 
     }  // namespace
 
-    DamageModifier::DamageModifier(hk::hkFinishLoadedObjectFlag flag)
+    DamageModifier::DamageModifier(::hkFinishLoadedObjectFlag flag)
     :   hkbModifier(flag)
     {
         m_userData |= 2;
@@ -191,20 +190,20 @@ namespace CB::feature::combat {
 
     DamageModifier::~DamageModifier() { Retract(*this); }
 
-    const void* DamageModifier::getClassType() const
+    const ::hkClass* DamageModifier::getClassType() const
     {
-        static const void* const cls = platform::classes::ClassOf(kClassName);
+        static const auto* const cls = static_cast<const ::hkClass*>(platform::classes::ClassOf(kClassName));
         return cls;
     }
 
-    void DamageModifier::activate(const hk::hkbContext& context) { Publish(*this, context); }
+    void DamageModifier::activate(const ::hkbContext& context) { Publish(*this, context); }
 
-    void DamageModifier::update(const hk::hkbContext& context, hk::hkReal timestep) { Publish(*this, context); }
+    void DamageModifier::update(const ::hkbContext& context, ::hkReal timestep) { Publish(*this, context); }
 
-    void DamageModifier::deactivate(const hk::hkbContext& context) { Retract(*this); }
+    void DamageModifier::deactivate(const ::hkbContext& context) { Retract(*this); }
 
-    bool DamageModifier::isValid(hk::hkStringPtr& errorString) const { return true; }
+    bool DamageModifier::isValid(::hkStringPtr& errorString) const { return true; }
 
-    hk::hkbNode* DamageModifier::cloneNode(hk::hkbBehaviorGraph& rootBehavior) const { return new DamageModifier(*this); }
+    ::hkbNode* DamageModifier::cloneNode(::hkbBehaviorGraph& rootBehavior) const { return new DamageModifier(*this); }
 
 }  // namespace CB::feature::combat

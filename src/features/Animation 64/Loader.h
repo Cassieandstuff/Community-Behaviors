@@ -2,10 +2,8 @@
 
 #include <cstdint>
 
-namespace CB::havok {
-    struct IAnimationClipLoader;
-    struct hkbContext;
-}
+class IAnimationClipLoader;
+class hkbContext;
 
 /// @file
 /// @brief The clip loader at 64 bits ([Animation64] bLoader, AE only): AnimationFileManagerSingleton's five

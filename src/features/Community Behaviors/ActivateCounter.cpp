@@ -3,7 +3,8 @@
 #include <platform/classes/TypeRegistries.h>
 #include <platform/hooks/Override.h>
 
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <atomic>
 #include <cstdint>
@@ -16,12 +17,12 @@ namespace CB::feature {
 
     namespace {
 
-        using Activate = platform::hooks::Override<&CB::havok::hkbClipGenerator::activate>;
+        using Activate = platform::hooks::Override<&::hkbClipGenerator::activate>;
 
         /// @note Atomic: behavior graphs update on several job threads at once.
         std::atomic<std::uint64_t> g_activations{ 0 };
 
-        void OnActivate(Activate::Next next, CB::havok::hkbClipGenerator* clip, const CB::havok::hkbContext& context)
+        void OnActivate(Activate::Next next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
             const std::uint64_t n = g_activations.fetch_add(1, std::memory_order_relaxed) + 1;
             if ((n & (n - 1)) == 0)
