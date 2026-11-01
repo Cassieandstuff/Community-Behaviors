@@ -44,11 +44,12 @@ namespace CB::platform::hooks::detail {
     namespace {
 
         struct Image {
-            std::uintptr_t base = 0, text = 0, textEnd = 0, rdata = 0, rdataEnd = 0;
+            std::uintptr_t base = 0, size = 0, text = 0, textEnd = 0, rdata = 0, rdataEnd = 0;
             explicit Image(HMODULE module) : base(reinterpret_cast<std::uintptr_t>(module))
             {
                 const auto* nt  = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
                 const auto* sec = IMAGE_FIRST_SECTION(nt);
+                size            = nt->OptionalHeader.SizeOfImage;
                 for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
                     const std::string_view name(reinterpret_cast<const char*>(sec->Name), strnlen(reinterpret_cast<const char*>(sec->Name), 8));
                     if (name == ".text") { text = base + sec->VirtualAddress; textEnd = text + sec->Misc.VirtualSize; }
@@ -67,7 +68,7 @@ namespace CB::platform::hooks::detail {
                 const auto col = *reinterpret_cast<const std::uintptr_t*>(at);
                 if (!image.InRdata(col) || !image.InText(*reinterpret_cast<const std::uintptr_t*>(at + 8))) continue;
                 const auto* c = reinterpret_cast<const std::uint32_t*>(col);
-                if (c[0] != 1 || image.base + c[5] != col || !image.InRdata(image.base + c[3])) continue;
+                if (c[0] != 1 || image.base + c[5] != col || c[3] >= image.size) continue;
                 const char* name = reinterpret_cast<const char*>(image.base + c[3] + 0x10);
                 if (std::strncmp(name, ".?AV", 4) != 0) continue;
                 const auto [it, added] = out.try_emplace(std::string(name) + "+" + std::to_string(c[1]), reinterpret_cast<const std::uintptr_t*>(at + 8));
