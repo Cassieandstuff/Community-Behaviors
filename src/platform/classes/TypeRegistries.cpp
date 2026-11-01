@@ -236,6 +236,8 @@ namespace CB::platform::classes {
 
         /// @note Slot order is vanilla's vtable (0x141966158).
         /// @invariant memSizeAndFlags 0, as TypeInfoRegistry.
+        Word ClassFromRtti(const Word* vtable);
+
         class VtableClassRegistry {
         public:
             virtual Word Destroy(Word flags)
@@ -264,7 +266,10 @@ namespace CB::platform::classes {
                 /// @note An object the plugin's SDK code built (a shipped cloneNode's `new`) has the plugin's copy of its
                 ///       vtable, which the exe never registered. Its getClassType (slot 1 of hkReferencedObject) answers.
                 const Word* vtable = *reinterpret_cast<const Word* const*>(obj);
-                const Word  answer = reinterpret_cast<Word (*)(Word)>(vtable[1])(obj);
+                Word        answer = reinterpret_cast<Word (*)(Word)>(vtable[1])(obj);
+                /// @note Not every SDK class overrides getClassType (BSSpeedSamplerModifier inherits the null): the
+                ///       vtable's RTTI names the class, for the exe's own record.
+                if (!answer) answer = ClassFromRtti(vtable);
                 static std::atomic<int> logged{ 0 };
                 if (logged.fetch_add(1, std::memory_order_relaxed) < 40) {
                     HMODULE owner = nullptr;
@@ -354,6 +359,18 @@ namespace CB::platform::classes {
         TypeInfoRegistry    g_typeInfo;
         VtableClassRegistry g_vtable;
         ClassNameRegistry   g_className;
+
+        /// @brief The class named by an MSVC vtable's type descriptor (".?AVName@@").
+        Word ClassFromRtti(const Word* vtable)
+        {
+            const auto* col  = reinterpret_cast<const std::uint32_t*>(vtable[-1]);
+            const auto  base = reinterpret_cast<Word>(col) - col[5];
+            const char* name = reinterpret_cast<const char*>(base + col[3] + 0x10);
+            if (std::strncmp(name, ".?AV", 4) != 0) return 0;
+            const std::string_view text(name + 4);
+            const std::string      cls(text.substr(0, text.find('@')));
+            return g_className.GetClassByName(cls.c_str());
+        }
 
         void** Global(const eng::Symbol& s) { return reinterpret_cast<void**>(eng::Resolve(s)); }
 
