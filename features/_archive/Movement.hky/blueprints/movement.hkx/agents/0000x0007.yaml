@@ -1,0 +1,61 @@
+id: 0000x0007
+class: CBMovementAgentPathFollowerStandard
+name: 'Path Follower (initWord 0)'
+type: 'Path Follower'
+interface: 'CurrentMovementState'
+initWord: 0
+shortPathRadiusMult: 2
+rotateTowardsPathThreshold: 5
+headingToPathTangentMaxAngle: 15
+backPedalAngle: 160
+minFrictionSpeed: 2
+avoidanceDistanceRadiusMult: 1
+maxCollisionTime: 1
+maxDistFromPathRadiusMult: 5
+teleportNodeAngleTolerance: 5
+distFromPathForFollowingRadiusMult: 2
+pitch: 0
+yaw: 0
+speed: 0
+remainingDistance: 0
+bindings:
+  'shortPathRadiusMult':
+    variable: 'fShortPathRadiusMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'rotateTowardsPathThreshold':
+    variable: 'fRotateTowardsPathThreshold:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'headingToPathTangentMaxAngle':
+    variable: 'fHeadingToPathTangentMaxAngle:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'backPedalAngle':
+    variable: 'fBackPedalAngle:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'minFrictionSpeed':
+    variable: 'fMinFrictionSpeed:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'avoidanceDistanceRadiusMult':
+    variable: 'fAvoidanceDistanceRadiusMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxCollisionTime':
+    variable: 'fMaxCollisionTime:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxDistFromPathRadiusMult':
+    variable: 'fMaxDistFromPathRadiusMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'teleportNodeAngleTolerance':
+    variable: 'fTeleportNodeAngleTolerance:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'distFromPathForFollowingRadiusMult':
+    variable: 'fDistFromPathForFollowingRadiusMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN

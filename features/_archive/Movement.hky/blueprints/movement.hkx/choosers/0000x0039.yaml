@@ -1,0 +1,6 @@
+id: 0000x0039
+class: CBBlueprintChooser
+name: 'Virtual modes'
+rows:
+  '0000x0000':
+    result: 0000x002e

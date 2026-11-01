@@ -1,0 +1,52 @@
+id: 0000x001a
+class: CBMovementAgentActorAvoider
+name: 'Actor Avoider (initWord 1)'
+type: 'Actor Avoider'
+interface: 'CurrentMovementState'
+useActorAvoidance: true
+initWord: 1
+avoidanceTimeDelta: 3
+minAvoidanceRadius: 256
+maxAvoidanceRadius: 512
+maxActorsToAvoid: 10
+maxTimeSizeAvoidNode: 1
+maxTimeBlockedByActors: 1
+avoidNodeRadiusAdd: 11
+avoidNodeCost: 24
+bindings:
+  'useActorAvoidance':
+    variable: 'bUseActorAvoidance:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'avoidanceTimeDelta':
+    variable: 'fAvoidanceTimeDelta:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'minAvoidanceRadius':
+    variable: 'fMinAvoidanceRadius:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxAvoidanceRadius':
+    variable: 'fMaxAvoidanceRadius:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxActorsToAvoid':
+    variable: 'iMaxActorsToAvoid:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxTimeSizeAvoidNode':
+    variable: 'fMaxTimeSizeAvoidNode:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxTimeBlockedByActors':
+    variable: 'fMaxTimeBlockedByActors:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'avoidNodeRadiusAdd':
+    variable: 'fAvoidNodeRadiusAdd:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'avoidNodeCost':
+    variable: 'fAvoidNodeCost:Pathfinding'
+    output: ''
+    flags: FLAG_IN

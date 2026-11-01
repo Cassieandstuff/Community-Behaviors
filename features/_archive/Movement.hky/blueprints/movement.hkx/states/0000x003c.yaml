@@ -1,0 +1,23 @@
+id: 0000x003c
+class: CBCharacterStateOnGround
+name: 'OnGround'
+stateId: HK_CHARACTER_ON_GROUND
+killVelocityOnLaunch: true
+useUnsupportedCast: true
+unsupportCastLength: 1
+unsupportedGravMult: 4
+fakeSupportReleaseDistance: 0.914399981
+maxVelocityDelta: 500
+bindings:
+  'useUnsupportedCast':
+    variable: 'bUseUnsupportedCast:HAVOK'
+    output: ''
+    flags: FLAG_IN
+  'unsupportCastLength':
+    variable: 'fUnsupportCastLength:HAVOK'
+    output: ''
+    flags: FLAG_IN
+  'unsupportedGravMult':
+    variable: 'fUnsupportedGravMult:HAVOK'
+    output: ''
+    flags: FLAG_IN

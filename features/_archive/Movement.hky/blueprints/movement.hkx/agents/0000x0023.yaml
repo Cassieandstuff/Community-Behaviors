@@ -1,0 +1,21 @@
+id: 0000x0023
+class: CBMovementPlannerAgentDirectControl
+name: 'Planner Direct Control'
+type: 'Planner Direct Control'
+interface: 'CurrentMovementState'
+direction: [0, 0, 0]
+speed: 0
+facing: [0, 0, 0]
+bindings:
+  'direction':
+    variable: 'PlannerDirectControlDirection'
+    output: ''
+    flags: FLAG_IN
+  'speed':
+    variable: 'fPlannerDirectControlSpeed'
+    output: ''
+    flags: FLAG_IN
+  'facing':
+    variable: 'PlannerDirectControlFacing'
+    output: ''
+    flags: FLAG_IN

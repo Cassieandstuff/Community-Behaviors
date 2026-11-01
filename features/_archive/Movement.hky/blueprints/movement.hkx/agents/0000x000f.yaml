@@ -1,0 +1,36 @@
+id: 0000x000f
+class: CBMovementPlannerAgentWarp
+name: 'FailSafe Warp'
+type: 'FailSafe Warp'
+interface: 'CurrentMovementState'
+warpOnConsecutiveFailures: true
+maxPathFailureCount: 3
+minFailureDistance: 50
+requestActorRadius: 5
+pathOffset: 100
+maxTime: 5
+bindings:
+  'warpOnConsecutiveFailures':
+    variable: 'bWarpOnConsecutiveFailures:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxPathFailureCount':
+    variable: 'iWarpMaxPathFailureCount:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'minFailureDistance':
+    variable: 'fMinFailureDistance:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'requestActorRadius':
+    variable: 'fWarpRequestActorRadius:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'pathOffset':
+    variable: 'fWarpPathOffset:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'maxTime':
+    variable: 'fWarpMaxTime:Pathfinding'
+    output: ''
+    flags: FLAG_IN
