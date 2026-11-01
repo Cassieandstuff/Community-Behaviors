@@ -1,0 +1,7 @@
+# Where an animation's root motion goes (CBAnimation.motionTarget): the animation data file, or CB's motion matching.
+kind:  enum
+name:  AnimationMotionTarget
+flags: false
+items:
+  - { name: animationData  , value: 0 }
+  - { name: motionMatching , value: 1 }

@@ -1,0 +1,12 @@
+name:      CBAnimationCompression
+parent:    null
+size:      28
+# The spline compressor's settings for this clip (AnimCompressionParams).
+fields:
+  - { name: rotationTolerance,    type: float }
+  - { name: translationTolerance, type: float }
+  - { name: scaleTolerance,       type: float }
+  - { name: rotationDegree,       type: int32 }
+  - { name: translationDegree,    type: int32 }
+  - { name: scaleDegree,          type: int32 }
+  - { name: maxFramesPerBlock,    type: int32 }

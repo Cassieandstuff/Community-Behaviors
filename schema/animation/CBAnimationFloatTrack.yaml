@@ -1,0 +1,6 @@
+name:      CBAnimationFloatTrack
+parent:    null
+size:      24
+fields:
+  - { name: name,      type: string }
+  - { name: keyframes, type: structarray, ref: CBFloatKey }
