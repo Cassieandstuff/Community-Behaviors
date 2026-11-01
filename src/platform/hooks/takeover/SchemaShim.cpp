@@ -52,7 +52,7 @@ namespace CB::platform::hooks::detail {
                 size            = nt->OptionalHeader.SizeOfImage;
                 for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
                     const std::string_view name(reinterpret_cast<const char*>(sec->Name), strnlen(reinterpret_cast<const char*>(sec->Name), 8));
-                    if (name == ".text") { text = base + sec->VirtualAddress; textEnd = text + sec->Misc.VirtualSize; }
+                    if (name == ".text" && sec->Misc.VirtualSize > textEnd - text) { text = base + sec->VirtualAddress; textEnd = text + sec->Misc.VirtualSize; }
                     if (name == ".rdata") { rdata = base + sec->VirtualAddress; rdataEnd = rdata + sec->Misc.VirtualSize; }
                 }
             }
