@@ -206,6 +206,7 @@ add_custom_command(
             "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/cbmatch/registry.yaml"
             "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/ExeClasses.yaml"
             "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/Defined.yaml"
+        "${CMAKE_SOURCE_DIR}/lib/cb-sdk/Tools/Reconstruction/generated/Referenced.yaml"
     COMMENT "Generating the engine symbol registry and the schema link shim from src/platform/hooks/registry/engine.yaml"
     VERBATIM)
 add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")

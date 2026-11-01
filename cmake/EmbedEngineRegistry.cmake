@@ -30,7 +30,7 @@ string(ASCII 5 _sdkMark)
 # skipped, and an SDK row whose name engine.yaml already has yields to it. Their `header` paths are matched to the
 # SDK tree by file name (the converted rows keep the old havok/ paths).
 if(DEFINED SDK_ROOT)
-    foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml")
+    foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Referenced.yaml")
         file(READ "${_sdkFile}" _sdkText)
         string(REGEX REPLACE "(^|\n)([ ]*-[ ]*{)" "\\1${_sdkMark}\\2" _sdkText "${_sdkText}")
         string(APPEND _text "\n${_sdkText}")
