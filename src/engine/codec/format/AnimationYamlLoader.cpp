@@ -27,50 +27,41 @@ std::string strf(const c4::yml::ConstNodeRef& n, const char* k, const char* fb =
     if (!c.has_val()) return fb;
     std::string o; c4::from_chars(c.val(), &o); return o;
 }
-float ff(const c4::yml::ConstNodeRef& n, const char* k, float fb = 0.f) {
-    std::string s = strf(n, k, ""); if (s.empty()) return fb;
-    try { return std::stof(s); } catch (...) { return fb; }
-}
-int fi(const c4::yml::ConstNodeRef& n, const char* k, int fb = 0) {
-    std::string s = strf(n, k, ""); if (s.empty()) return fb;
-    try { return std::stoi(s); } catch (...) { return fb; }
-}
-// A flow/block seq of scalars ("value: [x, y, z]") -> floats.
-std::vector<float> floatSeq(const c4::yml::ConstNodeRef& parent, const char* key) {
-    std::vector<float> v;
-    if (!hasChild(parent, key)) return v;
-    auto n = parent[c4::to_csubstr(key)];
-    if (!n.readable() || !n.is_seq()) return v;
-    for (auto c : n) {
-        if (!c.has_val()) continue;
-        std::string s; c4::from_chars(c.val(), &s);
-        try { v.push_back(std::stof(s)); } catch (...) { v.push_back(0.f); }
-    }
-    return v;
+using codec::io::SchemaObject;
+
+SchemaObject* asSchema(const std::shared_ptr<codec::IHavokObject>& p) { return dynamic_cast<SchemaObject*>(p.get()); }
+
+std::shared_ptr<SchemaObject> make(const schema::SchemaRegistry& reg, const char* cls) {
+    const schema::ClassSchema* cs = reg.Find(cls);
+    if (!cs) throw std::runtime_error(std::string("AnimationYamlLoader: the schema has no ") + cls);
+    auto so = std::make_shared<SchemaObject>(&reg, cs);
+    so->Init();
+    return so;
 }
 
-/// @brief The unit's `curves:`, read through the schema (CBAnimationCurves).
-/// @throws std::runtime_error when they do not parse, a name is empty or repeated, keys run backwards in time, or an
-///         interpolation is not one AnimCurveKey knows: a curve read wrong would steer its readers silently.
-std::vector<AnimCurveDef> readCurves(const c4::yml::ConstNodeRef& a, const std::string& sourceName) {
+schema::SchemaRegistry& registry(const std::string& where) {
+    schema::SchemaRegistry* reg = schema::SharedRegistry();
+    if (!reg) throw std::runtime_error("AnimationYamlLoader: no schema registry for '" + where + "' (" + schema::SharedRegistryError() + ")");
+    return *reg;
+}
+
+/// @brief The unit's curves.
+/// @throws std::runtime_error when a name is empty or repeated, keys run backwards in time, or an interpolation is not
+///         one AnimCurveKey knows: a curve read wrong would steer its readers silently.
+std::vector<AnimCurveDef> readCurves(const SchemaObject& a, const std::string& sourceName) {
     const auto bad = [&](const std::string& why) {
         return std::runtime_error("AnimationYamlLoader: bad curves in '" + sourceName + "': " + why);
     };
-    schema::SchemaRegistry* reg = schema::SharedRegistry();
-    if (!reg) throw bad("no schema registry (" + schema::SharedRegistryError() + ")");
-    std::string err;
-    const auto  obj = decompile::ParseEmbeddedObject(a, "CBAnimationCurves", *reg, sourceName, err);
-    if (!obj) throw bad(err);
     std::vector<AnimCurveDef> out;
     std::set<std::string>     names;
-    for (const auto& p : obj->FieldRef("curves").objs) {
-        auto* c = dynamic_cast<codec::io::SchemaObject*>(p.get());
+    for (const auto& p : a.Children("curves")) {
+        auto* c = asSchema(p);
         if (!c) throw bad("a curve is not an inline CBAnimationCurve");
         AnimCurveDef def{ c->Str("name"), {} };
         if (def.name.empty()) throw bad("a curve has no name");
         if (!names.insert(def.name).second) throw bad("'" + def.name + "' is defined twice");
-        for (const auto& kp : c->FieldRef("keys").objs) {
-            auto* k = dynamic_cast<codec::io::SchemaObject*>(kp.get());
+        for (const auto& kp : c->Children("keys")) {
+            auto* k = asSchema(kp);
             if (!k) throw bad("'" + def.name + "' has a key that is not an inline CBCurveKey");
             const std::int64_t interp = k->GetInt("interp");
             if (interp != 0 && interp != 1) throw bad("'" + def.name + "' has an unknown interp " + std::to_string(interp));
@@ -82,6 +73,181 @@ std::vector<AnimCurveDef> readCurves(const c4::yml::ConstNodeRef& a, const std::
         out.push_back(std::move(def));
     }
     return out;
+}
+
+template <int N, class Key>
+std::vector<Key> readKeys(const SchemaObject& track, const char* field) {
+    std::vector<Key> out;
+    for (const auto& p : track.Children(field)) {
+        const auto* k = asSchema(p);
+        if (!k) continue;
+        Key key;
+        key.time = k->GetFloat("time");
+        for (int i = 0; i < N; ++i) key.value[i] = k->GetFloat("value", i);
+        out.push_back(key);
+    }
+    return out;
+}
+
+template <int N, class Key>
+void writeKeys(const schema::SchemaRegistry& reg, SchemaObject& track, const char* field, const char* cls, const std::vector<Key>& keys) {
+    auto& list = track.FieldRef(field).objs;
+    for (const auto& key : keys) {
+        auto k = make(reg, cls);
+        k->SetFloat("time", key.time);
+        for (int i = 0; i < N; ++i) k->SetFloat("value", key.value[i], i);
+        list.push_back(std::move(k));
+    }
+}
+
+/// @brief `def` as a CBAnimation.
+/// @note  The inherited counts are written from the tracks. An inline struct left unset still renders (zeroed), so
+///        `compression` is always written; `motion` only when authored (unset, its empty record reads back as none).
+std::shared_ptr<SchemaObject> toSchema(const AnimationDef& def, const schema::SchemaRegistry& reg) {
+    auto a = make(reg, "CBAnimation");
+    a->Str("name") = def.name;
+    a->SetFloat("duration", def.duration);
+    a->SetInt("numberOfTransformTracks", static_cast<std::int64_t>(def.tracks.size()));
+    a->SetInt("numberOfFloatTracks", static_cast<std::int64_t>(def.floatTracks.size()));
+    a->SetInt("numFrames", def.numFrames);
+    a->SetFloat("frameDuration", def.frameDuration);
+    a->Str("skeleton") = def.skeleton;
+    {
+        auto c = make(reg, "CBAnimationCompression");
+        c->SetFloat("rotationTolerance", def.compression.rotationTolerance);
+        c->SetFloat("translationTolerance", def.compression.translationTolerance);
+        c->SetFloat("scaleTolerance", def.compression.scaleTolerance);
+        c->SetInt("rotationDegree", def.compression.rotationDegree);
+        c->SetInt("translationDegree", def.compression.translationDegree);
+        c->SetInt("scaleDegree", def.compression.scaleDegree);
+        c->SetInt("maxFramesPerBlock", def.compression.maxFramesPerBlock);
+        a->FieldRef("compression").obj = std::move(c);
+    }
+    for (const auto& t : def.tracks) {
+        auto tr         = make(reg, "CBAnimationTrack");
+        tr->Str("bone") = t.bone;
+        writeKeys<3>(reg, *tr, "translation", "CBVec3Key", t.translation);
+        writeKeys<4>(reg, *tr, "rotation", "CBQuatKey", t.rotation);
+        writeKeys<3>(reg, *tr, "scale", "CBVec3Key", t.scale);
+        a->FieldRef("tracks").objs.push_back(std::move(tr));
+    }
+    for (const auto& ft : def.floatTracks) {
+        auto f         = make(reg, "CBAnimationFloatTrack");
+        f->Str("name") = ft.name;
+        for (const auto& k : ft.keyframes) {
+            auto key = make(reg, "CBFloatKey");
+            key->SetFloat("time", k.time);
+            key->SetFloat("value", k.value);
+            f->FieldRef("keyframes").objs.push_back(std::move(key));
+        }
+        a->FieldRef("floatTracks").objs.push_back(std::move(f));
+    }
+    for (const auto& at : def.annotationTracks) {
+        auto t              = make(reg, "hkaAnnotationTrack");
+        t->Str("trackName") = at.trackName;
+        for (const auto& ann : at.annotations) {
+            auto e = make(reg, "hkaAnnotationTrackAnnotation");
+            e->SetFloat("time", ann.time);
+            e->Str("text") = ann.text;
+            t->FieldRef("annotations").objs.push_back(std::move(e));
+        }
+        a->FieldRef("annotationTracks").objs.push_back(std::move(t));
+    }
+    if (def.motion) {
+        auto m             = make(reg, "CBAnimationMotion");
+        m->Str("duration") = def.motion->duration;
+        for (const auto& s : def.motion->translations) m->FieldRef("translation").strs.push_back(animdata::LabelSample(s));
+        for (const auto& s : def.motion->rotations) m->FieldRef("rotation").strs.push_back(animdata::LabelSample(s));
+        a->FieldRef("motion").obj = std::move(m);
+    }
+    for (const auto& c : def.curves) {
+        auto curve         = make(reg, "CBAnimationCurve");
+        curve->Str("name") = c.name;
+        for (const auto& k : c.keys) {
+            auto key = make(reg, "CBCurveKey");
+            key->SetFloat("time", k.time);
+            key->SetFloat("value", k.value);
+            key->SetInt("interp", static_cast<std::int64_t>(k.interp));
+            curve->FieldRef("keys").objs.push_back(std::move(key));
+        }
+        a->FieldRef("curves").objs.push_back(std::move(curve));
+    }
+    a->SetInt("motionTarget", def.motionTarget == AnimationDef::MotionTarget::MotionMatching ? 1 : 0);
+    a->SetBool("rootMotionVisual", def.rootMotionVisual);
+    a->SetBool("preload", def.preload);
+    return a;
+}
+
+AnimationDef fromSchema(const SchemaObject& a, const std::string& sourceName) {
+    AnimationDef def;
+    def.name          = a.Str("name");
+    def.duration      = a.GetFloat("duration");
+    def.numFrames     = static_cast<int>(a.GetInt("numFrames"));
+    def.frameDuration = a.GetFloat("frameDuration");
+    def.skeleton      = a.Str("skeleton");
+    /// @note An absent key parses as a zeroed struct (maxFramesPerBlock 0 is no setting): the defaults hold.
+    if (const auto* c = a.Child("compression"); c && c->GetInt("maxFramesPerBlock") != 0) {
+        def.compression.rotationTolerance    = c->GetFloat("rotationTolerance");
+        def.compression.translationTolerance = c->GetFloat("translationTolerance");
+        def.compression.scaleTolerance       = c->GetFloat("scaleTolerance");
+        def.compression.rotationDegree       = static_cast<int>(c->GetInt("rotationDegree"));
+        def.compression.translationDegree    = static_cast<int>(c->GetInt("translationDegree"));
+        def.compression.scaleDegree          = static_cast<int>(c->GetInt("scaleDegree"));
+        def.compression.maxFramesPerBlock    = static_cast<int>(c->GetInt("maxFramesPerBlock"));
+    }
+    for (const auto& p : a.Children("tracks")) {
+        const auto* t = asSchema(p);
+        if (!t) continue;
+        AnimTrackDef tr;
+        tr.bone        = t->Str("bone");
+        tr.translation = readKeys<3, Vec3Keyframe>(*t, "translation");
+        tr.rotation    = readKeys<4, QuatKeyframe>(*t, "rotation");
+        tr.scale       = readKeys<3, Vec3Keyframe>(*t, "scale");
+        def.tracks.push_back(std::move(tr));
+    }
+    for (const auto& p : a.Children("floatTracks")) {
+        const auto* t = asSchema(p);
+        if (!t) continue;
+        AnimFloatTrackDef ft;
+        ft.name = t->Str("name");
+        for (const auto& kp : t->Children("keyframes"))
+            if (const auto* k = asSchema(kp)) ft.keyframes.push_back({ k->GetFloat("time"), k->GetFloat("value") });
+        def.floatTracks.push_back(std::move(ft));
+    }
+    for (const auto& p : a.Children("annotationTracks")) {
+        const auto* t = asSchema(p);
+        if (!t) continue;
+        AnimAnnotationTrackDef at;
+        at.trackName = t->Str("trackName");
+        for (const auto& ap : t->Children("annotations"))
+            if (const auto* e = asSchema(ap)) at.annotations.push_back({ e->GetFloat("time"), e->Str("text") });
+        def.annotationTracks.push_back(std::move(at));
+    }
+    if (auto* m = a.Child("motion"); m && !m->Str("duration").empty()) {
+        animdata::MotionRecord mr;
+        mr.duration = m->Str("duration");
+        for (const auto& s : m->FieldRef("translation").strs) mr.translations.push_back(animdata::UnlabelSample(s));
+        for (const auto& s : m->FieldRef("rotation").strs) mr.rotations.push_back(animdata::UnlabelSample(s));
+        def.motion = std::move(mr);
+    }
+    def.curves = readCurves(a, sourceName);
+    const std::int64_t target = a.GetInt("motionTarget");
+    if (target != 0 && target != 1)
+        throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': motionTarget " + std::to_string(target) +
+                                 " is neither animationData nor motionMatching");
+    def.motionTarget     = target == 1 ? AnimationDef::MotionTarget::MotionMatching : AnimationDef::MotionTarget::AnimationData;
+    def.rootMotionVisual = a.GetBool("rootMotionVisual");
+    def.preload          = a.GetBool("preload");
+    /// @note Written from the tracks on emit; a unit that states other counts was edited inconsistently.
+    const auto counted = [&](const char* f, std::size_t n) {
+        const std::int64_t v = a.GetInt(f);
+        if (v != 0 && v != static_cast<std::int64_t>(n))
+            throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': " + f + " " + std::to_string(v) + " but " +
+                                     std::to_string(n) + " are listed");
+    };
+    counted("numberOfTransformTracks", def.tracks.size());
+    counted("numberOfFloatTracks", def.floatTracks.size());
+    return def;
 }
 
 } // namespace
@@ -100,171 +266,33 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     }
 
     auto root = tree.rootref();
-    auto a = hasChild(root, "animation") ? root["animation"] : root;
+    const c4::yml::id_type at = hasChild(root, "animation") ? root["animation"].id() : root.id();
 
-    AnimationDef def;
-    def.name          = strf(a, "name");
-    def.duration      = ff(a, "duration");
-    def.numFrames     = fi(a, "numFrames", 0);       // native frame count (0 = derive from fps)
-    def.frameDuration = ff(a, "frameDuration", 0.f); // native frame spacing (0 = 1/fps)
-    def.skeleton      = strf(a, "skeleton");
-
-    if (hasChild(a, "compression")) {
-        auto c = a["compression"];
-        def.compression.rotationTolerance    = ff(c, "rotationTolerance", 0.001f);
-        def.compression.translationTolerance = ff(c, "translationTolerance", 0.001f);
-        def.compression.scaleTolerance       = ff(c, "scaleTolerance", 0.001f);
-        def.compression.rotationDegree       = fi(c, "rotationDegree", 3);
-        def.compression.translationDegree    = fi(c, "translationDegree", 1);
-        def.compression.scaleDegree          = fi(c, "scaleDegree", 1);
-        def.compression.maxFramesPerBlock    = fi(c, "maxFramesPerBlock", 256);
+    /// @note The legacy `motion: none` (units written before CBAnimation) is the schema's rootMotionVisual.
+    bool visual = false;
+    if (const auto a = tree.cref(at); hasChild(a, "motion") && a["motion"].has_val()) {
+        visual = strf(a, "motion") == "none";
+        tree.remove(a["motion"].id());
     }
 
-    if (hasChild(a, "tracks") && a["tracks"].is_seq()) {
-        for (auto t : a["tracks"]) {
-            AnimTrackDef tr;
-            tr.bone = strf(t, "bone");
-            if (hasChild(t, "translation") && t["translation"].is_seq())
-                for (auto k : t["translation"]) {
-                    Vec3Keyframe kf; kf.time = ff(k, "time");
-                    auto v = floatSeq(k, "value");
-                    for (int i = 0; i < 3 && i < (int)v.size(); i++) kf.value[i] = v[i];
-                    tr.translation.push_back(kf);
-                }
-            if (hasChild(t, "rotation") && t["rotation"].is_seq())
-                for (auto k : t["rotation"]) {
-                    QuatKeyframe kf; kf.time = ff(k, "time");
-                    auto v = floatSeq(k, "value");
-                    for (int i = 0; i < 4 && i < (int)v.size(); i++) kf.value[i] = v[i];
-                    tr.rotation.push_back(kf);
-                }
-            if (hasChild(t, "scale") && t["scale"].is_seq())
-                for (auto k : t["scale"]) {
-                    Vec3Keyframe kf; kf.time = ff(k, "time");
-                    auto v = floatSeq(k, "value");
-                    for (int i = 0; i < 3 && i < (int)v.size(); i++) kf.value[i] = v[i];
-                    tr.scale.push_back(kf);
-                }
-            def.tracks.push_back(std::move(tr));
-        }
-    }
-
-    if (hasChild(a, "floatTracks") && a["floatTracks"].is_seq()) {
-        for (auto t : a["floatTracks"]) {
-            AnimFloatTrackDef ft;
-            ft.name = strf(t, "name");
-            if (hasChild(t, "keyframes") && t["keyframes"].is_seq())
-                for (auto k : t["keyframes"]) {
-                    FloatKeyframe kf; kf.time = ff(k, "time"); kf.value = ff(k, "value");
-                    ft.keyframes.push_back(kf);
-                }
-            def.floatTracks.push_back(std::move(ft));
-        }
-    }
-
-    if (hasChild(a, "annotationTracks") && a["annotationTracks"].is_seq()) {
-        for (auto t : a["annotationTracks"]) {
-            AnimAnnotationTrackDef at;
-            at.trackName = strf(t, "trackName");
-            if (hasChild(t, "annotations") && t["annotations"].is_seq())
-                for (auto k : t["annotations"]) {
-                    AnimAnnotation ann; ann.time = ff(k, "time"); ann.text = strf(k, "text");
-                    at.annotations.push_back(std::move(ann));
-                }
-            def.annotationTracks.push_back(std::move(at));
-        }
-    }
-
-    // motion: — the optional root-motion record (last, after annotationTracks). Same schema as the
-    // animationdata motion sidecar (duration + translation/rotation samples), one level under `motion:`.
-    // Parsed here directly (rather than re-emitting the subtree to text for ParseMotionSidecar) but kept
-    // byte-identical to it by reusing animdata::UnlabelSample on every sample. animIndex/animation stay
-    // empty — the compiler binds them per-project at derive time from this animation's clip.
-    if (hasChild(a, "motion") && a["motion"].has_val()) {
-        def.rootMotionVisual = strf(a, "motion") == "none";
-    } else if (hasChild(a, "motion")) {
-        auto m = a["motion"];
-        CB::engine::animdata::MotionRecord mr;
-        mr.duration = strf(m, "duration");   // verbatim token (NOT reparsed to float)
-        if (hasChild(m, "translation") && m["translation"].is_seq())
-            for (auto t : m["translation"]) {
-                if (!t.has_val()) continue;
-                std::string s; c4::from_chars(t.val(), &s);
-                mr.translations.push_back(CB::engine::animdata::UnlabelSample(s));
-            }
-        if (hasChild(m, "rotation") && m["rotation"].is_seq())
-            for (auto r : m["rotation"]) {
-                if (!r.has_val()) continue;
-                std::string s; c4::from_chars(r.val(), &s);
-                mr.rotations.push_back(CB::engine::animdata::UnlabelSample(s));
-            }
-        def.motion = std::move(mr);
-    }
-
-    if (hasChild(a, "motionTarget")) {
-        const std::string t = strf(a, "motionTarget");
-        if (t == "motionMatching")     def.motionTarget = AnimationDef::MotionTarget::MotionMatching;
-        else if (t == "animationData") def.motionTarget = AnimationDef::MotionTarget::AnimationData;
-        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': motionTarget '" + t +
-                                      "' is neither animationData nor motionMatching");
-    }
-
-    if (hasChild(a, "preload")) {
-        const std::string p = strf(a, "preload");
-        if (p == "true")       def.preload = true;
-        else if (p == "false") def.preload = false;
-        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': preload '" + p + "' is neither true nor false");
-    }
-
-    if (hasChild(a, "curves")) def.curves = readCurves(a, sourceName);
-
+    std::string err;
+    const auto  obj = decompile::ParseEmbeddedObject(tree.cref(at), "CBAnimation", registry(sourceName), sourceName, err);
+    if (!obj) throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': " + err);
+    AnimationDef def     = fromSchema(*obj, sourceName);
+    def.rootMotionVisual = def.rootMotionVisual || visual;
     return def;
 }
 
-std::string EmitAnimTrackYaml(const AnimTrackDef& tr) {
-    using text::FormatFloat;
-    std::string y = "    - bone: " + text::YamlScalar(tr.bone) + "\n";
-    const auto vec3 = [&](const char* key, const std::vector<Vec3Keyframe>& keys) {
-        if (keys.empty()) return;
-        y += std::string("      ") + key + ":\n";
-        for (const auto& k : keys)
-            y += "        - { time: " + FormatFloat(k.time) + ", value: [" + FormatFloat(k.value[0]) + ", " +
-                 FormatFloat(k.value[1]) + ", " + FormatFloat(k.value[2]) + "] }\n";
-    };
-    vec3("translation", tr.translation);
-    if (!tr.rotation.empty()) {
-        y += "      rotation:\n";
-        for (const auto& k : tr.rotation)
-            y += "        - { time: " + FormatFloat(k.time) + ", value: [" + FormatFloat(k.value[0]) + ", " +
-                 FormatFloat(k.value[1]) + ", " + FormatFloat(k.value[2]) + ", " + FormatFloat(k.value[3]) + "] }\n";
+std::string EmitAnimationYaml(const AnimationDef& def) {
+    const schema::SchemaRegistry& reg = registry(def.name);
+    std::string       out  = "animation:\n";
+    const std::string body = decompile::EmitEmbeddedObject(*toSchema(def, reg), reg);
+    for (std::size_t at = 0; at < body.size();) {
+        const std::size_t end = (std::min)(body.find('\n', at), body.size());
+        out += "  " + body.substr(at, end - at) + "\n";
+        at = end + 1;
     }
-    vec3("scale", tr.scale);
-    return y;
-}
-
-bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track) {
-    const std::string head = "\n    - bone: ";
-    std::size_t at = text.find("\n  tracks:\n");
-    if (at == std::string::npos) return false;
-    for (std::size_t i = 0; i <= trackIndex; ++i) {
-        at = text.find(head, at + 1);
-        if (at == std::string::npos) return false;
-    }
-    /// @note The block ends at the next track or the next `animation:` key (indent 2).
-    std::size_t end = text.size();
-    for (std::size_t p = text.find('\n', at + 1); p != std::string::npos && p + 1 < text.size(); p = text.find('\n', p + 1)) {
-        if (text.compare(p, head.size(), head) == 0 || (p + 3 < text.size() && text.compare(p + 1, 2, "  ") == 0 && text[p + 3] != ' ')) { end = p; break; }
-    }
-    const std::string body = EmitAnimTrackYaml(track);
-    text.replace(at + 1, end - (at + 1), body.substr(0, body.size() - 1));
-    return true;
-}
-
-AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {
-    std::string text = disk::ReadFile(yamlFile, { .stripBom = true }).value_or(std::string());
-    if (text.empty())
-        throw std::runtime_error("AnimationYamlLoader: cannot read " + yamlFile.string());
-    return LoadFromString(text, yamlFile.string());
+    return out;
 }
 
 std::string EmitAnimCurvesYaml(const std::vector<AnimCurveDef>& curves) {
@@ -301,6 +329,13 @@ std::string EmitAnimCurvesYaml(const std::vector<AnimCurveDef>& curves) {
         at = end + 1;
     }
     return out;
+}
+
+AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {
+    std::string text = disk::ReadFile(yamlFile, { .stripBom = true }).value_or(std::string());
+    if (text.empty())
+        throw std::runtime_error("AnimationYamlLoader: cannot read " + yamlFile.string());
+    return LoadFromString(text, yamlFile.string());
 }
 
 } // namespace CB::engine::anim

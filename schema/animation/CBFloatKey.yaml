@@ -1,0 +1,6 @@
+name:      CBFloatKey
+parent:    null
+size:      8
+fields:
+  - { name: time,  type: float }
+  - { name: value, type: float }

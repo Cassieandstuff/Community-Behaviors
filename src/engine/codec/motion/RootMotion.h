@@ -75,9 +75,9 @@ enum class UnitMotionForm {
     Visual,     ///< `motion: none` — the root moves, but only visually; nothing is extracted
 };
 
-/// @brief Settle a unit's motion form in its YAML text: fold `motion` onto the root where the fold round-trips, else
-///        write it as an explicit record; with no motion, mark a moving root `motion: none`. Any existing `motion`
-///        key is replaced. Every other byte of the unit is kept.
+/// @brief Settle a unit's motion form and rewrite its text: fold `motion` onto the root where the fold round-trips,
+///        else write it as an explicit record; with no motion, mark a moving root rootMotionVisual. Any existing
+///        motion is replaced; the text is re-emitted whole (EmitAnimationYaml).
 /// @note Explicit stays until CB serves the stripped animation: the engine plays the SOURCE binary, whose root still
 ///       carries its visual travel, so extracting that travel into the actor too would double it on screen.
 UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::engine::animdata::MotionRecord>& motion,

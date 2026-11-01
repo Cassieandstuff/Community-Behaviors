@@ -1,23 +1,9 @@
 #pragma once
-// AnimationYamlLoader — parse an animation.yaml into an AnimationDef.
-// Mirrors HKBuild's Models/AnimationDef.cs YAML schema:
-//
-//   animation:            # (the "animation:" wrapper is optional)
-//     name: ...
-//     duration: 1.5
-//     skeleton: ...
-//     compression: { rotationTolerance, translationTolerance, scaleTolerance,
-//                    rotationDegree, translationDegree, scaleDegree, maxFramesPerBlock }
-//     tracks:
-//       - bone: NPC Root
-//         translation: [ { time: 0.0, value: [x,y,z] }, ... ]
-//         rotation:    [ { time: 0.0, value: [x,y,z,w] }, ... ]
-//         scale:       [ { time: 0.0, value: [x,y,z] }, ... ]
-//     floatTracks:
-//       - name: ...
-//         keyframes: [ { time: 0.0, value: 0.5 }, ... ]
-//
-// ryml-gated (VS/vcpkg build only).
+/// @file
+/// @brief An animation unit's text <-> AnimationDef, through the schema: the `animation:` map is a CBAnimation
+///        (schema/animation/CBAnimation.yaml) read by ParseEmbeddedObject and written by EmitEmbeddedObject.
+/// @note  Units written before CBAnimation read unchanged (the schema mirrors their keys); only their `motion: none`
+///        needs the loader's shim (CBAnimation.rootMotionVisual).
 
 #include "interface/AnimationDef.h"
 
@@ -35,15 +21,12 @@ struct AnimationYamlLoader {
     static AnimationDef LoadFromString(const std::string& yamlText, const std::string& sourceName = "<memory>");
 };
 
-/// @brief One track in the decompiler's YAML form (`    - bone:` + translation/rotation/scale, `%.9g`).
-std::string EmitAnimTrackYaml(const AnimTrackDef& track);
+/// @brief `def` as a unit's text: `animation:` with the CBAnimation's fields as its children (2-space indent).
+/// @throws std::runtime_error without the shared schema registry.
+std::string EmitAnimationYaml(const AnimationDef& def);
 
-/// @brief Replace the `trackIndex`-th track of a unit's YAML text in place, leaving every other byte as is.
-/// @return false when the unit has no such track.
-bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track);
-
-/// @brief `curves` as the unit's `  curves:` block (indented as a child of `animation:`), written through the schema
-///        (CBAnimationCurves), so the loader reads it back exactly. Empty for no curves.
+/// @brief `curves` as a `  curves:` block (indented as a child of `animation:`), written through the schema
+///        (CBAnimationCurves) for a caller appending curves to a unit's text. Empty for no curves.
 /// @throws std::runtime_error without the shared schema registry.
 std::string EmitAnimCurvesYaml(const std::vector<AnimCurveDef>& curves);
 
