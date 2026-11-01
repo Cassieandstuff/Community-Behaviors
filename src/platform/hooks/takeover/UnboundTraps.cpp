@@ -24,7 +24,6 @@ namespace {
 
 extern "C" {
 
-[[noreturn]] void cb_unbound_trap_0() { Trapped("??0StateInfo@hkbStateMachine@@QEAA@AEBV01@AEBV?$hkArray@PEAVhkbStateListener@@UhkContainerHeapAllocator@@@@@Z", _ReturnAddress()); }
 [[noreturn]] void cb_unbound_trap_1() { Trapped("?blend@hkaBlender@@YAXPEIAMPEIBM1AEBVhkSimdReal@@HW4BLEND_MODE@1@@Z", _ReturnAddress()); }
 [[noreturn]] void cb_unbound_trap_2() { Trapped("?blend@hkaBlender@@YAXPEIAVhkQsTransform@@PEIBV2@1AEBVhkSimdReal@@HW4BLEND_MODE@1@W4ROTATION_MODE@1@@Z", _ReturnAddress()); }
 [[noreturn]] void cb_unbound_trap_3() { Trapped("?getClassType@hkbBoneWeightArray@@UEBAPEBVhkClass@@XZ", _ReturnAddress()); }
@@ -40,7 +39,6 @@ extern "C" {
 
 }
 
-#pragma comment(linker, "/alternatename:??0StateInfo@hkbStateMachine@@QEAA@AEBV01@AEBV?$hkArray@PEAVhkbStateListener@@UhkContainerHeapAllocator@@@@@Z=cb_unbound_trap_0")
 #pragma comment(linker, "/alternatename:?blend@hkaBlender@@YAXPEIAMPEIBM1AEBVhkSimdReal@@HW4BLEND_MODE@1@@Z=cb_unbound_trap_1")
 #pragma comment(linker, "/alternatename:?blend@hkaBlender@@YAXPEIAVhkQsTransform@@PEIBV2@1AEBVhkSimdReal@@HW4BLEND_MODE@1@W4ROTATION_MODE@1@@Z=cb_unbound_trap_2")
 #pragma comment(linker, "/alternatename:?getClassType@hkbBoneWeightArray@@UEBAPEBVhkClass@@XZ=cb_unbound_trap_3")
