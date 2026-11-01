@@ -299,9 +299,9 @@ foreach(_l IN LISTS _lines)
         # HK_EXE_GLOBAL (the SDK built HK_EXE_GLOBALS_BY_REFERENCE) declares the global as a reference: the row's
         # decorated name with its type wrapped in an lvalue reference (AE<cv> <type> E<cv>). Its storage is a slot the
         # shim fills with the exe's address at load. An array (P[AB] without E) or a vtable (??_7) is not one.
-        if(NOT _mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[0-3]P[AB][^E]" AND _mangled MATCHES "^(\\?[^?][^@]*(@[^@]+)*@@[0-3])(.*)$")
+        if(NOT _mangled MATCHES "^\\?.*@@[0-3]P[AB][^E]" AND _mangled MATCHES "^(\\?[^?].*@@[0-3])(.*)$")
             set(_refHead "${CMAKE_MATCH_1}")
-            set(_refRest "${CMAKE_MATCH_3}")
+            set(_refRest "${CMAKE_MATCH_2}")
             string(REGEX MATCH ".$" _cv "${_refRest}")
             if(_refRest MATCHES "^[PQRS]E")
                 string(REGEX REPLACE "E.$" "" _refType "${_refRest}")
@@ -320,7 +320,7 @@ foreach(_l IN LISTS _lines)
         endif()
         # `header` may name several, `|`-separated: the declaring header, then whatever completes the type.
         string(REPLACE "|" ";" _headers "${_header}")
-        if(NOT _mangled MATCHES "B$")
+        if(NOT _mangled MATCHES "B$" AND _mangled MATCHES "^\\?")
             # A global the SDK declares is an HK_EXE_GLOBAL reference, bound above: code reads it by name, with no
             # Live<&global> (a reference's address is no constant).
             list(GET _headers 0 _h0)

@@ -51,7 +51,9 @@ namespace CB::platform::classes {
             std::string                   name, scopedName;
             std::vector<std::string>      memberNames;
             std::vector<::hkClassMember> members;
-            ::hkClass                   cls{ nullptr, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0 };
+            /// @note Zeroed storage: every field is written before use, and hkClass's constructor is the exe's.
+            alignas(::hkClass) unsigned char clsStorage[sizeof(::hkClass)]{};
+            ::hkClass&                  cls = *reinterpret_cast<::hkClass*>(clsStorage);
             TypeInfo                      info{};
             bool                          declared   = false;   ///< a C++ type stands behind it (Declare)
             bool                          built      = false;
