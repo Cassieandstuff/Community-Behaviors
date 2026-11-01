@@ -80,6 +80,19 @@ namespace CB::platform::hooks::detail {
             return out;
         }
 
+        const char* g_adoptPhase = "starting";
+        const char* g_adoptKey   = "";
+        std::uint32_t  g_adoptCode = 0;
+        std::uintptr_t g_adoptAt   = 0, g_adoptRead = 0;
+
+        int NoteAdoptFault(const EXCEPTION_POINTERS* e)
+        {
+            g_adoptCode = e->ExceptionRecord->ExceptionCode;
+            g_adoptAt   = reinterpret_cast<std::uintptr_t>(e->ExceptionRecord->ExceptionAddress);
+            g_adoptRead = e->ExceptionRecord->NumberParameters > 1 ? e->ExceptionRecord->ExceptionInformation[1] : 0;
+            return EXCEPTION_EXECUTE_HANDLER;
+        }
+
         /// @brief Makes the plugin's copy of each exe class's vtable the exe's, slot for slot.
         /// @note The SDK's headers declare fewer overrides than the exe's classes have, so a compiled vtable inherits
         ///       where the game overrides: an object the plugin builds would silently run the base's function. Each slot
@@ -91,9 +104,14 @@ namespace CB::platform::hooks::detail {
             GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                reinterpret_cast<LPCSTR>(&AdoptExeVtables), &self);
             const Image exe(GetModuleHandleA(nullptr)), plugin(self);
+            g_adoptPhase = "scanning the exe";
             const auto  exeTables = Vtables(exe);
+            g_adoptPhase = "scanning the plugin";
+            const auto  pluginTables = Vtables(plugin);
+            LOG_INFO("schema shim: {} exe vtables, {} plugin vtables", exeTables.size(), pluginTables.size());
+            g_adoptPhase = "copying slots";
             std::size_t adopted = 0, slots = 0, shorter = 0;
-            for (const auto& [key, own] : Vtables(plugin)) {
+            for (const auto& [key, own] : pluginTables) {
                 const auto theirs = exeTables.find(key);
                 if (!own || theirs == exeTables.end() || !theirs->second) continue;
                 std::size_t n = 0, ownCount = 0, exeCount = 0;
@@ -108,12 +126,31 @@ namespace CB::platform::hooks::detail {
                 DWORD old = 0;
                 auto* target = const_cast<std::uintptr_t*>(own);
                 if (!n || !VirtualProtect(target, n * 8, PAGE_READWRITE, &old)) continue;
+                g_adoptKey = key.c_str();
                 std::memcpy(target, theirs->second, n * 8);
                 VirtualProtect(target, n * 8, old, &old);
                 ++adopted;
                 slots += n;
             }
+            g_adoptPhase = "logging";
             LOG_INFO("schema shim: {} plugin vtable(s) adopted the exe's ({} slots; {} longer than the exe's)", adopted, slots, shorter);
+        }
+
+        bool TryAdopt()
+        {
+            __try {
+                AdoptExeVtables();
+                return true;
+            } __except (NoteAdoptFault(GetExceptionInformation())) {
+                return false;
+            }
+        }
+
+        void GuardedAdopt()
+        {
+            if (TryAdopt()) return;
+            LOG_ERROR("schema shim: vtable adoption faulted while {} (last {}): code {:#x} at {:#x}, address {:#x}", g_adoptPhase,
+                      g_adoptKey, g_adoptCode, g_adoptAt, g_adoptRead);
         }
 
     }  // namespace
@@ -131,7 +168,7 @@ namespace CB::platform::hooks::detail {
             ++bound;
         }
         if (count) LOG_INFO("schema shim: {} of {} exe global(s) bound by reference", bound, count);
-        AdoptExeVtables();
+        GuardedAdopt();
     }
 
 }  // namespace CB::platform::hooks::detail
