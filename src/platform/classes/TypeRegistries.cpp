@@ -259,7 +259,18 @@ namespace CB::platform::classes {
             virtual Word GetClassFromVirtualInstance(Word obj)
             {
                 ++S().vtableLookups;
-                return Vanilla(S().vtableVt, 4, Ready(), obj);
+                const Word cls = Vanilla(S().vtableVt, 4, Ready(), obj);
+                if (cls || !obj) return cls;
+                /// @note An object the plugin's SDK code built (a shipped cloneNode's `new`) has the plugin's copy of its
+                ///       vtable, which the exe never registered. Its getClassType (slot 1 of hkReferencedObject) answers.
+                const Word* vtable = *reinterpret_cast<const Word* const*>(obj);
+                HMODULE     owner  = nullptr;
+                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCSTR>(vtable), &owner);
+                HMODULE self = nullptr;
+                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCSTR>(&S), &self);
+                return owner && owner == self ? reinterpret_cast<Word (*)(Word)>(vtable[1])(obj) : 0;
             }
             virtual Word GetClasses(Word out) { return Vanilla(S().vtableVt, 5, Ready(), out); }
 
