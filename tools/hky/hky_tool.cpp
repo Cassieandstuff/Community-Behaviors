@@ -20,6 +20,7 @@
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
 
+#include <cstring>
 #include <vfs/Bsa.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
@@ -535,12 +536,14 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
 
 /// @return the first field where `a` and `b` differ ("" when every field the unit carries is equal)
 std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engine::anim::AnimationDef& b) {
-    const auto vec = [](const auto& x, const auto& y, int n) {
+    /// @note Bitwise, not `==`: vanilla clips carry NaN keys (`nan_7fffffff`), which must survive with their payload.
+    const auto same = [](float x, float y) { return std::memcmp(&x, &y, sizeof x) == 0; };
+    const auto vec  = [&](const auto& x, const auto& y, int n) {
         if (x.size() != y.size()) return false;
         for (std::size_t i = 0; i < x.size(); ++i) {
-            if (x[i].time != y[i].time) return false;
+            if (!same(x[i].time, y[i].time)) return false;
             for (int k = 0; k < n; ++k)
-                if (x[i].value[k] != y[i].value[k]) return false;
+                if (!same(x[i].value[k], y[i].value[k])) return false;
         }
         return true;
     };
@@ -563,7 +566,7 @@ std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engin
         const auto& x = a.floatTracks[t]; const auto& y = b.floatTracks[t];
         if (x.name != y.name || x.keyframes.size() != y.keyframes.size()) return "float track " + std::to_string(t);
         for (std::size_t k = 0; k < x.keyframes.size(); ++k)
-            if (x.keyframes[k].time != y.keyframes[k].time || x.keyframes[k].value != y.keyframes[k].value) return "float track " + std::to_string(t);
+            if (x.keyframes[k].time != y.keyframes[k].time || !same(x.keyframes[k].value, y.keyframes[k].value)) return "float track " + std::to_string(t);
     }
     if (a.annotationTracks.size() != b.annotationTracks.size()) return "annotation track count";
     for (std::size_t t = 0; t < a.annotationTracks.size(); ++t) {
@@ -583,7 +586,7 @@ std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engin
         const auto& x = a.curves[c]; const auto& y = b.curves[c];
         if (x.name != y.name || x.keys.size() != y.keys.size()) return "curve " + x.name;
         for (std::size_t k = 0; k < x.keys.size(); ++k)
-            if (x.keys[k].time != y.keys[k].time || x.keys[k].value != y.keys[k].value || x.keys[k].interp != y.keys[k].interp)
+            if (x.keys[k].time != y.keys[k].time || !same(x.keys[k].value, y.keys[k].value) || x.keys[k].interp != y.keys[k].interp)
                 return "curve " + x.name;
     }
     return {};
