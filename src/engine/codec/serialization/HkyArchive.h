@@ -28,6 +28,7 @@ public:
     struct Unit {
         std::string prefix;   // serve key, e.g. "meshes/actors/character/behaviors/0_master.hkx"
         UnitKind    kind;
+        bool        hasRoot = false;   ///< it holds graph.yaml; a patch that leaves the root alone doesn't, and lists as a Behavior
     };
 
     /// @brief Open a .hky: read its index and classify its units (each unit's graph.yaml is read for that); nullptr

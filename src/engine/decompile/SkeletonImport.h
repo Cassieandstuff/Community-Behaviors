@@ -45,5 +45,8 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
 /// @return false with `err` set when the unit doesn't parse or holds no skeleton.
 bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
                       const std::string& unitPath, SkeletonData& out, std::string* err = nullptr);
+/// @brief ReadSkeletonUnit over a skeleton's layers: a complete unit, then its per-bone patches, merged as CB serves them.
+bool ReadSkeletonLayers(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                        const std::string& unitPath, SkeletonData& out, std::string* err = nullptr);
 
 } // namespace CB::engine::skeleton

@@ -103,6 +103,8 @@ namespace {
         bool phok = cb::skeleton::ReadSkeletonPhysics(nullptr, 0, sk, &err); (void)phok;
         auto* readUnit  = &cb::skeleton::ReadSkeletonUnit; (void)readUnit;
         auto* readBones = &cb::skeleton::ReadSkeletonBones; (void)readBones;
+        auto* readLayers = &cb::skeleton::ReadSkeletonLayers; (void)readLayers;
+        auto* readLayeredBones = &cb::skeleton::ReadLayeredSkeletonBones; (void)readLayeredBones;
 
         // cb::mm — the motion-matching bundle generator
         cb::mm::BundleSpec spec;

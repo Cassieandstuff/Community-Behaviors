@@ -115,11 +115,11 @@ bool WriteFixture(const fs::path& root) {
         { std::string(kProjectKey) + "/graph.yaml", kProject },
         { std::string(kCharKey) + "/graph.yaml", kCharacter },
         { std::string(kRootKey) + "/graph.yaml", Graph("Root.hkb") },
-        { std::string(kRootKey) + "/references/0000x0002.yaml", kReference },
+        { std::string(kRootKey) + "/0000x0002.yaml", kReference },
         { std::string(kChildKey) + "/graph.yaml", Graph("Child.hkb") },
-        { std::string(kChildKey) + "/clips/0000x0002.yaml", kClip },
+        { std::string(kChildKey) + "/0000x0002.yaml", kClip },
         { std::string(kOrphanKey) + "/graph.yaml", Graph("Orphan.hkb") },
-        { std::string(kOrphanKey) + "/clips/0000x0002.yaml", kClip },
+        { std::string(kOrphanKey) + "/0000x0002.yaml", kClip },
     };
     for (const auto& [rel, text] : files)
         if (!CB::engine::disk::WriteFile(root / rel, text)) return false;
@@ -332,13 +332,13 @@ const char* kHoistGraph =
     "        events: {}\n        attributes: {}\n";
 const char* kBlend =
     "id: 0000x0002\nclass: hkbBlenderGenerator\nuserData: 0\nname: 'Blend'\nreferencePoseWeightThreshold: 0\nblendParameter: 1\n"
-    "minCyclicBlendParameter: 0\nmaxCyclicBlendParameter: 1\nindexOfSyncMasterChild: -1\nflags: 0\nsubtractLastChild: false\n";
-const char* kBlendChildren =
-    "'0000x0000':\n  generator: 0000x0003\n  boneWeights:\n    count: 4\n    'A': 1\n  weight: 1\n  worldFromModelWeight: 1\n"
-    "'0000x0001':\n  variableBindingSet:\n    bindings:\n      'boneWeights':\n        variableIndex: 0\n"
-    "        variable: 'UpperBody'\n        bitIndex: -1\n        bindingType: BINDING_TYPE_CHARACTER_PROPERTY\n"
-    "    indexOfBindingToEnable: -1\n  generator: 0000x0004\n  boneWeights:\n    count: 4\n    'B': 0.5\n"
-    "  weight: 1\n  worldFromModelWeight: 1\n";
+    "minCyclicBlendParameter: 0\nmaxCyclicBlendParameter: 1\nindexOfSyncMasterChild: -1\nflags: 0\nsubtractLastChild: false\n"
+    "children:\n"
+    "  '0000x0000':\n    generator: 0000x0003\n    boneWeights:\n      count: 4\n      'A': 1\n    weight: 1\n    worldFromModelWeight: 1\n"
+    "  '0000x0001':\n    variableBindingSet:\n      bindings:\n        'boneWeights':\n          variableIndex: 0\n"
+    "          variable: 'UpperBody'\n          bitIndex: -1\n          bindingType: BINDING_TYPE_CHARACTER_PROPERTY\n"
+    "      indexOfBindingToEnable: -1\n    generator: 0000x0004\n    boneWeights:\n      count: 4\n      'B': 0.5\n"
+    "    weight: 1\n    worldFromModelWeight: 1\n";
 const char* kModGen  = "id: 0000x0003\nclass: hkbModifierGenerator\nuserData: 0\nname: 'MG'\nmodifier: 0000x0005\ngenerator: 0000x0006\n";
 const char* kGetUp   =
     "id: 0000x0005\nclass: hkbGetUpModifier\nuserData: 0\nname: 'GetUp'\nenable: true\ngroundNormal: '(0 0 1 0)'\nduration: 1\n"
@@ -360,12 +360,11 @@ void HoistChecks(const sch::SchemaRegistry& reg, const fs::path& tmp) {
         { one + "/graph.yaml", HoistCharacter("One", "rigA.hkx", kUpperBody) },
         { two + "/graph.yaml", HoistCharacter("Two", "rigB.hkx", " {}\n") },
         { root + "/graph.yaml", kHoistGraph },
-        { root + "/generators/0000x0002/0000x0002.yaml", kBlend },
-        { root + "/generators/0000x0002/children.yaml", kBlendChildren },
-        { root + "/generators/0000x0003.yaml", kModGen },
-        { root + "/modifiers/0000x0005.yaml", kGetUp },
-        { root + "/clips/0000x0004.yaml", ClipNode("0000x0004") },
-        { root + "/clips/0000x0006.yaml", ClipNode("0000x0006") },
+        { root + "/0000x0002.yaml", kBlend },
+        { root + "/0000x0003.yaml", kModGen },
+        { root + "/0000x0005.yaml", kGetUp },
+        { root + "/0000x0004.yaml", ClipNode("0000x0004") },
+        { root + "/0000x0006.yaml", ClipNode("0000x0006") },
     };
     for (const auto& [rel, text] : files) Check(CB::engine::disk::WriteFile(src / rel, text), "write " + rel);
     const std::map<std::string, std::vector<std::string>> bones{ { one, rigA }, { two, rigB }, { root, rigA }, { proj, rigA } };

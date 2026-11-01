@@ -139,6 +139,22 @@ bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
 
 // Pull the single-quoted value after `key` on a YAML line (e.g. behaviorName: 'Behaviors\X.hkx').
 // Empty if the key isn't on the line.
+/// @brief Call `onLine` for every line of every node of class `cls` in a unit folder (folders say nothing about a class,
+///        so every file is read).
+template <class OnLine>
+void ForEachLineOfClass(const fs::path& unit, const std::string& cls, OnLine&& onLine) {
+    std::error_code ec;
+    if (!fs::is_directory(unit, ec)) return;
+    const std::string want = "class: " + cls;
+    for (const auto& e : fs::recursive_directory_iterator(unit, ec)) {
+        if (!HasExt(e.path().filename().string(), ".yaml")) continue;
+        const std::string body = disk::ReadFile(e.path()).value_or(std::string{});
+        const auto lines = text::SplitLines(body);
+        if (std::find(lines.begin(), lines.end(), std::string_view(want)) == lines.end()) continue;
+        for (const std::string_view line : lines) onLine(line);
+    }
+}
+
 std::string YamlQuoted(std::string_view line, const char* key) {
     const auto p = line.find(key);
     if (p == std::string_view::npos) return {};
@@ -1662,42 +1678,29 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             // clips are routed to the SEED graph's character(s) (curServes), so a creature RBG chain lands
             // in its own actor's roster, not the humanoid one.
             for (const auto& g : graphs) {
-                const fs::path  refsDir = fs::path(unitOut(bname, g)) / "references";
-                std::error_code de;
-                if (!fs::is_directory(refsDir, de)) continue;
                 curServes = charServesFor(g, /*firstPerson*/ false);
-                for (const auto& e : fs::recursive_directory_iterator(refsDir, de)) {
-                    const std::string refYaml = disk::ReadFile(e.path()).value_or(std::string{});
-                    for (const std::string_view line : text::SplitLines(refYaml)) {
-                        const std::string bn = YamlQuoted(line, "behaviorName:");
-                        if (bn.empty()) continue;
-                        std::string rel = bn;
-                        for (char& c : rel) if (c == '\\') c = '/';
-                        walk(charRoot / rel);
-                    }
-                }
+                ForEachLineOfClass(fs::path(unitOut(bname, g)), "hkbBehaviorReferenceGenerator", [&](std::string_view line) {
+                    const std::string bn = YamlQuoted(line, "behaviorName:");
+                    if (bn.empty()) return;
+                    std::string rel = bn;
+                    for (char& c : rel) if (c == '\\') c = '/';
+                    walk(charRoot / rel);
+                });
             }
 
             // DIRECT-GRAPH ROSTER — the RBG walk above only reaches sub-behaviors, but a mod's clips
             // also live DIRECTLY in the graphs it patches (BFCO_* in 1hm_behavior/bashbehavior). The
             // runtime graph-walk membrane used to collect these; do it here so the authored roster is
             // COMPLETE at convert time (the precondition for retiring that membrane). animationNames come
-            // from the just-written delta unit clips/ (literal single-quoted strings), routed to the
+            // from the just-written delta unit's clips (literal single-quoted strings), routed to the
             // patched graph's own character(s).
             {
                 auto collectGraphClips = [&](const std::string& unitPath, const std::vector<std::string>& serves) {
                     if (serves.empty()) return;
-                    const fs::path  clipsDir = fs::path(unitPath) / "clips";
-                    std::error_code ce;
-                    if (!fs::is_directory(clipsDir, ce)) return;
-                    for (const auto& e : fs::recursive_directory_iterator(clipsDir, ce)) {
-                        if (!HasExt(e.path().filename().string(), ".yaml")) continue;
-                        const std::string clipYaml = disk::ReadFile(e.path()).value_or(std::string{});
-                        for (const std::string_view line : text::SplitLines(clipYaml)) {
-                            const std::string an = YamlQuoted(line, "animationName:");
-                            if (!an.empty()) addToServes(serves, an);
-                        }
-                    }
+                    ForEachLineOfClass(fs::path(unitPath), "hkbClipGenerator", [&](std::string_view line) {
+                        const std::string an = YamlQuoted(line, "animationName:");
+                        if (!an.empty()) addToServes(serves, an);
+                    });
                 };
                 for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g),   charServesFor(g, false));
                 for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g), charServesFor(g, true));

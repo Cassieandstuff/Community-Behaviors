@@ -70,14 +70,13 @@ public:
         // handles "" correctly, so the disk-only acceptance gate never caught it.
         const std::string base = subdir.empty() ? m_root : (m_root + PathKey(subdir) + "/");
         std::vector<std::string> out;
-        /// @note ORIGINAL-case paths: a reflective roster file is named for the field it holds
-        ///       (`wildcardTransitions.transitions.yaml`), and Havok field names are case-sensitive — a lowercased
-        ///       name binds nothing. read() re-normalizes, and PathKey() never changes length, so offsets line up.
+        /// @note ORIGINAL-case paths: a unit's folders are spelled as written, byte-exact, for editors that group by them.
+        ///       read() re-normalizes, and PathKey() never changes length, so offsets line up.
         for (const auto& full : m_arc->filesUnderOrig(base)) {
             if (!endsWith(full, ".yaml")) continue;
             const std::string afterBase = full.substr(base.size());
             if (!recursive && afterBase.find('/') != std::string::npos) continue;
-            out.push_back(full.substr(m_root.size()));   // unit-relative (e.g. "states/1.yaml")
+            out.push_back(full.substr(m_root.size()));   // unit-relative (e.g. "Combat/1.yaml")
         }
         return out;   // m_files is ordered -> deterministic
     }
@@ -173,7 +172,7 @@ bool HkyArchive::ClassifyUnits(std::string& err) {
             lastRoot = root;
             const auto g = m_files.find(root + "/graph.yaml");
             const UnitKind kind = g == m_files.end() ? UnitKind::Behavior : KindOfGraphYaml(read(g->second));
-            m_units.push_back({ std::move(root), kind });
+            m_units.push_back({ std::move(root), kind, g != m_files.end() });
         }
     } catch (const std::exception& e) {
         err = e.what();

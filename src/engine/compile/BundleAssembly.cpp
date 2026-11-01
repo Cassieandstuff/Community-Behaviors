@@ -460,28 +460,24 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
         "          " + Quote(timeVar) + ": {type: VARIABLE_TYPE_REAL, value: 0}\n"
         "        characterProperties: {}\n        events: {}\n        attributes: {}\n");
 
-    const std::string sel = out + "/selectors/" + OwnId(2) + "/";
-    files.emplace_back(sel + OwnId(2) + ".yaml",
-        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
-        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
     std::string children;
     for (std::size_t i = 0; i < clips.size(); ++i)
-        children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
-    files.emplace_back(sel + "generators.yaml", children);
-    files.emplace_back(sel + "variableBindingSet.bindings.yaml",
-        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
-        "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
+        children += "  " + Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
+    files.emplace_back(out + "/" + OwnId(2) + ".yaml",
+        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+        "    'selectedGeneratorIndex':\n      variableIndex: 0\n      variable: " + Quote(clipVar) +
+        "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\n"
+        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\ngenerators:\n" + children);
 
     for (std::size_t i = 0; i < clips.size(); ++i) {
-        const std::string id = OwnId(static_cast<unsigned>(i + 3)), dir = out + "/clips/" + id + "/";
-        files.emplace_back(dir + id + ".yaml",
-            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\nuserData: 0\n"
+        const std::string id = OwnId(static_cast<unsigned>(i + 3));
+        files.emplace_back(out + "/" + id + ".yaml",
+            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+            "    'userControlledTimeFraction':\n      variableIndex: 1\n      variable: " + Quote(timeVar) +
+            "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\nuserData: 0\n"
             "name: " + Quote(clips[i].stem) + "\nanimationName: " + Quote(clips[i].roster) + "\n"
             "cropStartAmountLocalTime: 0\ncropEndAmountLocalTime: 0\nstartTime: 0\nplaybackSpeed: 1\nenforcedDuration: 0\n"
             "userControlledTimeFraction: 0\nanimationBindingIndex: user\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
-        files.emplace_back(dir + "variableBindingSet.bindings.yaml",
-            "'userControlledTimeFraction':\n  variableIndex: 1\n  variable: " + Quote(timeVar) +
-            "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
     }
     return files;
 }

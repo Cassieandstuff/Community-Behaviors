@@ -282,12 +282,12 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     }
 }
 
-bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
-                      const std::string& unitPath, SkeletonData& out, std::string* err) {
-    decompile::ParsedHky graph;
+namespace {
+/// @return false with `err` set when the serialized unit holds no skeleton or isn't readable as one.
+bool ReadServedSkeleton(const decompile::ParsedHky& graph, const std::string& unitPath, SkeletonData& out, std::string* err) {
     std::vector<std::uint8_t> bytes;
     std::string e;
-    if (!decompile::ParseHkyReflective(unit, reg, graph, e, nullptr, unitPath) || !decompile::SerializeGraph(graph, bytes, e)) {
+    if (!decompile::SerializeGraph(graph, bytes, e)) {
         if (err) *err = unitPath + ": " + e;
         return false;
     }
@@ -296,6 +296,29 @@ bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema:
     if (skels.empty()) { if (err) *err = unitPath + ": the unit holds no skeleton"; return false; }
     out = std::move(skels[0]);
     return ReadSkeletonPhysics(bytes.data(), bytes.size(), out, err);
+}
+} // namespace
+
+bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
+                      const std::string& unitPath, SkeletonData& out, std::string* err) {
+    decompile::ParsedHky graph;
+    std::string e;
+    if (!decompile::ParseHkyReflective(unit, reg, graph, e, nullptr, unitPath)) {
+        if (err) *err = unitPath + ": " + e;
+        return false;
+    }
+    return ReadServedSkeleton(graph, unitPath, out, err);
+}
+
+bool ReadSkeletonLayers(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                        const std::string& unitPath, SkeletonData& out, std::string* err) {
+    decompile::ParsedHky graph;
+    std::string e;
+    if (!decompile::MergeLayersReflective(layers, reg, nullptr, graph, e, nullptr, unitPath)) {
+        if (err) *err = unitPath + ": " + e;
+        return false;
+    }
+    return ReadServedSkeleton(graph, unitPath, out, err);
 }
 
 } // namespace CB::engine::skeleton

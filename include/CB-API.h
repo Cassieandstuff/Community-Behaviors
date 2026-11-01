@@ -189,6 +189,8 @@ namespace skeleton {
     using CB::engine::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
     using CB::engine::skeleton::ReadSkeletonUnit;       // a bundle's skeleton unit → SkeletonData, physics attached
     using CB::engine::decompile::ReadSkeletonBones;     // a skeleton unit's bone names, in served order (no parse)
+    using CB::engine::skeleton::ReadSkeletonLayers;     ///< a skeleton's layers (a complete unit + per-bone patches) → SkeletonData
+    using CB::engine::decompile::ReadLayeredSkeletonBones;   ///< a skeleton's layers → its bone names, in served order
 }  // namespace skeleton
 
 // ── cb::mm ───────────────────────────────────────────────────────────────────────
