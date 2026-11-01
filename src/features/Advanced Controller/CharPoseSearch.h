@@ -32,8 +32,10 @@ namespace CB::feature::controller::motion {
         CB::havok::hkStringPtr          m_continuingPoseCostBias;   ///< +0x18
         CB::havok::hkStringPtr          m_loopingCostBias;          ///< +0x20
         CB::havok::hkArray<CB::havok::hkStringPtr> m_tags;          ///< +0x28
+        CB::havok::hkStringPtr          m_standingCandidate;        ///< +0x38
+        CB::havok::hkStringPtr          m_movingCandidate;          ///< +0x40
     };
-    static_assert(sizeof(PoseSearchDatabase) == 56, "PoseSearchDatabase size (schema: 56)");
+    static_assert(sizeof(PoseSearchDatabase) == 72, "PoseSearchDatabase size (schema: 72)");
 
     /// @brief CBPoseSearchChooserRow: a condition expression and the databases it selects.
     struct PoseSearchChooserRow {
@@ -73,6 +75,7 @@ namespace CB::feature::controller::motion {
         CB::havok::hkArray<PoseSearchDatabase>       m_databases;      ///< +0x60
         CB::havok::hkArray<CB::havok::hkUint8>       m_childFlags;     ///< +0x70: per child, 1 disableReselection, 2 looping
         PoseSearchChooser*                           m_chooser;        ///< +0x80, the loaded file's (never referenced or freed here)
+        CB::havok::hkArray<CB::havok::hkReal>        m_childRanges;    ///< +0x88: per child (start, end) seconds searched
 
         /// @brief The finish constructor: the vtable on loaded bytes; serialized members stay as loaded.
         explicit PoseSearchGenerator(CB::havok::hkFinishLoadedObjectFlag flag);
@@ -99,7 +102,7 @@ namespace CB::feature::controller::motion {
         /// @brief Cross the output pose from the switched-from child's extrapolated motion into the live child's.
         void deadBlend(const CB::havok::hkbContext& context, CB::havok::hkbGeneratorOutput& output);
     };
-    static_assert(sizeof(PoseSearchGenerator) == 0x88, "PoseSearchGenerator size (schema: 136)");
+    static_assert(sizeof(PoseSearchGenerator) == 0x98, "PoseSearchGenerator size (schema: 152)");
 
     /// @brief Seconds left in the newest dead blend (0 when none runs), for the HUD.
     /// @note  One value for every instance: motion matching plays the node for the player alone.

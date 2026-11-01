@@ -146,6 +146,8 @@ namespace CB::engine::compile {
             auto& children = selector->FieldRef("generators").objs;
             auto& dbs      = selector->FieldRef("databases").objs;
             std::vector<std::uint8_t> flags;
+            std::vector<float>        ranges;
+            bool                      ranged = false;
             const long userControlled = EnumValue("PlaybackMode", "MODE_USER_CONTROLLED");
             for (const auto& db : spec.databases) {
                 auto d = Make(edit, "CBPoseSearchDatabase");
@@ -170,9 +172,14 @@ namespace CB::engine::compile {
                     clip->FieldRef("variableBindingSet").obj = Binding(edit, "userControlledTimeFraction", timeIndex);
                     children.push_back(clip);
                     flags.push_back(c.flags);
+                    ranges.push_back(c.rangeStart);
+                    ranges.push_back(c.rangeEnd);
+                    ranged = ranged || c.rangeStart > 0 || c.rangeEnd >= 0;
                 }
             }
             selector->SetArray<std::uint8_t>("childFlags", flags);
+            /// @note Written only when some clip is ranged: an unranged bundle's unit stays as it was.
+            if (ranged) selector->SetArray<float>("childRanges", ranges);
 
             auto chooser = Make(edit, "CBPoseSearchChooser");
             for (const auto& r : spec.rows) {

@@ -26,6 +26,8 @@ namespace CB::engine::compile {
         std::string  path;            ///< the clip file's path in the bundle (`.hkx`, below MmBundleSpec::rosterRoot)
         std::string  animationName;   ///< its roster entry; empty = MmAnimationName(path, rosterRoot)
         std::uint8_t flags = 0;       ///< the child's childFlags byte (kMmDisableReselection | kMmLooping)
+        float        rangeStart = 0;    ///< seconds: the first time the search may cut into (Unreal's sampling range)
+        float        rangeEnd   = -1;   ///< seconds: the last; < 0 = the clip's end
     };
 
     /// @brief One database: a contiguous range of the generator's children, in `clips` order.

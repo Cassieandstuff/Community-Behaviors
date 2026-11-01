@@ -143,7 +143,8 @@ namespace CB::feature::controller::motion {
     :   hkbGenerator(flag),
         m_generators(flag),
         m_databases(flag),
-        m_childFlags(flag)
+        m_childFlags(flag),
+        m_childRanges(flag)
     {
         m_currentIndex = 0;
     }

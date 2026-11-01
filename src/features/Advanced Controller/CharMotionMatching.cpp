@@ -186,6 +186,8 @@ namespace CB::feature {
             double       duration = 0;    ///< what the user-controlled time fraction spans
             int          database = -1;   ///< its PoseDatabase, -1 = in none (never searched)
             std::uint8_t flags    = 0;    ///< kFlag* bits
+            float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd] (childRanges)
+            float        rangeEnd   = -1; ///< < 0 = the clip's end
         };
 
         /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
@@ -471,6 +473,18 @@ namespace CB::feature {
                     db.databases.push_back(std::move(p));
                 }
             }
+            if (sel.HasField("childRanges")) {
+                std::vector<float> ranges;
+                try {
+                    ranges = sel.GetArray<float>("childRanges");
+                } catch (const std::exception& e) {
+                    LOG_WARN("motion matching: childRanges unreadable ({}) - every child whole", e.what());
+                }
+                if (!ranges.empty() && ranges.size() != 2 * db.clips.size())
+                    LOG_WARN("motion matching: {} childRanges values for {} children - the rest whole", ranges.size(), db.clips.size());
+                for (std::size_t i = 0; 2 * i + 1 < ranges.size() && i < db.clips.size(); ++i)
+                    db.clips[i].rangeStart = ranges[2 * i], db.clips[i].rangeEnd = ranges[2 * i + 1];
+            }
             if (!sel.HasField("childFlags")) return;
             std::vector<std::uint8_t> flags;
             try {
@@ -629,6 +643,11 @@ namespace CB::feature {
                 }
                 db->clipOf.insert(db->clipOf.end(), static_cast<std::size_t>(m->frames), static_cast<int>(i));
                 db->searchable.insert(db->searchable.end(), m->searchable.begin(), m->searchable.end());
+                /// @note The range cuts per CHILD: children sharing a clip share its Measured, not its range.
+                for (int f = 0; f < m->frames; ++f) {
+                    const double t = f * m->dt;
+                    if (t < c.rangeStart || (c.rangeEnd >= 0 && t > c.rangeEnd)) db->searchable[c.first + f] = 0;
+                }
                 db->rowGait.insert(db->rowGait.end(), m->gait.begin(), m->gait.end());
                 const PoseDatabase* pd = c.database >= 0 ? &db->databases[c.database] : nullptr;
                 CurveVariables      vars(m->curves);
