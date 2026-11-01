@@ -56,7 +56,7 @@ namespace CB::platform::hooks::detail {
                     if (name == ".rdata") { rdata = base + sec->VirtualAddress; rdataEnd = rdata + sec->Misc.VirtualSize; }
                 }
             }
-            bool InRdata(std::uintptr_t a) const { return a >= rdata && a + 24 <= rdataEnd; }
+            bool InRdata(std::uintptr_t a) const { return a >= rdata && a < rdataEnd && rdataEnd - a >= 24; }
             bool InText(std::uintptr_t a) const { return a >= text && a < textEnd; }
         };
 
