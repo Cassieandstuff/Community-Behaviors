@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "core/serve/AnimationDataServer.h"
+#include "core/serve/SpeedDataServer.h"
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
 #include "core/serve/conditions/Conditions.h"
@@ -547,6 +548,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     SKSE::AllocTrampoline(1u << 11);
     CB::core::serve::InstallSetDataHook();
     CB::core::serve::InstallAnimDataHook();
+    CB::core::serve::InstallSpeedDataHook();
     CB::core::serve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)

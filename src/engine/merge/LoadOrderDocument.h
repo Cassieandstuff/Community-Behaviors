@@ -73,9 +73,10 @@ public:
     std::optional<Unit> UnitAt(std::string_view key) const;
 
     /// @brief A behavior or character unit merged across its providers, its bone fields bound to the rig that plays it.
-    /// @note  A project or skeleton unit is not merged: the load-order winner replaces it whole (Skeleton, Project*).
+    /// @note  A project unit is not merged: the load-order winner replaces it whole (Project*). A skeleton merges per bone:
+    ///        its last complete unit, then the patches above it.
     bool MergedGraph(std::string_view key, decompile::ParsedHky& out, std::string* err = nullptr) const;
-    /// @brief Unit `key` as a packfile: a behavior or character merged (MergedGraph), a project or skeleton from its
+    /// @brief Unit `key` as a packfile: a behavior, character or skeleton merged (MergedGraph), a project from its
     ///        load-order winner, serialized as the Resolver serializes them.
     /// @note  Before the plugin's compile-time features run: what the load order states, not every byte the game is
     ///        finally served.
@@ -101,6 +102,8 @@ public:
 private:
     void IndexBundles();
     std::shared_ptr<const common::IUnitSource> WinnerSource(const Unit& u) const;
+    /// @return A skeleton's layers: its last complete unit (which replaces everything below it), then the patches above it.
+    std::vector<common::LayerSource> SkeletonLayers(const Unit& u) const;
     const Bundle* BundleNamed(std::string_view stem) const;
 
     const schema::SchemaRegistry*              m_reg = nullptr;

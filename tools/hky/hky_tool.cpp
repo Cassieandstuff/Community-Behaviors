@@ -20,6 +20,7 @@
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
 
+#include <cstring>
 #include <vfs/Bsa.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
@@ -41,6 +42,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <random>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -225,6 +227,113 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     return 0;
 }
 
+/// @brief `shuffle-check`: every graph unit of a .hky (or the one named) read from the archive, then with its files scattered
+///        through random folders and names, on disk and packed; all three must serialize to the same bytes.
+/// @note  A unit whose bones need a rig takes its character's, else the humanoid one; a unit readable with neither is reported and
+///        counted, not this check's subject.
+int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, const std::string& workDir, const std::string& onlyUnit) {
+    if (hkyPath.empty() || schemaDir.empty() || workDir.empty()) {
+        std::printf("usage: hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n");
+        return 2;
+    }
+    namespace dc = CB::engine::decompile;
+    namespace fs = std::filesystem;
+    using CB::engine::codec::HkyArchive;
+    using CB::engine::codec::resource::PathKey;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    std::string err;
+    const auto  arc = HkyArchive::LoadFromFile(hkyPath, err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    std::vector<std::string> humanoid;
+    {
+        const std::string rig = "meshes/actors/character/character assets/skeleton.hkx";
+        if (const auto src = arc->source(rig))
+            if (auto names = dc::ReadSkeletonBones(*src, *reg, rig)) humanoid = std::move(*names);
+    }
+    const auto bytesOf = [&](const CB::engine::common::IUnitSource& src, const std::string& unit, const std::vector<std::string>* bones,
+                             std::vector<std::uint8_t>& out, std::string& why) {
+        dc::ParsedHky graph;
+        return dc::ParseHkyReflective(src, *reg, graph, why, bones, unit) && dc::SerializeGraph(graph, out, why);
+    };
+    std::vector<HkyArchive::Unit> units;
+    for (const auto& u : arc->units())
+        if (onlyUnit.empty() || PathKey(u.prefix) == PathKey(onlyUnit)) units.push_back(u);
+    std::atomic<std::size_t> same{ 0 }, skipped{ 0 }, nodeFiles{ 0 };
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
+    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+        try {
+            const std::string& unit = units[i].prefix;
+            const auto src = arc->source(unit);
+            if (!src) return fail(unit + ": no source");
+            std::vector<std::uint8_t> canon;
+            std::string why;
+            const std::vector<std::string>* bones = nullptr;
+            std::vector<std::string> own;
+            if (!bytesOf(*src, unit, nullptr, canon, why)) {
+                canon.clear();
+                const std::string key = PathKey(unit);
+                const auto cs = dc::ReadCharacterStrings(*src);
+                if (const auto at = key.rfind("/characters/"); cs && !cs->rigName.empty() && at != std::string::npos) {
+                    std::string rig = cs->rigName;
+                    std::replace(rig.begin(), rig.end(), '\\', '/');
+                    rig = key.substr(0, at + 1) + PathKey(rig);
+                    if (const auto rigSrc = arc->source(rig))
+                        if (auto names = dc::ReadSkeletonBones(*rigSrc, *reg, rig)) own = std::move(*names);
+                }
+                bones = own.empty() ? &humanoid : &own;
+                if (!bytesOf(*src, unit, bones, canon, why)) {
+                    std::printf("skip %s: %s\n", unit.c_str(), why.c_str());
+                    ++skipped;
+                    return;
+                }
+            }
+            std::mt19937 rng(static_cast<std::uint32_t>(i) ^ 0xCB);
+            static const char* const kFolders[] = { "Combat", "combat2", "A", "Group With Spaces", "x.y", "Deep", "0000x0003", "bones", "states" };
+            const fs::path dir = fs::path(workDir) / std::to_string(i);
+            std::error_code ec;
+            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+            std::vector<HkyArchive::PackEntry> entries;
+            int n = 0;
+            for (const std::string& rel : src->listYaml("", true)) {
+                auto text = src->read(rel);
+                if (!text) return fail(unit + ": " + rel + " unreadable");
+                std::string path;
+                if (PathKey(rel) == "graph.yaml") path = rel;
+                else {
+                    for (int d = static_cast<int>(rng() % 7); d > 0; --d) path += std::string(kFolders[rng() % std::size(kFolders)]) + "/";
+                    path += "f" + std::to_string(n++) + ".yaml";
+                }
+                if (!CB::engine::disk::WriteFile(dir / "u" / path, *text, {}, &why)) return fail(unit + ": " + why);
+                entries.push_back({ "meshes/u.hkx/" + path, [body = std::move(*text)]() -> std::optional<std::string> { return body; } });
+            }
+            nodeFiles += entries.size();
+            std::vector<std::uint8_t> got;
+            if (!bytesOf(CB::engine::common::DiskUnitSource(dir / "u"), unit, bones, got, why)) return fail(unit + ": disk: " + why);
+            if (got != canon) return fail(unit + ": shuffled on disk, the bytes differ");
+            const std::string hky = (dir / "u.hky").string();
+            if (!HkyArchive::PackEntries(std::move(entries), hky, why)) return fail(unit + ": pack: " + why);
+            const auto packed = HkyArchive::LoadFromFile(hky, why);
+            const auto zipped = packed ? packed->source("meshes/u.hkx") : nullptr;
+            if (!zipped) return fail(unit + ": zip: " + why);
+            got.clear();
+            if (!bytesOf(*zipped, unit, bones, got, why)) return fail(unit + ": zip: " + why);
+            if (got != canon) return fail(unit + ": shuffled in a zip, the bytes differ");
+            ++same;
+            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+        } catch (const std::exception& e) {
+            fail(units[i].prefix + ": " + e.what());
+        }
+    });
+    for (const auto& f : failures) std::printf("FAIL %s\n", f.c_str());
+    std::printf("shuffle-check: %zu/%zu unit(s) identical from archive, disk and zip (%zu files scattered), %zu skipped, %zu failed\n",
+                same.load(), units.size(), nodeFiles.load(), skipped.load(), failures.size());
+    return failures.empty() ? 0 : 1;
+}
+
 /// @brief `origins-check`: every graph unit of a .hky (or the one named) serialized with its object origins
 ///        (SerializeGraph); each origin's offset and class must be exactly what a loader reads from the packfile's
 ///        virtual fixups, one per object, and every file node (a unit file with an id) must carry its FormID.
@@ -268,10 +377,8 @@ int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, con
             if (listed[i].first != sorted[i].offset || listed[i].second != sorted[i].className)
                 why = "object " + std::to_string(i) + ": packfile " + listed[i].second + " @" + std::to_string(listed[i].first) + ", origin " +
                       sorted[i].className + " @" + std::to_string(sorted[i].offset);
-        // Every file node (a category folder, or the root container) has a FormID; an inline object has none.
-        std::size_t nodes = 0;
-        for (const auto& [obj, cat] : graph.identity.category)
-            if (!cat.empty() || std::string(obj->ClassName()) == "hkRootLevelContainer") ++nodes;
+        // Every file node has a FormID; an inline object has none.
+        const std::size_t nodes = graph.identity.nodes.size();
         std::size_t named = 0, orphans = 0;
         for (const auto& o : origins) {
             named += o.formId.empty() ? 0 : 1;
@@ -328,7 +435,7 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
                 while (at < back->size() && at < text->size() && (*back)[at] == (*text)[at]) ++at;
                 return fail(orig[i] + ": splice differs at byte " + std::to_string(at));
             }
-            if (kind->cls != "CBAnimationCurves") return;
+            if (kind->cls != "CBAnimation") return;
             const auto def = ea::AnimationYamlLoader::LoadFromString(*text, orig[i]);
             const auto& objs = obj->FieldRef("curves").objs;
             if (objs.size() != def.curves.size()) return fail(orig[i] + ": curve count differs");
@@ -533,6 +640,118 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
     return failed ? 1 : 0;
 }
 
+/// @return the first field where `a` and `b` differ ("" when every field the unit carries is equal)
+std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engine::anim::AnimationDef& b) {
+    /// @note Bitwise, not `==`: vanilla clips carry NaN keys (`nan_7fffffff`), which must survive with their payload.
+    const auto same = [](float x, float y) { return std::memcmp(&x, &y, sizeof x) == 0; };
+    const auto vec  = [&](const auto& x, const auto& y, int n) {
+        if (x.size() != y.size()) return false;
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            if (!same(x[i].time, y[i].time)) return false;
+            for (int k = 0; k < n; ++k)
+                if (!same(x[i].value[k], y[i].value[k])) return false;
+        }
+        return true;
+    };
+    if (a.name != b.name) return "name";
+    if (a.duration != b.duration || a.numFrames != b.numFrames || a.frameDuration != b.frameDuration) return "timing";
+    if (a.skeleton != b.skeleton) return "skeleton";
+    const auto& ca = a.compression; const auto& cb = b.compression;
+    if (ca.rotationTolerance != cb.rotationTolerance || ca.translationTolerance != cb.translationTolerance ||
+        ca.scaleTolerance != cb.scaleTolerance || ca.rotationDegree != cb.rotationDegree ||
+        ca.translationDegree != cb.translationDegree || ca.scaleDegree != cb.scaleDegree || ca.maxFramesPerBlock != cb.maxFramesPerBlock)
+        return "compression";
+    if (a.tracks.size() != b.tracks.size()) return "track count";
+    for (std::size_t t = 0; t < a.tracks.size(); ++t) {
+        const auto& x = a.tracks[t]; const auto& y = b.tracks[t];
+        if (x.bone != y.bone || !vec(x.translation, y.translation, 3) || !vec(x.rotation, y.rotation, 4) || !vec(x.scale, y.scale, 3))
+            return "track " + std::to_string(t) + " (" + x.bone + ")";
+    }
+    if (a.floatTracks.size() != b.floatTracks.size()) return "float track count";
+    for (std::size_t t = 0; t < a.floatTracks.size(); ++t) {
+        const auto& x = a.floatTracks[t]; const auto& y = b.floatTracks[t];
+        if (x.name != y.name || x.keyframes.size() != y.keyframes.size()) return "float track " + std::to_string(t);
+        for (std::size_t k = 0; k < x.keyframes.size(); ++k)
+            if (x.keyframes[k].time != y.keyframes[k].time || !same(x.keyframes[k].value, y.keyframes[k].value)) return "float track " + std::to_string(t);
+    }
+    if (a.annotationTracks.size() != b.annotationTracks.size()) return "annotation track count";
+    for (std::size_t t = 0; t < a.annotationTracks.size(); ++t) {
+        const auto& x = a.annotationTracks[t]; const auto& y = b.annotationTracks[t];
+        if (x.trackName != y.trackName || x.annotations.size() != y.annotations.size()) return "annotation track " + std::to_string(t);
+        for (std::size_t k = 0; k < x.annotations.size(); ++k)
+            if (x.annotations[k].time != y.annotations[k].time || x.annotations[k].text != y.annotations[k].text)
+                return "annotation track " + std::to_string(t);
+    }
+    if (a.motion.has_value() != b.motion.has_value()) return "motion presence";
+    if (a.motion && (a.motion->duration != b.motion->duration || a.motion->translations != b.motion->translations ||
+                     a.motion->rotations != b.motion->rotations))
+        return "motion";
+    if (a.rootMotionVisual != b.rootMotionVisual || a.motionTarget != b.motionTarget || a.preload != b.preload) return "motion flags / preload";
+    if (a.curves.size() != b.curves.size()) return "curve count";
+    for (std::size_t c = 0; c < a.curves.size(); ++c) {
+        const auto& x = a.curves[c]; const auto& y = b.curves[c];
+        if (x.name != y.name || x.keys.size() != y.keys.size()) return "curve " + x.name;
+        for (std::size_t k = 0; k < x.keys.size(); ++k)
+            if (x.keys[k].time != y.keys[k].time || !same(x.keys[k].value, y.keys[k].value) || x.keys[k].interp != y.keys[k].interp)
+                return "curve " + x.name;
+    }
+    return {};
+}
+
+/// @brief `anim-reformat`: every animation unit under `dir` (an unpacked tree) rewritten in the schema's form
+///        (EmitAnimationYaml of its read), and gated: the rewritten text reads back to the same AnimationDef, field
+///        for field, and re-emits to itself byte for byte.
+/// @note  How a partition holding units written before CBAnimation moves over: unpack, reformat, pack.
+int doAnimReformat(const std::string& dir, const std::string& schemaDir) {
+    namespace fs = std::filesystem;
+    namespace ea = CB::engine::anim;
+    if (dir.empty() || schemaDir.empty()) {
+        std::printf("usage: hky-tool anim-reformat <unpackedDir> <schemaDir>\n");
+        return 2;
+    }
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    std::vector<fs::path> files;
+    std::error_code       ec;
+    for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(dir), ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file()) files.push_back(it->path());
+    std::atomic<std::size_t> units{ 0 }, rewritten{ 0 };
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
+    CB::engine::exec::ParallelFor(files.size(), [&](std::size_t i) {
+        const std::string name = files[i].generic_string();
+        try {
+            const auto text = CB::engine::disk::ReadFile(files[i]);
+            if (!text) return fail(name + ": unreadable");
+            const auto* kind = CB::engine::decompile::EmbeddedKindOf(*reg, *text);
+            if (!kind || kind->cls != "CBAnimation") return;
+            ++units;
+            const auto        before = ea::AnimationYamlLoader::LoadFromString(*text, name);
+            const std::string y      = ea::EmitAnimationYaml(before);
+            const auto        after  = ea::AnimationYamlLoader::LoadFromString(y, name);
+            if (const std::string d = AnimDefDiff(before, after); !d.empty()) return fail(name + ": rewritten unit reads a different " + d);
+            const std::string back = ea::EmitAnimationYaml(after);
+            if (back != y) {
+                std::size_t at = 0;
+                while (at < back.size() && at < y.size() && back[at] == y[at]) ++at;
+                return fail(name + ": not a fixpoint, differs at byte " + std::to_string(at));
+            }
+            if (y == *text) return;
+            std::string werr;
+            if (!CB::engine::disk::WriteFile(files[i], y, { .atomic = true }, &werr)) return fail(name + ": " + werr);
+            ++rewritten;
+        } catch (const std::exception& e) {
+            fail(name + ": " + e.what());
+        }
+    });
+    for (const auto& f : failures) std::printf("  FAIL %s\n", f.c_str());
+    std::printf("%s: anim-reformat '%s': %zu animation unit(s), %zu rewritten, %zu failure(s).\n", failures.empty() ? "OK" : "FAIL",
+                dir.c_str(), units.load(), rewritten.load(), failures.size());
+    return failures.empty() && units > 0 ? 0 : 1;
+}
+
 /// @brief `mm-sample`: the motion-matching bundle generator over a spec exercising every shape it writes (two databases
 ///        sharing a clip, flags, literal and expression biases, tags, chooser rows over bool, int and float variables,
 ///        a row that always holds, a fallback, an extra variable, two characters), its files written to `outDir`.
@@ -585,7 +804,9 @@ void usage() {
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
                 "  hky-tool embedded-roundtrip <in.hky> <schemaDir>\n"
+                "  hky-tool anim-reformat <unpackedDir> <schemaDir>\n"
                 "  hky-tool origins-check <in.hky> <schemaDir> [unit]\n"
+                "  hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n"
                 "  hky-tool loadorder  <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
@@ -620,7 +841,9 @@ int main(int argc, char** argv) {
     if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
     if (verb == "embedded-roundtrip") return doEmbeddedRoundTrip(arg, arg2);
     if (verb == "origins-check") return doOriginsCheck(arg, arg2, arg3);
+    if (verb == "shuffle-check") return doShuffleCheck(arg, arg2, out, arg3);
     if (verb == "mm-sample")   return doMmSample(arg, out);
+    if (verb == "anim-reformat") return doAnimReformat(arg, arg2);
     usage();
     return 2;
 }

@@ -1,0 +1,7 @@
+name:      CBQuatKey
+parent:    null
+size:      20
+# A rotation key: seconds from the clip's start, and the quaternion (x, y, z, w).
+fields:
+  - { name: time,  type: float }
+  - { name: value, type: float, count: 4 }

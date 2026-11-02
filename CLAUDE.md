@@ -215,6 +215,10 @@ still belongs in the session scratchpad dir.)
 - **Served bytes** — `generate-base-master` parses every behavior / character / project unit back through
   the runtime's reader (rig-bound bones) and byte-compares its serialization to the source binary's
   canonical re-serialization (1238/1238 on Skyrim.hky).
+- **Schema coverage** — the served-bytes gate cannot see a member the schema drops (it is dropped on both sides).
+  `py -3 -I tools/schema-coverage/schema_coverage.py schema <file-or-dir>...` walks each packfile's own fixup
+  tables and flags pointers landing on slots the schema does not read (empty/skip/pad/scalar), non-empty
+  `empty: array` slots, unknown classes and size mismatches (0 on vanilla). Run it after any schema change.
 - **Reflective round-trips** (BehaviorConverter verbs) — `--hky-roundtrip [--all-kinds]` (emit→parse→serialize),
   `--patch-roundtrip` (merge(base, derive(base, mod)) == mod), `--multilayer-roundtrip` (every mod's derived
   patch merged in order vs today's merge of all).
@@ -230,8 +234,29 @@ still belongs in the session scratchpad dir.)
   then CB's `havok/`, the cbmatch-emitted rows of `src/platform/hooks/registry/engine.yaml` (mangled, header, sig,
   this) and the takeover image (`Data/community_behaviors/runtime/havok-runtime.cbimg`) are FROZEN at what CB matched
   (537abe87): never match into havok/ or regenerate them here. engine.yaml's hand rows (game/ functions) still grow.
-- Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
-  until the schema codec reads ragdoll physics.
+- Skeletons ARE reflective units (animation + ragdoll skeletons, physics and mappers as in the source), served by
+  merge + serialize and covered by the served-bytes gate; bone tables come from `decompile::ReadSkeletonBones`. The
+  last complete unit of a path replaces what's below it; patch units above it merge PER BONE (a bone file states only
+  what it changes, a new bone appends and states its whole pose, none is ever removed).
+- **Unit layout** — `hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir>`: every unit, its files scattered through
+  random folders and names, must serialize to identical bytes from disk and zip (engine-tests runs the same on a fixture).
+
+## The unit format (directive)
+
+A unit (`<x>.hkx/`) is `graph.yaml` (its header: the root, at the top, by that name) plus a FLAT list of YAML files, one
+per node, each holding its own arrays inline. CB reads a file by the `id` and `class` inside: **folders, depth and file
+names mean nothing to CB**, at any layer, so merge ignores them too. Folders exist for editors: BK groups nodes by them,
+and which layer's folder wins is BK's call. CB only carries them (`Identity::folder`) so a re-emit puts a file back.
+- A bone file holds `class: hkaBone`, `skeleton`, `name` (its identity) and no `id`.
+- A YAML that is neither node nor bone, a root outside graph.yaml, and a node or bone stated twice are errors. Any other
+  extension is ignored.
+- Regen and derive write flat (`<id>.yaml`; bones default to `animation/bones/`, `ragdoll/bones/`). Organizing vanilla's
+  folders is a regen rule's job, not the format's.
+- Every list declares how it merges (schema `roster:`; the loader refuses one that does not): a key (`ref`, `id`, `slot`,
+  `field:<f>`, `bone:<f>`; `value` = a string that is its own key) merges by element, `whole` means last writer wins. A
+  `value` list stays a plain list in a unit; a patch maps `'x': {}` to append and `'x': {deleted: true}` to remove.
+- A class-less map on a pointer field in a patch patches what the field holds now, a node included; stating `class:`
+  replaces it unless the field holds an inline object of that class. Derive states `class:` on every whole inline value.
 
 ---
 

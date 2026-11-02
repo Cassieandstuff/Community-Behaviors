@@ -4,4 +4,4 @@ signature: 0xd4114fdd
 size:      24
 fields:
   - { name: trackName,   type: string }
-  - { name: annotations, type: structarray, ref: hkaAnnotationTrackAnnotation }
+  - { name: annotations, type: structarray, ref: hkaAnnotationTrackAnnotation, roster: whole }

@@ -11,10 +11,10 @@ size:      128
 fields:
   - { name: name,                type: string }
   - { name: object,              type: ptr, ref: hkReferencedObject }   # hkRefVariant (mesh/skin/…, or null)
-  - { name: keyFrames,           type: structarray, ref: hkMatrix4 }    # the node's transform(s) — 1=static, N=animated
-  - { name: children,            type: ptrarray, ref: hkxNode }         # the scene-graph hierarchy
-  - { name: annotations,         type: structarray, ref: hkxNodeAnnotationData }
-  - { name: linearKeyFrameHints, type: scalararray, scalar: float }
+  - { name: keyFrames,           type: structarray, ref: hkMatrix4, roster: whole }    # the node's transform(s) — 1=static, N=animated
+  - { name: children,            type: ptrarray, ref: hkxNode, roster: whole }         # the scene-graph hierarchy
+  - { name: annotations,         type: structarray, ref: hkxNodeAnnotationData, roster: whole }
+  - { name: linearKeyFrameHints, type: scalararray, scalar: float, roster: whole }
   - { name: userProperties,      type: string }
   - { name: selected,            type: bool }
   - { name: bone,                type: bool }

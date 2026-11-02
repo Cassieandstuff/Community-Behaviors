@@ -145,20 +145,6 @@ bool SameCurves(const std::vector<CB::engine::anim::AnimCurveDef>& a, const std:
     return true;
 }
 
-/// @brief `v` as YAML flow text (JSON's own escaping; YAML's double-quoted strings read it the same).
-std::string Flow(const Json& v) {
-    std::string s;
-    if (v.is_object()) {
-        for (const auto& [k, x] : v.items()) s += (s.empty() ? "" : ", ") + Json(k).dump() + ": " + Flow(x);
-        return "{" + s + "}";
-    }
-    if (v.is_array()) {
-        for (const auto& x : v) s += (s.empty() ? "" : ", ") + Flow(x);
-        return "[" + s + "]";
-    }
-    return v.dump();
-}
-
 struct Injection {
     std::string field;
     Json        values;
@@ -187,34 +173,35 @@ std::vector<CB::engine::anim::AnimCurveDef> MergedCurves(const std::vector<Injec
     return out;
 }
 
-/// @brief `text` with every injection written in, each as a child of the root `animation:` mapping.
-/// @throws std::runtime_error with why, when a field is already present or does not read back as written.
-/// @note  Appended as text, so every other byte of the clip is kept. That relies on `animation:` being the file's last
-///        top-level key with 2-space children; the read-back through the loader proves it for each file.
+/// @brief `text` with every injection written in, the unit re-emitted whole through the schema (EmitAnimationYaml).
+/// @throws std::runtime_error with why, when a field is already set or does not read back as written.
+/// @note  "Already set" = holds other than its default: the schema writes every field, so a key's presence says nothing.
 std::string InjectAnimation(const std::string& path, std::string text, const std::vector<Injection>& injections) {
+    using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
+    auto       edit  = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     const auto claim = [&](const std::string& field, const std::string& config) {
-        const std::string key = "  " + field + ":";
-        for (std::size_t at = 0; at < text.size();) {
-            const std::size_t end = (std::min)(text.find('\n', at), text.size());
-            if (std::string_view(text).substr(at, end - at).starts_with(key))
-                throw std::runtime_error("already has '" + field + "' (" + config + ")");
-            at = end + 1;
-        }
-        if (!text.empty() && text.back() != '\n') text += '\n';
+        const bool set = field == "motionTarget" ? edit.motionTarget != MotionTarget::AnimationData
+                       : field == "preload"      ? edit.preload
+                       : field == "curves"       ? !edit.curves.empty()
+                                                 : false;
+        if (set) throw std::runtime_error("already has '" + field + "' (" + config + ")");
     };
     for (const auto& in : injections) {
         if (in.field == "curves") continue;
         claim(in.field, in.config);
-        text += "  " + in.field + ": " + Flow(in.values) + "\n";
+        if (in.field == "motionTarget")
+            edit.motionTarget = in.values.get<std::string>() == "motionMatching" ? MotionTarget::MotionMatching : MotionTarget::AnimationData;
+        else if (in.field == "preload")
+            edit.preload = in.values.get<bool>();
     }
-    /// @note Every curves injection lands as ONE `curves:` block, measured and hand-authored merged by name.
+    /// @note Every curves injection lands as ONE `curves` list, measured and hand-authored merged by name.
     const auto curvesIn = std::find_if(injections.begin(), injections.end(), [](const auto& in) { return in.field == "curves"; });
     const auto curves   = MergedCurves(injections);
     if (curvesIn != injections.end()) {
         claim("curves", curvesIn->config);
-        text += CB::engine::anim::EmitAnimCurvesYaml(curves);
+        edit.curves = curves;
     }
-    using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
+    text           = CB::engine::anim::EmitAnimationYaml(edit);
     const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     for (const auto& in : injections) {
         bool same = false;
@@ -227,7 +214,7 @@ std::string InjectAnimation(const std::string& path, std::string text, const std
             same = def.preload == in.values.get<bool>();
         }
         if (!same)
-            throw std::runtime_error("'" + in.field + "' did not read back as written (is `animation:` the last top-level key?)");
+            throw std::runtime_error("'" + in.field + "' did not read back as written");
     }
     return text;
 }
@@ -403,6 +390,28 @@ std::vector<mm::MmDatabase> DatabasesByFolder(const Json& list, const std::vecto
     return dbs;
 }
 
+/// @brief Each clip's searched range from a `ranges` object {"<clip path>": [startSeconds, endSeconds]} (end <= 0 = the
+///        clip's end), the clip named by path identity; a clip not named stays whole.
+/// @throws std::runtime_error on a malformed entry or a path no database holds.
+void ApplyRanges(const Json& ranges, std::vector<mm::MmDatabase>& dbs) {
+    using CB::engine::codec::resource::PathKey;
+    if (!ranges.is_object()) throw std::runtime_error("'ranges' is not an object");
+    for (const auto& [path, r] : ranges.items()) {
+        if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number())
+            throw std::runtime_error("range of '" + path + "' is not [start, end]");
+        const auto key   = PathKey(path);
+        bool       found = false;
+        for (auto& db : dbs)
+            for (auto& c : db.clips)
+                if (PathKey(c.path) == key) {
+                    c.rangeStart = r[0].get<float>();
+                    c.rangeEnd   = r[1].get<float>();
+                    found        = true;
+                }
+        if (!found) throw std::runtime_error("range of '" + path + "': no database holds that clip");
+    }
+}
+
 /// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a selector (`rootClass`) over one clip per
 ///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
 ///        `timeVariable` (only the selected child plays, so one shared time is safe).
@@ -420,6 +429,7 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
         mm::MmBundleSpec spec;
         spec.rosterRoot   = j["rosterRoot"].get<std::string>();
         spec.databases    = DatabasesByFolder(j["databases"], clips);
+        if (j.contains("ranges")) ApplyRanges(j["ranges"], spec.databases);
         spec.unitPath     = out;
         spec.selectorName = selector;
         spec.clipVariable = clipVar;
@@ -431,7 +441,8 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
     }
     if (rootClass != "hkbManualSelectorGenerator")
         throw std::runtime_error("'rootClass' " + rootClass + " is neither hkbManualSelectorGenerator nor CBPoseSearchGenerator");
-    if (j.contains("databases")) throw std::runtime_error("'databases' are a CBPoseSearchGenerator's");
+    if (j.contains("databases") || j.contains("ranges"))
+        throw std::runtime_error("'databases' and 'ranges' are a CBPoseSearchGenerator's");
     if (clips.size() > 128)
         throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (128)");
     const auto slash = out.rfind('/');
@@ -449,28 +460,24 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
         "          " + Quote(timeVar) + ": {type: VARIABLE_TYPE_REAL, value: 0}\n"
         "        characterProperties: {}\n        events: {}\n        attributes: {}\n");
 
-    const std::string sel = out + "/selectors/" + OwnId(2) + "/";
-    files.emplace_back(sel + OwnId(2) + ".yaml",
-        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
-        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
     std::string children;
     for (std::size_t i = 0; i < clips.size(); ++i)
-        children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
-    files.emplace_back(sel + "generators.yaml", children);
-    files.emplace_back(sel + "variableBindingSet.bindings.yaml",
-        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
-        "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
+        children += "  " + Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
+    files.emplace_back(out + "/" + OwnId(2) + ".yaml",
+        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+        "    'selectedGeneratorIndex':\n      variableIndex: 0\n      variable: " + Quote(clipVar) +
+        "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\n"
+        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\ngenerators:\n" + children);
 
     for (std::size_t i = 0; i < clips.size(); ++i) {
-        const std::string id = OwnId(static_cast<unsigned>(i + 3)), dir = out + "/clips/" + id + "/";
-        files.emplace_back(dir + id + ".yaml",
-            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\nuserData: 0\n"
+        const std::string id = OwnId(static_cast<unsigned>(i + 3));
+        files.emplace_back(out + "/" + id + ".yaml",
+            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+            "    'userControlledTimeFraction':\n      variableIndex: 1\n      variable: " + Quote(timeVar) +
+            "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\nuserData: 0\n"
             "name: " + Quote(clips[i].stem) + "\nanimationName: " + Quote(clips[i].roster) + "\n"
             "cropStartAmountLocalTime: 0\ncropEndAmountLocalTime: 0\nstartTime: 0\nplaybackSpeed: 1\nenforcedDuration: 0\n"
             "userControlledTimeFraction: 0\nanimationBindingIndex: user\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
-        files.emplace_back(dir + "variableBindingSet.bindings.yaml",
-            "'userControlledTimeFraction':\n  variableIndex: 1\n  variable: " + Quote(timeVar) +
-            "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
     }
     return files;
 }
@@ -557,6 +564,7 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
     if (kind == "clipSelectorBehavior") {
         Json named = params;
         named.erase("databases");
+        named.erase("ranges");
         ExpectKeys(named, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" });
     } else if (kind == "rosterPatch") {
         ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });

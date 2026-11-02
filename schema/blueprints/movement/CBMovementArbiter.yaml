@@ -12,4 +12,4 @@ size:      32
 fields:
   - { name: type,      type: string }
   - { name: interface, type: string }
-  - { name: order,     type: stringarray }
+  - { name: order,     type: stringarray, roster: whole }

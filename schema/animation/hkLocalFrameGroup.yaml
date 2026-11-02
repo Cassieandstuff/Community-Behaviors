@@ -1,0 +1,6 @@
+name:      hkLocalFrameGroup
+parent:    hkReferencedObject
+signature: 0xb1a96c2f
+size:      24
+fields:
+  - { name: name, type: string }    # @16

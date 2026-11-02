@@ -8,6 +8,7 @@
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
+#include <interface/reflection/HavokSchema.h>
 #include <codec/format/LoadOrderText.h>     // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
@@ -372,7 +373,9 @@ namespace CB::core::serve {
                 return r;
             }
             try {
-                base = asd::ParseSingleFile(baseText);
+                const auto* reg = CB::engine::schema::SharedRegistry();
+                if (!reg) throw std::runtime_error("schema registry not armed (" + CB::engine::schema::SharedRegistryError() + ")");
+                base = asd::ReadSingleFile(*reg, baseText);
             } catch (const std::exception& e) {
                 r.error = std::string("base parse failed: ") + e.what();
                 LOG_ERROR("SetData: {}", r.error);

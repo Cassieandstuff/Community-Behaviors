@@ -77,6 +77,9 @@ whose stored one differs.
   documentation only — it does NOT change serde). Void-typed ignored uses `empty:` instead.
 - `merge: <strategy>` — the merge engine's per-field policy (`keep | lastwriter | replacearray |
   unionarray | guarderror`); consumed by the merge consumer, not serde. (Added as the merge layer lands.)
+- `roster: <key>` — how a list merges, and every list states it (`LoadDir` refuses one that doesn't, unless it is `ignored`,
+  a per-bone `boneweights:` / `boneset:`, or `union` in the merge semantics). `ref`, `id`, `slot`, `field:<f>`, `bone:<f>`
+  key the elements of a pointer or struct array; `value` makes a string its own key; `whole` means no key, last writer wins.
 - `role: { role: <Role item>, flags: [<RoleFlags item>, …] }` — what the member is for, mirroring Havok's
   `hkbRoleAttribute` (both keys optional), e.g. `role: { flags: [FLAG_OUTPUT] }` = the node writes this member, so
   another node's binding or an output binding may read it. Items are the `Role` / `RoleFlags` enum items, spelled

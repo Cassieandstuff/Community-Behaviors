@@ -24,7 +24,7 @@ fields:
   - { name: motion,            type: struct, ref: hkpMaxSizeMotion } # @336 (320B)
   - { skip: 16 }                                                  # @656 m_contactListeners (IGNORED)
   - { skip: 16 }                                                  # @672 m_actions (IGNORED)
-  - { name: localFrame,        type: ptr, ref: hkReferencedObject } # @688 hkLocalFrame*
+  - { name: localFrame,        type: ptr, ref: hkLocalFrame }       # @688
   - { empty: ptr }                                                # @696 m_extendedListeners
   - { name: npData,            type: uint32 }                     # @704
   - { skip: 12 }                                                  # tail pad -> 720

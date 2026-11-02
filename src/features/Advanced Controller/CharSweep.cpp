@@ -48,6 +48,7 @@ namespace CB::feature::controller {
             float              m_ignoreAboveNormalZ = 2.0f;
             std::uint64_t      m_ignoreLayers       = 0;
             const ::hkpCollidable* m_self         = nullptr;   ///< a stand-in's original, never a hit (SweepFrom)
+            const HitFilter*         m_filter       = nullptr;
         };
 
         void* CollectorDtor(ClosestCollector* self, unsigned) { return self; }
@@ -68,6 +69,9 @@ namespace CB::feature::controller {
                 const unsigned layer = static_cast<const ::hkpCollidable*>(root)->getCollisionFilterInfo() & 0x7f;
                 if (layer < 64 && ((self->m_ignoreLayers >> layer) & 1u)) return;
             }
+            if (self->m_filter && self->m_filter->accept &&
+                !self->m_filter->accept(self->m_filter->user, static_cast<const ::hkpCollidable*>(root), d))
+                return;
             self->m_earlyOutDistance = d;
             self->m_best.hit      = true;
             self->m_best.fraction = d;
@@ -91,7 +95,7 @@ namespace CB::feature::controller {
         /// @pre `castA` is `self`'s stand-in (SweepFrom) or the collidable itself (then `self` is null); `from` is castA's
         ///      translation.
         SweepHit Cast(::bhkWorld* world, const ::hkpCollidable* castA, const ::hkpCollidable* self, const ::hkVector4& from,
-                      const ::hkVector4& to, float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
+                      const ::hkVector4& to, float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers, const HitFilter* filter = nullptr)
         {
             if (!world || !castA) return {};
             const ::hkpWorld* havokWorld = world->GetWorld2();
@@ -108,6 +112,7 @@ namespace CB::feature::controller {
             collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
             collector.m_ignoreLayers       = ignoreLayers;
             collector.m_self               = self;
+            collector.m_filter             = filter;
 
             const ::bhkWorldLock lock(world, 0);
             havokWorld->linearCast(castA, reinterpret_cast<const ::hkpLinearCastInput&>(input), reinterpret_cast<::hkpCdPointCollector&>(collector),
@@ -159,11 +164,11 @@ namespace CB::feature::controller {
     }
 
     SweepHit SweepFrom(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& from, const ::hkVector4& to,
-                       float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
+                       float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers, const HitFilter* filter)
     {
         if (!collidable || !collidable->m_motion || !collidable->getShape() || collidable->getParent()) return {};
         const StandIn standIn(*collidable, from);
-        return Cast(world, standIn.m_collidable, collidable, from, to, startTolerance, ignoreAboveNormalZ, ignoreLayers);
+        return Cast(world, standIn.m_collidable, collidable, from, to, startTolerance, ignoreAboveNormalZ, ignoreLayers, filter);
     }
 
 }  // namespace CB::feature::controller

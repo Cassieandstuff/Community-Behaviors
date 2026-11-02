@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+namespace CB::engine::schema { class SchemaRegistry; }
+
 // AnimationData — a first-party model + parser/emitter for Skyrim's
 // animationdatasinglefile.txt (clip-generator + root-motion metadata).
 //
@@ -92,9 +94,12 @@ namespace CB::engine::animdata {
         using std::runtime_error::runtime_error;
     };
 
-    // Parse / emit the whole animationdatasinglefile.txt. Emit reproduces the canonical
-    // CRLF layout byte-for-byte (counts recomputed from structure; content lines verbatim).
-    SingleFile  ParseSingleFile(std::string_view text);
+    /// @brief Read a whole animationdatasinglefile.txt through its `kind: metadata` descriptors (MetaText).
+    /// @throws ParseError when the text does not follow the descriptors.
+    SingleFile ReadSingleFile(const schema::SchemaRegistry& reg, std::string_view text);
+
+    // Emit the whole animationdatasinglefile.txt. Reproduces the canonical CRLF layout byte-for-byte
+    // (counts recomputed from structure; content lines verbatim).
     std::string EmitSingleFile(const SingleFile& sf);
 
 }  // namespace CB::engine::animdata

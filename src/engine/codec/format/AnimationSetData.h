@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+namespace CB::engine::schema { class SchemaRegistry; }
+
 #include "codec/crc/Crc.h"   // CB::engine::codec::crc — the CRC lives in the codec now; aliased below (firesale)
 
 // AnimationSetData — a first-party model + parser/emitter for Skyrim's
@@ -99,9 +101,9 @@ namespace CB::engine::animsetdata {
         using std::runtime_error::runtime_error;
     };
 
-    // Parse a whole animationsetdatasinglefile.txt held in memory. Tolerates LF or CRLF
-    // on input. Throws ParseError on malformed data.
-    SingleFile ParseSingleFile(std::string_view text);
+    /// @brief Read a whole animationsetdatasinglefile.txt through its `kind: metadata` descriptors (MetaText).
+    /// @throws ParseError when the text does not follow the descriptors or a number field does not parse.
+    SingleFile ReadSingleFile(const schema::SchemaRegistry& reg, std::string_view text);
 
     // Emit canonical CRLF form (every line CRLF-terminated, including the last), a
     // byte-for-byte reproduction of the vanilla layout.

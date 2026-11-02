@@ -6,9 +6,9 @@ size:      120
 # m_name exists in Pandora template skeletons and is read-only (probe-detected).
 fields:
   - { name: name,            type: string }
-  - { name: parentIndices,   type: scalararray, scalar: int16 }
-  - { name: bones,           type: structarray, ref: hkaBone }
-  - { name: referencePose,   type: qstransformarray }
-  - { name: referenceFloats, type: scalararray, scalar: float }
-  - { name: floatSlots,      type: stringarray }
-  - { name: localFrames,     type: structarray, ref: hkaSkeletonLocalFrameOnBone }
+  - { name: parentIndices,   type: scalararray, scalar: int16, roster: whole }
+  - { name: bones,           type: structarray, ref: hkaBone, roster: whole }
+  - { name: referencePose,   type: qstransformarray, roster: whole }
+  - { name: referenceFloats, type: scalararray, scalar: float, roster: whole }
+  - { name: floatSlots,      type: stringarray, roster: whole }
+  - { name: localFrames,     type: structarray, ref: hkaSkeletonLocalFrameOnBone, roster: whole }

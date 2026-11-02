@@ -134,7 +134,7 @@ void LoadOrderDocument::IndexBundles() {
         for (const auto& u : b.archive->units()) {
             Unit& unit = m_units[u.prefix];
             unit.key   = u.prefix;
-            unit.kind  = u.kind;
+            if (unit.layers.empty() || u.hasRoot) unit.kind = u.kind;
             unit.layers.push_back(b.stem);
             const auto spelled = b.archive->filesUnderOrig(u.prefix + "/");
             unit.path = spelled.empty() ? u.prefix : spelled.front().substr(0, u.prefix.size());
@@ -161,10 +161,9 @@ void LoadOrderDocument::IndexBundles() {
     }
     m_rigIndex.Finalize();
     for (const auto& rig : m_rigIndex.BoundRigs()) {
-        const auto it  = m_units.find(rig);
-        const auto src = it == m_units.end() ? nullptr : WinnerSource(it->second);
+        const auto it = m_units.find(rig);
         std::string err;
-        auto names = src ? decompile::ReadSkeletonBones(*src, *m_reg, rig, "animation", &err) : std::nullopt;
+        auto names = it == m_units.end() ? std::nullopt : decompile::ReadLayeredSkeletonBones(SkeletonLayers(it->second), *m_reg, rig, "animation", &err);
         if (names) m_rigBones[rig] = std::move(*names);
         else m_warnings.push_back("rig '" + rig + "' has no animation skeleton bones" + (err.empty() ? "" : ": " + err));
     }
@@ -180,6 +179,19 @@ std::shared_ptr<const common::IUnitSource> LoadOrderDocument::WinnerSource(const
     if (u.layers.empty()) return nullptr;
     const Bundle* b = BundleNamed(u.layers.back());
     return b ? b->archive->source(u.key) : nullptr;
+}
+
+std::vector<common::LayerSource> LoadOrderDocument::SkeletonLayers(const Unit& u) const {
+    std::vector<common::LayerSource> layers;
+    for (const auto& stem : u.layers) {
+        const Bundle* b = BundleNamed(stem);
+        auto src = b ? b->archive->source(u.key) : nullptr;
+        if (!src) continue;
+        if (const auto g = src->read("graph.yaml"); g && !codec::HkyArchive::IsPatchGraphYaml(*g)) layers.clear();
+        const auto mt = m_masterTable.find(stem);
+        layers.push_back({ std::move(src), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
+    }
+    return layers;
 }
 
 std::vector<std::string> LoadOrderDocument::Files(std::string_view prefix) const {
@@ -244,8 +256,13 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
     };
     if (!u) return fail("no unit '" + std::string(key) + "' in the load order");
     if (!m_reg) return fail("the document has no schema registry");
-    if (u->kind == codec::HkyArchive::UnitKind::Project || u->kind == codec::HkyArchive::UnitKind::Skeleton)
-        return fail("'" + u->key + "' is a project or skeleton unit: its winner replaces it whole, nothing merges");
+    if (u->kind == codec::HkyArchive::UnitKind::Project)
+        return fail("'" + u->key + "' is a project unit: its winner replaces it whole, nothing merges");
+    std::string why;
+    if (u->kind == codec::HkyArchive::UnitKind::Skeleton) {
+        if (decompile::MergeLayersReflective(SkeletonLayers(*u), *m_reg, nullptr, out, why, nullptr, u->key)) return true;
+        return fail(why);
+    }
     std::vector<common::LayerSource> layers;
     for (const auto& stem : u->layers) {
         const Bundle* b = BundleNamed(stem);
@@ -254,7 +271,6 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
         layers.push_back({ b->archive->source(u->key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
     }
     const auto  bones = RigBones(u->key);
-    std::string why;
     if (decompile::MergeLayersReflective(layers, *m_reg, bones ? &*bones : nullptr, out, why)) return true;
     return fail(why);
 }
@@ -272,7 +288,7 @@ bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_
     bool        parsed = false;
     if (!u) why = "no unit '" + std::string(key) + "' in the load order";
     else if (!m_reg) why = "the document has no schema registry";
-    else if (u->kind == codec::HkyArchive::UnitKind::Project || u->kind == codec::HkyArchive::UnitKind::Skeleton) {
+    else if (u->kind == codec::HkyArchive::UnitKind::Project) {
         const auto src = WinnerSource(*u);
         if (!src) why = "'" + u->key + "' has no readable winner";
         else parsed = decompile::ParseHkyReflective(*src, *m_reg, graph, why, nullptr, u->key);
@@ -286,9 +302,8 @@ std::optional<std::vector<std::string>> LoadOrderDocument::SkeletonBones(std::st
     const auto u = UnitAt(key);
     if (!u || u->kind != codec::HkyArchive::UnitKind::Skeleton || !m_reg) return std::nullopt;
     if (const auto it = m_rigBones.find(u->key); it != m_rigBones.end()) return it->second;
-    const auto  src = WinnerSource(*u);
     std::string err;
-    return src ? decompile::ReadSkeletonBones(*src, *m_reg, u->key, "animation", &err) : std::nullopt;
+    return decompile::ReadLayeredSkeletonBones(SkeletonLayers(*u), *m_reg, u->key, "animation", &err);
 }
 
 std::optional<skeleton::SkeletonData> LoadOrderDocument::Skeleton(std::string_view key, std::string* err) const {
@@ -297,9 +312,8 @@ std::optional<skeleton::SkeletonData> LoadOrderDocument::Skeleton(std::string_vi
         if (err) *err = "no skeleton unit '" + std::string(key) + "'";
         return std::nullopt;
     }
-    const auto src = WinnerSource(*u);
     skeleton::SkeletonData out;
-    if (!src || !skeleton::ReadSkeletonUnit(*src, *m_reg, u->key, out, err)) return std::nullopt;
+    if (!skeleton::ReadSkeletonLayers(SkeletonLayers(*u), *m_reg, u->key, out, err)) return std::nullopt;
     return out;
 }
 

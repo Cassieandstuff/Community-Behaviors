@@ -31,4 +31,10 @@ namespace CB::platform::game {
     using AsdsfOpen = hooks::CallSite<hooks::engine::Asdsf_OpenCall,
                                       std::int32_t(std::uintptr_t path, std::uintptr_t out, std::uint64_t r8, std::uint64_t r9)>;
 
+    /// @brief The CALL inside BSSpeedSamplerDBManager's ctor that opens SpeedDataSingleFile.txt (the path loaded from
+    ///        SpeedData_SingleFilePath). Runs once, in the routine that built the adsf two calls earlier.
+    /// @note Same open function shape and contract as AdsfOpen (CB's speeddata serve seam).
+    using SpeedDataOpen = hooks::CallSite<hooks::engine::SpeedData_OpenCall,
+                                          std::int32_t(std::uintptr_t path, std::uintptr_t out, std::uint64_t r8, std::uint64_t r9)>;
+
 }  // namespace CB::platform::game

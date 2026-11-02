@@ -114,7 +114,7 @@ namespace CB::core::debug {
           "Ground states in charge",
           "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
           "Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, velocity "
-          "springs). Grounded means any ground under the feet: the player lands on it and can always jump from it. How "
+          "springs). Grounded means any ground under the feet: the player lands on it, and jumps from it while it is walkable. How "
           "much it holds them up is its support, easing from 1 at fSlidePullStart degrees (default 5) below the max "
           "slope to 0 at fSlidePullFull degrees (default 10) past it; as it drops, a slide velocity drags the player "
           "downhill and the uphill part of their steering is cut. Rising off the ground, landing and sticking to it are "
@@ -151,6 +151,14 @@ namespace CB::core::debug {
           "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
           "each button's press/release times and the sticks and mouse over the last frames, for CB's controller to "
           "query. Passes every event on to the game unchanged. AE only. Unproven in game." },
+        { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
+          "Camera: thin objects block",
+          "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "
+          "reacts when it would end up inside one. Needs bCamera. Unproven in game." },
+        { "camera_no_probes", FlagKind::IniBool, "Camera", "bNoProbes", false, false,
+          "Camera: no soft probes",
+          "Turns off the four probes that push the camera away from nearby surfaces and slow the boom before contact, "
+          "leaving only the hard sweep. Needs bCamera. Unproven in game." },
         { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
           "CB camera",
           "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "

@@ -1,6 +1,7 @@
 #include "codec/format/AnimationSetData.h"
 
 #include <codec/resource/PathKey.h>   // path identity (project headers / set names are file names)
+#include <codec/serialization/MetaText.h>
 
 #include <algorithm>
 #include <array>
@@ -182,24 +183,60 @@ namespace CB::engine::animsetdata {
 
     }  // namespace
 
-    SingleFile ParseSingleFile(std::string_view text)
+    namespace {
+
+        using codec::io::SchemaObject;
+
+        const SchemaObject& Obj(const auto& o)
+        {
+            return static_cast<const SchemaObject&>(*o);
+        }
+
+        const std::string& Str(const SchemaObject& o, std::string_view f) { return o.FindField(f)->str; }
+
+        template <class T>
+        T Num(const SchemaObject& o, std::string_view f)
+        {
+            const std::string& s = Str(o, f);
+            T v{};
+            const auto res = std::from_chars(s.data(), s.data() + s.size(), v);
+            if (res.ec != std::errc{} || res.ptr != s.data() + s.size())
+                throw ParseError(std::string(o.ClassName()) + "." + std::string(f) + ": expected a number, got \"" + s + "\"");
+            return v;
+        }
+
+    }  // namespace
+
+    SingleFile ReadSingleFile(const schema::SchemaRegistry& reg, std::string_view text)
     {
-        LineReader r(text);
+        std::string err;
+        const auto  root = codec::io::ReadMetaText(reg, "AnimationSetDataSingleFile", text, err);
+        if (!root) throw ParseError(err);
         SingleFile sf;
-
-        const std::size_t np = r.nextCount();
-        sf.projects.resize(np);
-        for (std::size_t i = 0; i < np; ++i) sf.projects[i].header = std::string(r.next());
-
-        for (std::size_t i = 0; i < np; ++i) {
-            Project& p = sf.projects[i];
-            const std::size_t nm = r.nextCount();
-            p.sets.resize(nm);
-            for (std::size_t j = 0; j < nm; ++j) p.sets[j].name = std::string(r.next());  // names first
-            for (std::size_t j = 0; j < nm; ++j) {                                          // then contents
-                std::string keepName = std::move(p.sets[j].name);
-                p.sets[j] = ParseSetContent(r);
-                p.sets[j].name = std::move(keepName);
+        for (const auto& po : root->Children("projects")) {
+            const auto& po_ = Obj(po);
+            Project&    p   = sf.projects.emplace_back();
+            p.header        = Str(po_, "header");
+            for (const auto& so : po_.Children("sets")) {
+                const auto& s_ = Obj(so);
+                SetFile&    s  = p.sets.emplace_back();
+                s.name         = Str(s_, "name");
+                s.version      = Str(s_, "version");
+                if (s.version != "V3")
+                    throw ParseError("unsupported animationsetdata version \"" + s.version + "\" in " + p.header + " / " + s.name);
+                s.equipEvents = s_.FindField("equipEvents")->strs;
+                for (const auto& co : s_.Children("conditions"))
+                    s.conditions.push_back({ Str(Obj(co), "variable"), Num<std::int32_t>(Obj(co), "value"),
+                                             Num<std::int32_t>(Obj(co), "extra") });
+                for (const auto& ao : s_.Children("attacks"))
+                    s.attacks.push_back({ Str(Obj(ao), "event"), Num<std::int32_t>(Obj(ao), "flag"), Obj(ao).FindField("clips")->strs });
+                for (const auto& to : s_.Children("crcs")) {
+                    CrcTriple t;
+                    t.folder = Num<std::uint32_t>(Obj(to), "folder");
+                    t.file   = Num<std::uint32_t>(Obj(to), "file");
+                    t.ext    = Num<std::uint32_t>(Obj(to), "ext");
+                    s.crcs.push_back(t);
+                }
             }
         }
         return sf;

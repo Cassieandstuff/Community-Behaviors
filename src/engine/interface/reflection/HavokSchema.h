@@ -69,7 +69,12 @@ struct Field {
                                          ///<        the child node's FormID), `field:<f>` (by an element's string field),
                                          ///<        `bone:<f>` (by the bone an element's index field names), `id` (minted
                                          ///<        sub-record FormIDs, owner-qualified, scoped to the parent), `slot` (as
-                                         ///<        `id`, but entries are referenced by position elsewhere: never deleted).
+                                         ///<        `id`, but entries are referenced by position elsewhere: never deleted),
+                                         ///<        `value` (a string list whose string is its own key: still a plain list in
+                                         ///<        a unit; a patch maps `'x': {}` to add and `'x': {deleted: true}` to remove).
+    bool        whole = false;           ///< @brief `roster: whole` — no element key: a patch states the list and the last writer
+                                         ///<        wins. Stored apart so `roster` stays empty for every unkeyed array.
+                                         ///< @invariant LoadDir refuses a list that declares neither (see LoadDir's note).
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
     std::string unitRef;                 ///< @brief `unitref: behavior|character|skeleton|animation` — the string (or each
@@ -90,6 +95,8 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
+    std::string metaType;                ///< @brief metadata scalar: the declared `type:` (string/int32/uint32/float/…) — what
+                                         ///<        an `encoding: binary` record reads off the bytes into its text value.
     std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` (`stringptr` on an `empty: ptr` slot: an
                                          ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
@@ -140,6 +147,8 @@ struct ClassSchema {
     bool               metadata  = false;        ///< @brief `kind: metadata` — a Bethesda text-file record (adsf/asdsf), not
                                                  ///<        a Havok class: no signature/size; read/written by MetaText.
     bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
+    bool               binary = false;           ///< @brief metadata `encoding: binary` — little-endian scalars, a
+                                                 ///<        recordarray = u32 count + records (the speeddata bodies).
     int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
                                                  ///<        (the engine reads it through a 16-bit truncation: 65535),
                                                  ///<        unless the writer is told the reader takes the full count.
@@ -156,6 +165,9 @@ struct ClassSchema {
     ///        signature effect.
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
+    ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and
+    ///        its groups; `clipchild` (clip, group, start, end) — one row: the clip, the name of its group, and the
+    ///        seconds searched; `clipgroup` (label) — one group, named by its rows.
     struct View {
         std::string                        kind;
         std::map<std::string, std::string> roles;   ///< role -> field name

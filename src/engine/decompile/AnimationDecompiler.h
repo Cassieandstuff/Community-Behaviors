@@ -46,12 +46,13 @@ struct DecodedAnimation {
 /// @return false (+ `err`) for a malformed packfile, no animation container, or an unsupported class.
 bool DecodeAnimation(const std::uint8_t* hkx, std::size_t size, DecodedAnimation& out, std::string& err);
 
-// Deserialize `hkx` (raw packfile bytes) via the schema stack, decode the first animation, and
-// emit `dir`/animation.yaml. `boneNames` (optional, index-parallel to the served skeleton): when set,
-// per-track bone references decompile to bone NAMES via the cross membrane (Phase 2); null = the
-// track<N> placeholder names. Requires CB::engine::schema::SharedRegistry().
+/// @brief Decode the first animation of `hkx` (raw packfile bytes) and write `dir`/animation.yaml (EmitAnimationYaml).
+/// @param boneNames index-parallel to the served skeleton: tracks decompile to bone NAMES; null = track<N> placeholders.
+/// @param name the unit's `name` (the clip's file stem); empty writes none.
+/// @pre   CB::engine::schema::SharedRegistry() is loaded.
 AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx,
                                        const std::filesystem::path&      dir,
-                                       const std::vector<std::string>*   boneNames = nullptr);
+                                       const std::vector<std::string>*   boneNames = nullptr,
+                                       const std::string&                name      = {});
 
 } // namespace CB::engine::anim

@@ -89,8 +89,7 @@ bool LoadSkeletonsFromHkx(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        // exotic creature collision shapes may be unported — skip, don't fail
-        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg);
         if (!root) { if (err) *err = "not a valid packfile root"; return false; }
 
         // The animation container carries the skeleton list in file order: [0]=anim skeleton, [1]=ragdoll.
@@ -117,9 +116,7 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        // creature ragdolls may use exotic, unported collision shapes;
-        // skip them (shape → null → default capsule) instead of failing.
-        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg);
         if (!root) return true;
 
         auto pd = FindVariant(*root, "hkpPhysicsData");
@@ -285,12 +282,12 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     }
 }
 
-bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
-                      const std::string& unitPath, SkeletonData& out, std::string* err) {
-    decompile::ParsedHky graph;
+namespace {
+/// @return false with `err` set when the serialized unit holds no skeleton or isn't readable as one.
+bool ReadServedSkeleton(const decompile::ParsedHky& graph, const std::string& unitPath, SkeletonData& out, std::string* err) {
     std::vector<std::uint8_t> bytes;
     std::string e;
-    if (!decompile::ParseHkyReflective(unit, reg, graph, e, nullptr, unitPath) || !decompile::SerializeGraph(graph, bytes, e)) {
+    if (!decompile::SerializeGraph(graph, bytes, e)) {
         if (err) *err = unitPath + ": " + e;
         return false;
     }
@@ -299,6 +296,29 @@ bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema:
     if (skels.empty()) { if (err) *err = unitPath + ": the unit holds no skeleton"; return false; }
     out = std::move(skels[0]);
     return ReadSkeletonPhysics(bytes.data(), bytes.size(), out, err);
+}
+} // namespace
+
+bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
+                      const std::string& unitPath, SkeletonData& out, std::string* err) {
+    decompile::ParsedHky graph;
+    std::string e;
+    if (!decompile::ParseHkyReflective(unit, reg, graph, e, nullptr, unitPath)) {
+        if (err) *err = unitPath + ": " + e;
+        return false;
+    }
+    return ReadServedSkeleton(graph, unitPath, out, err);
+}
+
+bool ReadSkeletonLayers(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                        const std::string& unitPath, SkeletonData& out, std::string* err) {
+    decompile::ParsedHky graph;
+    std::string e;
+    if (!decompile::MergeLayersReflective(layers, reg, nullptr, graph, e, nullptr, unitPath)) {
+        if (err) *err = unitPath + ": " + e;
+        return false;
+    }
+    return ReadServedSkeleton(graph, unitPath, out, err);
 }
 
 } // namespace CB::engine::skeleton

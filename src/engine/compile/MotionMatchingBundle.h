@@ -17,7 +17,7 @@
 
 namespace CB::engine::compile {
 
-    /// @brief CBPoseSearchGenerator::childFlags bits.
+    /// @brief MmClip::flags bits (a CBPoseSearchChild's `disableReselection` and `looping`).
     inline constexpr std::uint8_t kMmDisableReselection = 1;
     inline constexpr std::uint8_t kMmLooping            = 2;
 
@@ -25,10 +25,12 @@ namespace CB::engine::compile {
     struct MmClip {
         std::string  path;            ///< the clip file's path in the bundle (`.hkx`, below MmBundleSpec::rosterRoot)
         std::string  animationName;   ///< its roster entry; empty = MmAnimationName(path, rosterRoot)
-        std::uint8_t flags = 0;       ///< the child's childFlags byte (kMmDisableReselection | kMmLooping)
+        std::uint8_t flags = 0;       ///< kMmDisableReselection | kMmLooping
+        float        rangeStart = 0;    ///< seconds: the first time the search may cut into (Unreal's sampling range)
+        float        rangeEnd   = 0;    ///< seconds: the last; <= 0 = the clip's end
     };
 
-    /// @brief One database: a contiguous range of the generator's children, in `clips` order.
+    /// @brief One database: the generator's children naming it, written in `clips` order.
     /// @note  A clip listed by several databases becomes one child PER database occurrence, every one naming the same
     ///        animationName (the roster holds it once).
     struct MmDatabase {

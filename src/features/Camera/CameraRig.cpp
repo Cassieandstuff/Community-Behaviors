@@ -36,6 +36,24 @@ namespace CB::feature::camera::rig {
         return out;
     }
 
+    Vec3 StepProbes(const ProbeParams& p, ProbeState& s, const ProbeIn& in)
+    {
+        const auto push = [](float fraction) {
+            const float close = 1.0f - std::clamp(fraction, 0.0f, 1.0f);
+            return close * close;
+        };
+        const float x = StepEase(p.spring, s.x, (push(in.left) - push(in.right)) * p.maxShift, in.dt);
+        const float z = StepEase(p.spring, s.z, (push(in.down) - push(in.up)) * p.maxShift, in.dt);
+        return { x, 0.0f, z };
+    }
+
+    float SoftPull(const ProbeParams& p, float beyond)
+    {
+        if (p.reach <= 0.0f) return 0.0f;
+        const float close = 1.0f - std::clamp(beyond / p.reach, 0.0f, 1.0f);
+        return close * close * p.boomPull;
+    }
+
     float StepEase(const EaseParams& p, EaseState& s, float target, float dt)
     {
         if (p.settle <= 0.0f) s = { target, 0.0f };
@@ -55,10 +73,17 @@ namespace CB::feature::camera::rig {
         const Vec3  arm  = in.eye - in.pivot;
         const float full = Length(arm);
         if (full <= 1.0e-3f) return in.eye;
-        const float clear = in.hitFraction < 1.0f ? (std::max)(0.0f, in.hitFraction * full - p.radius) : full;
-        if (!s.init || clear <= s.distance) {
+        const bool  hit   = in.hitFraction < 1.0f;
+        const float clear = hit ? in.hitFraction * full : (std::max)(0.0f, full - in.softPull);
+        if (!s.init) {
             s.init     = true;
             s.distance = clear;
+        } else if (clear <= s.distance) {
+            if (!hit) s.distance = Damp(s.distance, clear, p.softInHalflife, in.dt);
+            else      s.distance = in.thin ? Damp(s.distance, clear, p.thinInHalflife, in.dt) : clear;
+            if (hit) s.hold = p.holdTime;
+        } else if (s.hold > 0.0f) {
+            s.hold -= in.dt;
         } else {
             s.distance = Damp(s.distance, clear, p.recoverHalflife, in.dt);
         }

@@ -6,7 +6,7 @@ size:      72
 fields:
   - { name: originalSkeletonName,        type: string }
   - { name: animation,                   type: ptr, ref: hkaAnimation }
-  - { name: transformTrackToBoneIndices, type: scalararray, scalar: int16 }
-  - { name: floatTrackToFloatSlotIndices, type: scalararray, scalar: int16 }
+  - { name: transformTrackToBoneIndices, type: scalararray, scalar: int16, roster: whole }
+  - { name: floatTrackToFloatSlotIndices, type: scalararray, scalar: int16, roster: whole }
   - { name: blendHint, type: int8, enum: BlendHint }
   - { skip: 7 }

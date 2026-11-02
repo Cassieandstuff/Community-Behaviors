@@ -3,6 +3,6 @@ parent:    null
 signature: 0x052e8043
 size:      16
 fields:
-  - { empty: ptr }                   # hkLocalFrame — not ported; pointer dropped
+  - { name: localFrame, type: ptr, ref: hkLocalFrame }
   - { name: boneIndex, type: int32 }
   - { skip: 4 }

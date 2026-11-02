@@ -427,9 +427,9 @@ namespace CB {
         const auto plan = PlanLoadOrder(m_manifests, order);
 
         /// @note Skeletons are PATH-LOCAL reflective units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/":
-        ///       graph.yaml + animation/ + ragdoll/, bones name-keyed and ordered by the boneorder compat shim), and the
-        ///       load-order winner of a unit path IS that skeleton — a later bundle replaces it whole (XPMSSE ships its
-        ///       full skeletons; an identical one is a no-op replacement). Bone tables bind through the characters'
+        ///       graph.yaml + the skeletons + one file per bone, bones name-keyed and ordered by the boneorder compat
+        ///       shim). The last COMPLETE unit of a path replaces what's below it (XPMSSE ships its full skeletons; an
+        ///       identical one is a no-op replacement), and patch units above it merge onto it per bone. Bone tables bind through the characters'
         ///       `rig:` (see BonesFor), never "the first skeleton under the actor folder" — that picked
         ///       _1stperson/skeletonfirst for the 3rd-person character ('_' sorts before 'c').
         {
@@ -473,6 +473,20 @@ namespace CB {
                     }
                 }
 
+            /// @return A skeleton's layers: the winner `bi`, then every later bundle holding files of that unit (its patches).
+            const auto skelLayers = [&](const std::string& unit, std::size_t bi) {
+                std::vector<CB::engine::common::LayerSource> out;
+                for (std::size_t j = bi; j < bundles.size(); ++j) {
+                    if (j != bi && bundles[j].reader.filesUnder(unit + "/", ".yaml").empty()) continue;
+                    CB::engine::common::LayerSource l;
+                    l.source = bundles[j].reader.unitSource(unit);
+                    l.stem   = bundles[j].stem;
+                    if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end()) l.masterTable = mit->second;
+                    if (l.source) out.push_back(std::move(l));
+                }
+                return out;
+            };
+
             /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
             ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
             auto* schemaReg = CB::engine::schema::SharedRegistry();
@@ -496,15 +510,13 @@ namespace CB {
                         return;
                     }
                 }
-                /// @note The unit is the whole skeleton.hkx, so serving it is a parse and a serialize: nothing is derived.
-                const auto src = bundles[bi].reader.unitSource(unit);
+                /// @note The unit is the whole skeleton.hkx, so serving it is a merge and a serialize: nothing is derived.
                 CB::engine::decompile::ParsedHky graph;
                 std::vector<std::uint8_t> bytes;
-                std::string err;
-                if (!src || !schemaReg || !CB::engine::decompile::ParseHkyReflective(*src, *schemaReg, graph, err, nullptr, unit) ||
+                std::string err = "no schema";
+                if (!schemaReg || !CB::engine::decompile::MergeLayersReflective(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
                     !CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
-                    LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem,
-                             src && schemaReg ? err : std::string("no unit source or schema"));
+                    LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem, err);
                     return;
                 }
                 const std::size_t size = bytes.size();
@@ -514,7 +526,7 @@ namespace CB {
             {
                 std::vector<std::function<void()>> serveTasks;
                 for (const auto& [unit, bi] : skelWinner) {
-                    if (bundles[bi].stem == "skyrim") continue;
+                    if (bundles[bi].stem == "skyrim" && skelLayers(unit, bi).size() == 1) continue;
                     const std::string* u = &unit;
                     const std::size_t  b = bi;
                     serveTasks.push_back([&serveUnit, u, b] { serveUnit(*u, b); });
@@ -551,10 +563,9 @@ namespace CB {
                 const std::string* r  = &rig;
                 const std::size_t  bi = skelWinner.at(rig);
                 boneTasks.push_back([&, r, bi] {
-                    const auto src = bundles[bi].reader.unitSource(*r);
                     std::string err;
-                    auto names = src && schemaReg ? CB::engine::decompile::ReadSkeletonBones(*src, *schemaReg, *r, "animation", &err)
-                                                  : std::nullopt;
+                    auto names = schemaReg ? CB::engine::decompile::ReadLayeredSkeletonBones(skelLayers(*r, bi), *schemaReg, *r, "animation", &err)
+                                           : std::nullopt;
                     if (!names) {
                         LOG_WARN("Resolver: rig '{}' ({}) has no animation skeleton bones{}", *r, bundles[bi].stem, err.empty() ? "" : ": " + err);
                         return;
@@ -1117,7 +1128,9 @@ namespace CB {
                     if (di.depth() == 0) {
                         const std::string fn = PathKey(di->path().filename().string());
                         if (fn == "animationdatasinglefile.txt" || fn == "animationsetdatasinglefile.txt" ||
-                            fn == "animations.ledger" || fn == "cache.ready")
+                            fn == "speeddatasinglefile.txt" ||
+                            fn == "animations.ledger" || fn == "cache.ready" ||
+                            fn == PathKey(CB::core::discover::kMotionMatchingCacheFile))
                             continue;
                     }
                     if (!keep.count(PathKey(di->path().lexically_relative(dataRoot).lexically_normal().generic_string())))

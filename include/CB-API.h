@@ -157,6 +157,7 @@ namespace anim {
     using CB::engine::anim::AnimCurveKey;            ///< one curve key (time, value, interpolation)
     using CB::engine::anim::AnimCurveDef;            ///< a named curve over the clip
     using CB::engine::anim::EmitAnimCurvesYaml;      ///< curves → the unit's `curves:` block
+    using CB::engine::anim::EmitAnimationYaml;       ///< Def → the unit's text (CBAnimation, through the schema)
 
     using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file
@@ -188,6 +189,8 @@ namespace skeleton {
     using CB::engine::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
     using CB::engine::skeleton::ReadSkeletonUnit;       // a bundle's skeleton unit → SkeletonData, physics attached
     using CB::engine::decompile::ReadSkeletonBones;     // a skeleton unit's bone names, in served order (no parse)
+    using CB::engine::skeleton::ReadSkeletonLayers;     ///< a skeleton's layers (a complete unit + per-bone patches) → SkeletonData
+    using CB::engine::decompile::ReadLayeredSkeletonBones;   ///< a skeleton's layers → its bone names, in served order
 }  // namespace skeleton
 
 // ── cb::mm ───────────────────────────────────────────────────────────────────────
@@ -200,7 +203,7 @@ namespace mm {
     using BundleSpec   = CB::engine::compile::MmBundleSpec;    ///< the whole bundle's input
     using Files        = CB::engine::compile::MmFiles;         ///< bundle path → file text
 
-    using CB::engine::compile::kMmDisableReselection;          ///< childFlags bits
+    using CB::engine::compile::kMmDisableReselection;          ///< MmClip::flags bits
     using CB::engine::compile::kMmLooping;
     using CB::engine::compile::kMmChooserVariables;            ///< the chooser inputs every graph declares, by name
 

@@ -17,6 +17,7 @@
 #include <set>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -26,30 +27,30 @@ namespace CB::engine::decompile {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
 // ── identity/index pass ───────────────────────────────────────────────────────
-// Walk the SchemaObject graph in ENCOUNTER ORDER (matching the reference BehaviorDecompiler's DFS, so
-// the yaml filenames + id refs are byte-stable) and assign each object a canonical id + a category
-// folder (clips / states / transitions / generators / selectors / references / tagging / modifiers /
-// data). Ids live here; the emit consumes this map.
+// Walk the SchemaObject graph in ENCOUNTER ORDER (matching the reference BehaviorDecompiler's DFS, so the
+// id refs are byte-stable) and assign each object a canonical id, and each node class its own file. Ids live
+// here; the emit consumes this map.
 struct Identity {
     // obj -> canonical id (yaml filename + ref). A CANONICAL STRING: base nodes are the unpadded decimal
     // tagfile number ("184"); a Nemesis new node is its string token ("CASSIE$0"). Numeric ids render
     // byte-identically to a plain integer everywhere, so string ids cost the base path nothing while
     // letting patch-added nodes (and refs to them) live in the same graph.
     std::unordered_map<const IHavokObject*, std::string> ids;
-    std::unordered_map<const IHavokObject*, std::string> category;  // obj -> folder
+    /// @brief The objects with a file of their own; everything else nests in its owner's file.
+    std::unordered_set<const IHavokObject*> nodes;
+    /// @brief The directory a node's or bone's file was read from: `/`-separated, byte-exact, "" = the unit's top.
+    /// @note CB never reads it. A unit is a flat list; this only lets a re-emit put the file back, and editors group by it.
+    std::unordered_map<const IHavokObject*, std::string> folder;
     /// @brief Minted roster keys (`roster: id|slot`) per (owner object, field index), parallel to that list. Absent
     ///        (or out of step with the list) = keyed by position, the base unit's own sub-record FormIDs.
     std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;
 };
 
-// The .hky folder a class's node lives in ("clips", "states", …), or "" if the class is inlined into
-// its owner's YAML rather than getting its own file. A pure function of the class name (from the
-// reference decompiler's per-class emit sites).
-std::string CategoryForClass(const std::string& className);
+/// @return Whether a class's node gets its own file, rather than being inlined into its owner's.
+bool IsNodeClass(const std::string& className);
 
-// Assign canonical ids + categories over a fully-deserialized graph. `des` must have completed a full
-// Deserialize (root walk) so ListObjects/DeserializedObjects are populated. Ids are
-// encounter order; category is a pure function of class.
+// Assign canonical ids + nodes over a fully-deserialized graph. `des` must have completed a full
+// Deserialize (root walk) so ListObjects/DeserializedObjects are populated. Ids are encounter order.
 Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& reg);
 
 /// @brief Reflective .hky emit — every schema field of every file node, in schema order, rendered by FieldKind
@@ -59,8 +60,10 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
 ///              NAME; null = rig unknown (indices stay numeric — still lossless).
 /// @param unitPath the unit's Data-relative path ("meshes/…/skeleton.hkx"), which a skeleton unit's bone order is
 ///                 bound against (the boneorder compat shim). A skeleton unit's role skeletons (`animation`, `ragdoll`)
-///                 become `<role>/skeleton.yaml` + `<role>/bones/<bone>.yaml`; a source whose order the shim cannot
-///                 reproduce fails the emit.
+///                 become one file each plus one file per bone; a source whose order the shim cannot reproduce fails
+///                 the emit.
+/// @note  A node's file is `<folder>/<id>.yaml` for the folder in Identity::folder, the unit's top when it has none; the
+///        root is always graph.yaml.
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
                        const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr,
                        const std::string& unitPath = {});
@@ -76,8 +79,8 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
 ///        `{ charprop: '<property>' }`.
 bool CharPropNeutral(const schema::Field& f, const io::FieldValue& v);
 
-/// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
-///        categories; inline objects join with category "").
+/// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (ids, file nodes and
+///        their folders; inline objects join with an id of their own).
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
@@ -136,10 +139,12 @@ private:
     const schema::SchemaRegistry&  m_reg;
 };
 
-/// @brief ParseHky — the exact inverse of EmitHkyReflective: `dir` (graph.yaml + `<category>/<id>.yaml`) -> the
-///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
+/// @brief ParseHky — the exact inverse of EmitHkyReflective: a unit -> the SchemaObject graph, serializable byte-for-byte.
+///        A unit is graph.yaml (its header, the root) plus a flat list of YAML files read by the `id` and `class` inside;
+///        a path means nothing, so the bytes don't depend on where a file sits. Event/variable name companions WIN over their indices (the
 ///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
-///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0.
+///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0. So is a YAML that is neither a
+///        node nor a bone, a root outside graph.yaml, or a node stated twice. Other extensions are ignored.
 /// @param unitPath as EmitHkyReflective's: a skeleton unit's bones take the boneorder shim's order for it.
 bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
                         std::string& err, const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
@@ -173,11 +178,17 @@ struct CharacterStrings {
 std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src);
 /// @brief A skeleton unit's bone names for `role` ("animation" — the rig behaviors bind against — or "ragdoll"), in the
 ///        order the skeleton serves them: the boneorder shim's for `unitPath`, then its `extraBones`. Read from the
-///        bone file names and skeleton.yaml, not parsed.
+///        bone files and the skeleton's own, not a full parse.
 /// @return nullopt when the unit has no such role skeleton, or (with `err`) when its bones don't fit an order.
 std::optional<std::vector<std::string>> ReadSkeletonBones(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg,
                                                           const std::string& unitPath, const std::string& role = "animation",
                                                           std::string* err = nullptr);
+
+/// @brief ReadSkeletonBones over a skeleton's layers: a complete unit, then patch units, each appending the bones it adds
+///        in the order the merge appends them.
+std::optional<std::vector<std::string>> ReadLayeredSkeletonBones(const std::vector<CB::engine::common::LayerSource>& layers,
+                                                                 const schema::SchemaRegistry& reg, const std::string& unitPath,
+                                                                 const std::string& role = "animation", std::string* err = nullptr);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
 ///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.
@@ -200,7 +211,7 @@ struct HkyPatchStats { int patched = 0; int added = 0; };
 ///        (unnamed shared leaves by content) and take the base's FormIds as master `baseIndex`; unmatched nodes are
 ///        NEW (self index 0, full body). A patched node file carries only its changed fields (nested inline objects
 ///        deep-diffed; a roster as its changed / new / `{deleted: true}` entries by key, in the node's folder; a union
-///        name roster as the names it adds; any other list whole).
+///        name roster as the names it adds; a `value` list as its added / removed strings; any other list whole).
 bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, std::uint16_t baseIndex = 1, HkyPatchStats* stats = nullptr);
@@ -228,9 +239,11 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
 ///        adsf-derive) before SerializeGraph.
 /// @param nullMarkers When set, receives (layer stem, count) for every layer whose units held Havok's null marker
 ///        (ParsedHky::nullMarkers), so the caller can name the bundles to reconvert.
+/// @param unitPath the unit's Data-relative path: a skeleton base takes the boneorder shim's order for it.
+/// @note  Works per bone on a skeleton: a patch's bone files state only what they change (MergeHkyPatch).
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
-                           std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr);
+                           std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr, const std::string& unitPath = {});
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
                     const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief SerializeGraph, also reporting where every written object came from: its offset in the packfile's data
@@ -277,7 +290,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
 /// @note EmptyArray and EmptyPtr fields (SERIALIZE_IGNORED slots) are not parsed: they keep their Init defaults.
 struct ParsedTagfile {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;   // owns the graph's lifetime
-    Identity                                       identity;  // ids + category over `objects`
+    Identity                                       identity;  // ids + nodes over `objects`
 };
 bool ParseTagfile(const std::string& xmlText, const schema::SchemaRegistry& reg,
                   ParsedTagfile& out, std::string& err);
