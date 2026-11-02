@@ -26,7 +26,7 @@ namespace CB::feature::controller::motion {
         HK_DECLARE_POD_TYPE();
 
         ::hkbGenerator* m_generator;            ///< +0x00
-        ::hkStringPtr   m_database;             ///< +0x08
+        const char*     m_database;             ///< +0x08, the file's string (never assigned or freed here)
         ::hkReal        m_rangeStart;           ///< +0x10
         ::hkReal        m_rangeEnd;             ///< +0x14
         ::hkBool        m_disableReselection;   ///< +0x18
