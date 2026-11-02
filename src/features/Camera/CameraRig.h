@@ -91,19 +91,28 @@ namespace CB::feature::camera::rig {
     };
     BoomOut StepBoom(const BoomParams& p, const BoomIn& in);
 
-    /// @brief Keeps the eye in front of whatever the boom hit: in at once, back out over a halflife.
+    /// @brief Keeps the eye in front of whatever the boom's sphere hit: in at once, held briefly, back out over a
+    ///        halflife. A thin object only ever counts when the eye would end up in it, and eases in, so orbiting past a
+    ///        trunk does not pop.
+    /// @note Vanilla's radius is 15 (ApplyCameraCaster 0x1408e48d0).
     struct CollisionParams {
-        float radius          = 10.0f;  ///< stays this far short of a hit
+        float radius          = 15.0f;
         float recoverHalflife = 0.15f;
+        float holdTime        = 0.15f;  ///< stays pulled in this long, so clutter does not pump the boom
+        bool  passThin        = true;   ///< thin objects leave the boom alone; off = they block like walls
+        float thinWidth       = 40.0f;  ///< thin = the second-largest extent of its bounds is below this
+        float thinInHalflife  = 0.05f;
     };
     struct CollisionState {
         bool  init     = false;
         float distance = 0.0f;  ///< the boom length last shown
+        float hold     = 0.0f;  ///< seconds left before it may ease back out
     };
     struct CollisionIn {
         Vec3  pivot;
         Vec3  eye;
         float hitFraction = 1.0f;  ///< along pivot → eye; 1 = clear
+        bool  thin        = false;  ///< what it hit is a thin object
         float dt          = 0.0f;
     };
     Vec3 StepCollision(const CollisionParams& p, CollisionState& s, const CollisionIn& in);
@@ -145,7 +154,8 @@ namespace CB::feature::camera::rig {
     /// @note Orientation is not here: it survives a reset of the rest (re-entering third person keeps the view).
     struct State {
         AnchorState    anchor;
-        CollisionState collision;
+        CollisionState shoulder;   ///< the anchor → pivot leg
+        CollisionState collision;  ///< the pivot → eye leg
     };
 
     /// @brief `current` moved toward `target` by the share a halflife leaves after `dt`.

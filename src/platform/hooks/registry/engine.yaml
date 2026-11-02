@@ -212,6 +212,8 @@ symbols:
   # --- Player camera ---
   - { name: AimPick_IsInFreeRotationCall, kind: call, se: 0, ae: 41246+0x540, vr: 0 }  # CALL PlayerCamera::IsInFreeRotation (0x1408e3310) in the player's per-frame crosshair pick 0x140764310: free = ray from the eye along heading/pitch, else from the camera along its view (1.6.1170)
   - { name: Actor_GetCameraHeight, kind: func, se: 0, ae: 37477, vr: 0, cpp: "CB::platform::game::Actor_GetCameraHeight", mangled: "?Actor_GetCameraHeight@game@platform@CB@@YAMPEAVActor@RE@@@Z", header: "platform/game/Camera.h" }  # the third-person pivot's height over the target's root, 0x140674980 (1.6.1170)
+  - { name: PlayerCamera_ApplyCameraCaster, kind: func, se: 0, ae: 50832, vr: 0, cpp: "CB::platform::game::PlayerCamera_ApplyCameraCaster", mangled: "?PlayerCamera_ApplyCameraCaster@game@platform@CB@@YA_NPEAVPlayerCamera@RE@@PEAVNiPoint3@5@_N@Z", header: "platform/game/Camera.h" }  # sphere cast, player and actor fades, 0x1408e48d0 (1.6.1170)
+  - { name: ThirdPersonPosition_ApplyCameraCasterCall, kind: call, se: 0, ae: 50911+0x1ce, vr: 0 }  # CALL PlayerCamera::ApplyCameraCaster (0x1408e48d0) in ThirdPersonState's position math 0x1408e8640 (1.6.1170)
   - { name: MountCamera_PushCameraStateCall, kind: call, se: 0, ae: 50821+0xe1, vr: 0 }  # CALL PlayerCamera::PushCameraState (0x1408e6bd0) in StartMountCamera 0x1408e3da0, after it retargeted the camera to the mount and handed the horse/dragon state its handle; then the HUD's "HorseMode" (1.6.1170)
   - { name: MountEnd_ExitMountCameraCall, kind: call, se: 0, ae: 40726+0x10, vr: 0 }  # CALL ExitMountCamera (0x1408e3eb0) in the player's mount end 0x14074b3d0 (from the dismount's StopHorseCamera); vanilla acts only when the horse or dragon state is current (1.6.1170)
 

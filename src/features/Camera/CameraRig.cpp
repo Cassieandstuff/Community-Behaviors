@@ -55,10 +55,15 @@ namespace CB::feature::camera::rig {
         const Vec3  arm  = in.eye - in.pivot;
         const float full = Length(arm);
         if (full <= 1.0e-3f) return in.eye;
-        const float clear = in.hitFraction < 1.0f ? (std::max)(0.0f, in.hitFraction * full - p.radius) : full;
-        if (!s.init || clear <= s.distance) {
+        const float clear = in.hitFraction < 1.0f ? in.hitFraction * full : full;
+        if (!s.init) {
             s.init     = true;
             s.distance = clear;
+        } else if (clear <= s.distance) {
+            s.distance = in.thin ? Damp(s.distance, clear, p.thinInHalflife, in.dt) : clear;
+            if (in.hitFraction < 1.0f) s.hold = p.holdTime;
+        } else if (s.hold > 0.0f) {
+            s.hold -= in.dt;
         } else {
             s.distance = Damp(s.distance, clear, p.recoverHalflife, in.dt);
         }

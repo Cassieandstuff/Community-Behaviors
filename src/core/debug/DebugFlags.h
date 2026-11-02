@@ -146,6 +146,10 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
+          "Camera: thin objects block",
+          "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "
+          "reacts when it would end up inside one. Needs bCamera. Unproven in game." },
         { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
           "CB camera",
           "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "
