@@ -447,7 +447,7 @@ namespace CB::feature::camera {
             const float     shoulderLength = rig::Length(boom.pivot - anchor);
             const Cast      shoulderCast   = SweepBoom(player, camera, col, col.radius, anchor, boom.pivot,
                                                        shoulderLength > 0.0f ? 1.0f - 2.0f * col.radius / shoulderLength : 0.0f, 1.0f);
-            const rig::Vec3 pivotSafe    = rig::StepCollision(profile.collision, l.rig.shoulder, { anchor, boom.pivot, shoulderCast.clear, shoulderCast.thin, dt });
+            const rig::Vec3 pivotSafe    = rig::StepCollision(profile.collision, l.rig.shoulder, { anchor, boom.pivot, shoulderCast.clear, shoulderCast.thin, 0.0f, dt });
             const rig::Vec3 eyeWant      = pivotSafe + (boom.eye - boom.pivot);
 
             /// @note The boom is swept a probe's reach past the eye: a surface there shortens it softly, so the camera
