@@ -119,6 +119,19 @@ namespace CB::feature::camera::rig {
     };
     Vec3 StepCollision(const CollisionParams& p, CollisionState& s, const CollisionIn& in);
 
+    /// @brief A 0..1 weight eased toward its target on a critically damped spring: how far the camera has moved into
+    ///        a component's framing.
+    /// @note Critically damped so it arrives without overshoot; `settle` is roughly the time it takes (the SmoothDamp
+    ///       of Game Programming Gems 4, as in Unity's Mathf.SmoothDamp).
+    struct EaseParams {
+        float settle = 0.5f;
+    };
+    struct EaseState {
+        float value = 0.0f;
+        float rate  = 0.0f;
+    };
+    float StepEase(const EaseParams& p, EaseState& s, float target, float dt);
+
     /// @brief Four short probes around the camera: surfaces near it push it away on a critically damped spring (a PD
     ///        controller, no integral term to wind up against a wall), so it slows and slides before it touches.
     /// @note The push is squared closeness, so it fades to nothing at the probe's reach and a far hit cannot flicker.
@@ -146,19 +159,6 @@ namespace CB::feature::camera::rig {
 
     /// @brief The share of the boom pull for a surface `beyond` units past the eye.
     float SoftPull(const ProbeParams& p, float beyond);
-
-    /// @brief A 0..1 weight eased toward its target on a critically damped spring: how far the camera has moved into
-    ///        a component's framing.
-    /// @note Critically damped so it arrives without overshoot; `settle` is roughly the time it takes (the SmoothDamp
-    ///       of Game Programming Gems 4, as in Unity's Mathf.SmoothDamp).
-    struct EaseParams {
-        float settle = 0.5f;
-    };
-    struct EaseState {
-        float value = 0.0f;
-        float rate  = 0.0f;
-    };
-    float StepEase(const EaseParams& p, EaseState& s, float target, float dt);
 
     /// @brief The Mounted component: while the player rides, the pivot moves to the mount's (its root plus its camera
     ///        height) and the boom's shoulder to the mount's offset — vanilla's mounted framing (HorseCameraState: the

@@ -255,7 +255,8 @@ namespace CB::feature::camera {
             auto* world  = cell ? cell->GetbhkWorld() : nullptr;
             auto* caster = camera->GetRuntimeData().unk120;
             auto* bhk    = caster ? caster->unk00.get() : nullptr;
-            auto* object = bhk ? bhk->referencedObject.get() : nullptr;
+            /// @note bhkRefObject's referenced Havok object, +0x10 (0x14054f720 reads it so).
+            auto* object = bhk ? *reinterpret_cast<void* const*>(reinterpret_cast<const std::uint8_t*>(bhk) + 0x10) : nullptr;
             if (!world || !object) return {};
             const float s      = RE::bhkWorld::GetWorldScale();
             const float length = rig::Length(to - from);
@@ -458,12 +459,12 @@ namespace CB::feature::camera {
             const rig::Vec3 eyeFar    = armLength > 1.0e-3f ? pivotSafe + (eyeWant - pivotSafe) * (farLength / armLength) : eyeWant;
             const float     thinFrom  = farLength > 0.0f ? (armLength - 2.0f * col.radius) / farLength : 0.0f;
             const float     thinTo    = farLength > 0.0f ? armLength / farLength : 1.0f;
-            const Cast      far       = SweepBoom(player, camera, col, col.radius, pivotSafe, eyeFar, thinFrom, thinTo);
-            const float     hitAt     = far.clear * farLength;
-            Cast            cast      = far;
+            const Cast      farCast   = SweepBoom(player, camera, col, col.radius, pivotSafe, eyeFar, thinFrom, thinTo);
+            const float     hitAt     = farCast.clear * farLength;
+            Cast            cast      = farCast;
             float           softPull  = 0.0f;
-            if (far.clear >= 1.0f || hitAt >= armLength) {
-                if (far.clear < 1.0f) softPull = rig::SoftPull(pro, hitAt - armLength);
+            if (farCast.clear >= 1.0f || hitAt >= armLength) {
+                if (farCast.clear < 1.0f) softPull = rig::SoftPull(pro, hitAt - armLength);
                 cast.clear = 1.0f;
             } else if (armLength > 1.0e-3f) {
                 cast.clear = hitAt / armLength;
