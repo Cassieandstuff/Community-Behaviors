@@ -49,6 +49,7 @@ namespace {
                                             const cb::schema::Registry&, const std::string&, std::string&,
                                             const std::vector<std::string>*, cb::resolve::PatchStats*)>(&cb::resolve::DeriveHkyPatch);
         (void)derive;
+        auto* edited = &cb::resolve::DeriveEditedPatch;           (void)edited;
         auto* decomp = &cb::resolve::DecompileBehaviorReflective; (void)decomp;
         // a unit folder round trip: read it, write it back
         cb::resolve::DiskUnitSource disk(std::filesystem::path{});

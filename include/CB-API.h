@@ -109,6 +109,7 @@ namespace resolve {
     using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
     using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
+    using CB::engine::decompile::DeriveEditedPatch;            ///< (base, edited) graphs → a patch by FormID, and its masters
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
 
     using EmbeddedKind = CB::engine::schema::EmbeddedKind;      ///< a hand-parsed file kind whose root map holds a schema class

@@ -1,3 +1,4 @@
+#include <interface/MasterTable.h>
 #include <decompile/BehaviorDecompile.h>
 
 #include <interface/HavokEnums.h>       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
@@ -25,6 +26,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <set>
 #include <memory>
 #include <string>
@@ -3528,6 +3530,53 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
 } // namespace
 
 namespace {
+/// @brief The folder a patch file goes in. A patch at the unit's top has no opinion on grouping, so a patched node states a folder only when
+///        the author moved it, and a new node keeps its own.
+std::string patchFolder(const Identity& idB, const IHavokObject* bo, const Identity& idM, const IHavokObject* mo) {
+    const auto folderIn = [](const Identity& id, const IHavokObject* o) {
+        const auto it = id.folder.find(o);
+        return it == id.folder.end() ? std::string() : it->second;
+    };
+    const std::string mine = folderIn(idM, mo);
+    if (!bo) return mine;
+    if (mine == folderIn(idB, bo)) return {};
+    return mine.empty() ? std::string(kUngroupedFolder) : mine;
+}
+
+/// @brief One file per node of `modNodes` that differs from the base (a node the base lacks is new, whole). `byFolder` honors a moved node's folder.
+bool writePatchFiles(const std::vector<const IHavokObject*>& modNodes, const Identity& idB,
+                     const std::unordered_map<std::string, const IHavokObject*>& baseById, const Identity& idM, const ReflectCtx& cB,
+                     const ReflectCtx& cM, bool byFolder, const std::string& patchDir, std::string& err, HkyPatchStats* stats) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::remove_all(patchDir, ec);
+    for (const IHavokObject* o : modNodes) {
+        const auto* mo = dynamic_cast<const io::SchemaObject*>(o);
+        if (!mo) continue;
+        const std::string id = idM.ids.at(o);
+        const auto        at = baseById.find(id);
+        const IHavokObject* base = at == baseById.end() ? nullptr : at->second;
+        const bool        isRoot = std::string(o->ClassName()) == "hkRootLevelContainer";
+        const std::string folder = byFolder && !isRoot ? patchFolder(idB, base, idM, o) : std::string();
+        std::string body;
+        if (base) {
+            const auto* bo = dynamic_cast<const io::SchemaObject*>(base);
+            if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
+            body = diffObject(*bo, *mo, cB, cM);
+            if (body.empty() && folder.empty()) continue;
+            if (stats) ++stats->patched;
+        } else {
+            body = reflectObject(*mo, cM);
+            if (stats) ++stats->added;
+        }
+        /// @note A patch states its class for the reader (a new node's body already carries it).
+        const std::string head = "id: " + id + "\n" + (base ? "class: " + std::string(mo->ClassName()) + "\n" : std::string());
+        const fs::path    dir  = folder.empty() ? fs::path(patchDir) : fs::path(patchDir) / fs::path(std::u8string(folder.begin(), folder.end()));
+        if (!disk::WriteFile(dir / (isRoot ? std::string("graph.yaml") : fsId(id) + ".yaml"), head + body, {}, &err)) return false;
+    }
+    return true;
+}
+
 /// @brief The derive over a base identity whose ids are already FormIDs of the PATCH's master table; `keyOwner` is
 ///        the master index of the base's positional roster keys.
 bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<std::uint8_t>& modBytes,
@@ -3606,29 +3655,7 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
         for (const auto& [o, id] : modId) idM.ids[o] = id;
         const ReflectCtx cM{ idM, nrM, reg, bones, &effM };
 
-        std::error_code ec;
-        fs::remove_all(patchDir, ec);
-        for (const IHavokObject* o : modNodes) {
-            const auto* mo = dynamic_cast<const io::SchemaObject*>(o);
-            if (!mo) continue;
-            const std::string id = idM.ids.at(o);
-            std::string body;
-            if (auto it = baseById.find(id); it != baseById.end()) {
-                const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
-                if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
-                body = diffObject(*bo, *mo, cB, cM);
-                if (body.empty()) continue;
-                if (stats) ++stats->patched;
-            } else {
-                body = reflectObject(*mo, cM);
-                if (stats) ++stats->added;
-            }
-            /// @note A patch states its class for the reader (a new node's body already carries it).
-            const std::string head = "id: " + id + "\n" + (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string());
-            if (!disk::WriteFile(fs::path(patchDir) / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), head + body, {}, &err))
-                return false;
-        }
-        return true;
+        return writePatchFiles(modNodes, idB, baseById, idM, cB, cM, false, patchDir, err, stats);
     } catch (const std::exception& e) {
         err = std::string("DeriveHkyPatch: ") + e.what();
         return false;
@@ -3653,6 +3680,27 @@ std::string relFormId(const std::string& canon, const std::vector<std::string>& 
     const auto it = std::find(masters.begin(), masters.end(), canon.substr(0, c));
     if (it == masters.end()) return canon;
     return formIdOf(static_cast<std::uint16_t>(it - masters.begin()), canon.substr(c + 1));
+}
+
+/// @brief `graph`'s identity over what its root reaches, each id as `rel` says.
+Identity reachableIdentity(const ParsedHky& graph, const std::function<std::string(const std::string&)>& rel) {
+    Identity out;
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        if (graph.identity.nodes.count(o)) out.nodes.insert(o);
+        if (auto it = graph.identity.ids.find(o); it != graph.identity.ids.end()) out.ids[o] = rel(it->second);
+        if (auto it = graph.identity.folder.find(o); it != graph.identity.folder.end()) out.folder[o] = it->second;
+        if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
+            for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(graph.root.get());
+    for (const auto& [k, keys] : graph.identity.subKeys) {
+        if (!seen.count(k.first)) continue;
+        auto& keysOut = out.subKeys[k];
+        for (const std::string& key : keys) keysOut.push_back(rel(key));
+    }
+    return out;
 }
 } // namespace
 
@@ -3681,27 +3729,74 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
     /// @note Ids a merge added are already canonical ("bfco:54"); the base unit's own FormIds resolve through
     ///       `baseMasters`. Only the graph reachable from the root counts — a replaced subtree's old objects linger
     ///       in the identity, and a stale (class, name) there would steal the live node's match.
-    const auto rel = [&](const std::string& id) {
+    const Identity idB = reachableIdentity(base, [&](const std::string& id) {
         return relFormId(id.find(':') != std::string::npos ? id : baseCanon(id), patchMasters);
-    };
-    Identity idB;
-    std::unordered_set<const IHavokObject*> seen;
-    std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
-        if (!o || !seen.insert(o).second) return;
-        if (base.identity.nodes.count(o)) idB.nodes.insert(o);
-        if (auto it = base.identity.ids.find(o); it != base.identity.ids.end()) idB.ids[o] = rel(it->second);
-        if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
-            for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
-    };
-    walk(base.root.get());
-    for (const auto& [k, keys] : base.identity.subKeys) {
-        if (!seen.count(k.first)) continue;
-        auto& out = idB.subKeys[k];
-        for (const std::string& key : keys) out.push_back(rel(key));
-    }
+    });
     const auto self = std::find(patchMasters.begin(), patchMasters.end(), baseMasters.front());
     if (self == patchMasters.end()) { err = "DeriveHkyPatch: the base unit's owner '" + baseMasters.front() + "' is not a master"; return false; }
     return derivePatch(idB, static_cast<std::uint16_t>(self - patchMasters.begin()), modBytes, reg, patchDir, err, bones, stats);
+}
+
+bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
+                       bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
+                       std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
+    namespace fs = std::filesystem;
+    if (baseMasters.empty()) { err = "DeriveEditedPatch: the base has no master table"; return false; }
+    try {
+        const auto baseCanon = canonFor(baseMasters);
+        /// @note A merge leaves ids a layer added canonical ("bfco:54") and the base unit's own as its FormIDs. A project's patch is one of those
+        ///       layers, so an edited graph names its project's own nodes by `self`.
+        const auto canonical = [&](const std::string& id) { return id.find(':') != std::string::npos ? id : baseCanon(id); };
+        const auto run = [&](const std::vector<std::string>& table, HkyPatchStats* st) {
+            const auto     rel = [&](const std::string& id) { return relFormId(canonical(id), table); };
+            const Identity idB = reachableIdentity(base, rel), idM = reachableIdentity(edited, rel);
+            const auto     effB = EffectiveNodes(idB), effM = EffectiveNodes(idM);
+            const NameResolver nrB = buildResolver(idB), nrM = buildResolver(idM);
+            const auto     owner = std::find(table.begin(), table.end(), baseMasters.front());
+            const auto     keyOwner = static_cast<std::uint16_t>(owner == table.end() ? 0 : owner - table.begin());
+            const ReflectCtx cB{ idB, nrB, reg, bones, &effB, keyOwner }, cM{ idM, nrM, reg, bones, &effM, keyOwner };
+            std::unordered_map<std::string, const IHavokObject*> baseById;
+            for (const IHavokObject* o : effB) baseById[idB.ids.at(o)] = o;
+            std::vector<const IHavokObject*> nodes(effM.begin(), effM.end());
+            std::sort(nodes.begin(), nodes.end(), [&](const IHavokObject* a, const IHavokObject* b) { return idM.ids.at(a) < idM.ids.at(b); });
+            return writePatchFiles(nodes, idB, baseById, idM, cB, cM, true, patchDir, err, st);
+        };
+
+        /// @note Twice: a first pass over every bundle the graphs name finds the owners the patch actually states, and those are its masters. A
+        ///       dependency is what the edit touched, not everything that touches the unit, or a mod would refuse to load for a mod it never used.
+        std::set<std::string> stems;
+        for (const ParsedHky* g : { &base, &edited })
+            for (const auto& [o, id] : g->identity.ids) {
+                const std::string c = canonical(id);
+                if (const auto colon = c.rfind(':'); colon != std::string::npos) stems.insert(c.substr(0, colon));
+            }
+        const std::vector<std::string> named(stems.begin(), stems.end());
+        const auto wide = codec::formid::BuildMasterTable(self, named, haveSkyrim);
+        if (!run(wide, nullptr)) return false;
+
+        static const std::regex kFormId(R"(\b([0-9a-f]{4})x[0-9a-f]{4}\b)");
+        std::set<std::string> used;
+        const auto scan = [&](const std::string& text) {
+            for (std::sregex_iterator m(text.begin(), text.end(), kFormId), end; m != end; ++m) {
+                const auto at = std::stoul((*m)[1].str(), nullptr, 16);
+                if (at < wide.size()) used.insert(wide[at]);
+            }
+        };
+        std::error_code ec;
+        if (fs::is_directory(patchDir, ec))
+            for (const auto& e : fs::recursive_directory_iterator(patchDir)) {
+                if (!e.is_regular_file()) continue;
+                scan(e.path().filename().string());
+                if (const auto text = disk::ReadFile(e.path())) scan(*text);
+            }
+        masters.clear();
+        for (const std::string& stem : named)
+            if (used.count(stem) && stem != self && stem != codec::formid::BASE_GAME_STEM) masters.push_back(stem);
+        return run(codec::formid::BuildMasterTable(self, masters, haveSkyrim), stats);
+    } catch (const std::exception& e) {
+        err = std::string("DeriveEditedPatch: ") + e.what();
+        return false;
+    }
 }
 
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
@@ -3737,7 +3832,14 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         if (d->bone) { boneFiles[d->owner].push_back(d.get()); continue; }
         nodeDocs.push_back(d.get());
         const auto r = d->tree.crootref();
-        if (auto it = ps.byId.find(ps.canon(d->id)); it != ps.byId.end()) { targets.push_back({ it->second, true }); if (stats) ++stats->patched; continue; }
+        if (auto it = ps.byId.find(ps.canon(d->id)); it != ps.byId.end()) {
+            /// @note Only re-emit and an editor read this, so the highest layer stating a folder wins, and a file at the unit's top states none.
+            if (d->folder == kUngroupedFolder) base.identity.folder.erase(it->second.get());
+            else if (!d->folder.empty()) base.identity.folder[it->second.get()] = d->folder;
+            targets.push_back({ it->second, true });
+            if (stats) ++stats->patched;
+            continue;
+        }
         const std::string cls = yhas(r, "class") ? ystr(yget(r, "class")) : std::string();
         auto obj = makeObj(reg, cls);
         if (!obj) { err = d->file + ": unknown class '" + cls + "'"; return false; }

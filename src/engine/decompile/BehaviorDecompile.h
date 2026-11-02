@@ -223,6 +223,17 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
                     const std::vector<std::string>& patchMasters, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+/// @brief The folder a patch names to move a node out of a lower layer's group: a file at the unit's top states no folder at all.
+inline constexpr const char* kUngroupedFolder = "ungrouped";
+/// @brief Derive the patch turning `base` into `edited`, a graph it was merged from and edited in memory. Nodes match by FormID, so a rename is a
+///        one-field change, and a moved node's file names its folder. Only what differs is written; a patch file with no fields moves a node alone.
+/// @param base the load order's merged graph, WITHOUT `self`'s layer
+/// @param baseMasters what `base`'s own FormIDs resolve against, owner first
+/// @param self the bundle the patch ships in
+/// @param[out] masters the bundles the patch depends on: the owners of the nodes it states, by stem, without `self` or the base game
+bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
+                       bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
+                       std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
 ///        only the fields it names.
