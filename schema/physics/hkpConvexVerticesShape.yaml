@@ -11,8 +11,8 @@ fields:
   - { skip: 8 }                                                            # pad 40 -> 48
   - { name: aabbHalfExtents, type: vector4 }                               # @48
   - { name: aabbCenter,      type: vector4 }                               # @64
-  - { name: rotatedVertices, type: structarray, ref: hkFourTransposedPoints } # @80 (16)
+  - { name: rotatedVertices, type: structarray, ref: hkFourTransposedPoints, roster: whole } # @80 (16)
   - { name: numVertices,     type: int32 }                                 # @96
   - { skip: 20 }                                                           # @100 -> 120 (m_useSpuBuffer +nosave + reserved/pad)
-  - { name: planeEquations,  type: vec4array }                             # @120 (16)
+  - { name: planeEquations,  type: vec4array, roster: whole }                             # @120 (16)
   - { name: connectivity,    type: ptr, ref: hkpConvexVerticesConnectivity } # @136 -> 144

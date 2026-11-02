@@ -8,5 +8,5 @@ fields:
   - { name: forward,  type: vector4 }
   - { name: duration, type: float }
   - { skip: 4 }
-  - { name: referenceFrameSamples, type: vec4array }
+  - { name: referenceFrameSamples, type: vec4array, roster: whole }
   - { skip: 8 }   # size-rounding pad (72 -> 80, class has inline Vector4)

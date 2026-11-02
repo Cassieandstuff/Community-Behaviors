@@ -18,22 +18,37 @@
 
 namespace CB::feature::controller::motion {
 
-    /// @brief CBPoseSearchDatabase: a dance card as a contiguous range of the generator's children, with Unreal's
-    ///        per-database cost biases (condition expressions, evaluated by CB's controller) and its tags.
+    /// @brief CBPoseSearchChild: one row of the generator, the clip and how the search treats it.
+    /// @note  Declared POD to hkArray: the elements live in the loaded file (a clone copies the row bytes, and its
+    ///        strings stay the file's).
+    struct PoseSearchChild {
+        HK_DECLARE_POD_TYPE();
+
+        CB::havok::hkbGenerator* m_generator;            ///< +0x00
+        CB::havok::hkStringPtr   m_database;             ///< +0x08
+        CB::havok::hkReal        m_rangeStart;           ///< +0x10
+        CB::havok::hkReal        m_rangeEnd;             ///< +0x14
+        CB::havok::hkBool        m_disableReselection;   ///< +0x18
+        CB::havok::hkBool        m_looping;              ///< +0x19
+    };
+    static_assert(sizeof(PoseSearchChild) == 32, "PoseSearchChild size (schema: 32)");
+
+    /// @brief CBPoseSearchDatabase: a dance card, named by its children, with Unreal's per-database cost biases
+    ///        (condition expressions, evaluated by CB's controller) and its tags.
     /// @note  Declared POD to hkArray: the elements live in the loaded file, so an array never constructs or destroys
     ///        them (a block-copied node's destructor must not tear down the template's data).
     struct PoseSearchDatabase {
         HK_DECLARE_POD_TYPE();
 
         CB::havok::hkStringPtr          m_name;                     ///< +0x00
-        CB::havok::hkInt32              m_firstChild;               ///< +0x08
-        CB::havok::hkInt32              m_numChildren;              ///< +0x0c
-        CB::havok::hkStringPtr          m_baseCostBias;             ///< +0x10
-        CB::havok::hkStringPtr          m_continuingPoseCostBias;   ///< +0x18
-        CB::havok::hkStringPtr          m_loopingCostBias;          ///< +0x20
-        CB::havok::hkArray<CB::havok::hkStringPtr> m_tags;          ///< +0x28
+        CB::havok::hkStringPtr          m_baseCostBias;             ///< +0x08
+        CB::havok::hkStringPtr          m_continuingPoseCostBias;   ///< +0x10
+        CB::havok::hkStringPtr          m_loopingCostBias;          ///< +0x18
+        CB::havok::hkArray<CB::havok::hkStringPtr> m_tags;          ///< +0x20
+        CB::havok::hkStringPtr          m_standingCandidate;        ///< +0x30
+        CB::havok::hkStringPtr          m_movingCandidate;          ///< +0x38
     };
-    static_assert(sizeof(PoseSearchDatabase) == 56, "PoseSearchDatabase size (schema: 56)");
+    static_assert(sizeof(PoseSearchDatabase) == 64, "PoseSearchDatabase size (schema: 64)");
 
     /// @brief CBPoseSearchChooserRow: a condition expression and the databases it selects.
     struct PoseSearchChooserRow {
@@ -60,19 +75,18 @@ namespace CB::feature::controller::motion {
 
     class PoseSearchGenerator : public CB::havok::hkbGenerator {
     public:
-        /// @note Each child holds a reference (raw pointers: the constructors and the destructor count them by hand).
+        /// @note Each row's child holds a reference (raw pointers: the constructors and the destructor count them by hand).
         /// @warning No member may own memory: Skyrim instances a character's graph by block-copying it (only clip
         ///          controls and a few reference counts are fixed up), so a node-owned pointer is shared by every copy
         ///          and freed by the first one destroyed. While the dead blend kept its owned state here, random actors
         ///          vanished (suspected cause, not proven); it now lives in a table keyed by character (generate).
-        CB::havok::hkArray<CB::havok::hkbGenerator*> m_generators;   ///< +0x48
+        CB::havok::hkArray<PoseSearchChild>          m_children;       ///< +0x48
         CB::havok::hkInt32                           m_selectedIndex;  ///< +0x58, bound to the add-on's MM_Clip
         CB::havok::hkInt32                           m_currentIndex;   ///< +0x5c, the child playing, clamped into range
-        /// @note The databases, child flags and chooser are read by CB's controller from the merged graph, never from a
-        ///       live node: a clone leaves them empty, and nothing here owns memory.
+        /// @note The databases, the rows' other columns and the chooser are read by CB's controller from the merged graph,
+        ///       never from a live node: a clone leaves the databases and chooser empty, and nothing here owns memory.
         CB::havok::hkArray<PoseSearchDatabase>       m_databases;      ///< +0x60
-        CB::havok::hkArray<CB::havok::hkUint8>       m_childFlags;     ///< +0x70: per child, 1 disableReselection, 2 looping
-        PoseSearchChooser*                           m_chooser;        ///< +0x80, the loaded file's (never referenced or freed here)
+        PoseSearchChooser*                           m_chooser;        ///< +0x70, the loaded file's (never referenced or freed here)
 
         /// @brief The finish constructor: the vtable on loaded bytes; serialized members stay as loaded.
         explicit PoseSearchGenerator(CB::havok::hkFinishLoadedObjectFlag flag);
@@ -99,7 +113,7 @@ namespace CB::feature::controller::motion {
         /// @brief Cross the output pose from the switched-from child's extrapolated motion into the live child's.
         void deadBlend(const CB::havok::hkbContext& context, CB::havok::hkbGeneratorOutput& output);
     };
-    static_assert(sizeof(PoseSearchGenerator) == 0x88, "PoseSearchGenerator size (schema: 136)");
+    static_assert(sizeof(PoseSearchGenerator) == 0x78, "PoseSearchGenerator size (schema: 120)");
 
     /// @brief Seconds left in the newest dead blend (0 when none runs), for the HUD.
     /// @note  One value for every instance: motion matching plays the node for the player alone.

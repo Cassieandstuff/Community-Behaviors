@@ -39,7 +39,7 @@ std::vector<std::string> HkyOverlay::Paths() const {
     for (const auto& f : m_doc->Files()) {
         const std::string key = PathKey(f);
         if (key.find('/') == std::string::npos || key.starts_with("animationnames/")) continue;
-        /// @note A unit's own files (`<unit>.hkx/graph.yaml`, its node folders) are the unit, listed above.
+        /// @note A unit's own files (`<unit>.hkx/graph.yaml`, its node files) are the unit, listed above.
         bool inUnit = false;
         for (std::size_t at = key.find(".hkx/"); at != std::string::npos && !inUnit; at = key.find(".hkx/", at + 1))
             inUnit = units.count(key.substr(0, at + 4)) != 0;

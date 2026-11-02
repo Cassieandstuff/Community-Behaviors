@@ -42,6 +42,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <random>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -226,6 +227,113 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     return 0;
 }
 
+/// @brief `shuffle-check`: every graph unit of a .hky (or the one named) read from the archive, then with its files scattered
+///        through random folders and names, on disk and packed; all three must serialize to the same bytes.
+/// @note  A unit whose bones need a rig takes its character's, else the humanoid one; a unit readable with neither is reported and
+///        counted, not this check's subject.
+int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, const std::string& workDir, const std::string& onlyUnit) {
+    if (hkyPath.empty() || schemaDir.empty() || workDir.empty()) {
+        std::printf("usage: hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n");
+        return 2;
+    }
+    namespace dc = CB::engine::decompile;
+    namespace fs = std::filesystem;
+    using CB::engine::codec::HkyArchive;
+    using CB::engine::codec::resource::PathKey;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    std::string err;
+    const auto  arc = HkyArchive::LoadFromFile(hkyPath, err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    std::vector<std::string> humanoid;
+    {
+        const std::string rig = "meshes/actors/character/character assets/skeleton.hkx";
+        if (const auto src = arc->source(rig))
+            if (auto names = dc::ReadSkeletonBones(*src, *reg, rig)) humanoid = std::move(*names);
+    }
+    const auto bytesOf = [&](const CB::engine::common::IUnitSource& src, const std::string& unit, const std::vector<std::string>* bones,
+                             std::vector<std::uint8_t>& out, std::string& why) {
+        dc::ParsedHky graph;
+        return dc::ParseHkyReflective(src, *reg, graph, why, bones, unit) && dc::SerializeGraph(graph, out, why);
+    };
+    std::vector<HkyArchive::Unit> units;
+    for (const auto& u : arc->units())
+        if (onlyUnit.empty() || PathKey(u.prefix) == PathKey(onlyUnit)) units.push_back(u);
+    std::atomic<std::size_t> same{ 0 }, skipped{ 0 }, nodeFiles{ 0 };
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
+    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+        try {
+            const std::string& unit = units[i].prefix;
+            const auto src = arc->source(unit);
+            if (!src) return fail(unit + ": no source");
+            std::vector<std::uint8_t> canon;
+            std::string why;
+            const std::vector<std::string>* bones = nullptr;
+            std::vector<std::string> own;
+            if (!bytesOf(*src, unit, nullptr, canon, why)) {
+                canon.clear();
+                const std::string key = PathKey(unit);
+                const auto cs = dc::ReadCharacterStrings(*src);
+                if (const auto at = key.rfind("/characters/"); cs && !cs->rigName.empty() && at != std::string::npos) {
+                    std::string rig = cs->rigName;
+                    std::replace(rig.begin(), rig.end(), '\\', '/');
+                    rig = key.substr(0, at + 1) + PathKey(rig);
+                    if (const auto rigSrc = arc->source(rig))
+                        if (auto names = dc::ReadSkeletonBones(*rigSrc, *reg, rig)) own = std::move(*names);
+                }
+                bones = own.empty() ? &humanoid : &own;
+                if (!bytesOf(*src, unit, bones, canon, why)) {
+                    std::printf("skip %s: %s\n", unit.c_str(), why.c_str());
+                    ++skipped;
+                    return;
+                }
+            }
+            std::mt19937 rng(static_cast<std::uint32_t>(i) ^ 0xCB);
+            static const char* const kFolders[] = { "Combat", "combat2", "A", "Group With Spaces", "x.y", "Deep", "0000x0003", "bones", "states" };
+            const fs::path dir = fs::path(workDir) / std::to_string(i);
+            std::error_code ec;
+            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+            std::vector<HkyArchive::PackEntry> entries;
+            int n = 0;
+            for (const std::string& rel : src->listYaml("", true)) {
+                auto text = src->read(rel);
+                if (!text) return fail(unit + ": " + rel + " unreadable");
+                std::string path;
+                if (PathKey(rel) == "graph.yaml") path = rel;
+                else {
+                    for (int d = static_cast<int>(rng() % 7); d > 0; --d) path += std::string(kFolders[rng() % std::size(kFolders)]) + "/";
+                    path += "f" + std::to_string(n++) + ".yaml";
+                }
+                if (!CB::engine::disk::WriteFile(dir / "u" / path, *text, {}, &why)) return fail(unit + ": " + why);
+                entries.push_back({ "meshes/u.hkx/" + path, [body = std::move(*text)]() -> std::optional<std::string> { return body; } });
+            }
+            nodeFiles += entries.size();
+            std::vector<std::uint8_t> got;
+            if (!bytesOf(CB::engine::common::DiskUnitSource(dir / "u"), unit, bones, got, why)) return fail(unit + ": disk: " + why);
+            if (got != canon) return fail(unit + ": shuffled on disk, the bytes differ");
+            const std::string hky = (dir / "u.hky").string();
+            if (!HkyArchive::PackEntries(std::move(entries), hky, why)) return fail(unit + ": pack: " + why);
+            const auto packed = HkyArchive::LoadFromFile(hky, why);
+            const auto zipped = packed ? packed->source("meshes/u.hkx") : nullptr;
+            if (!zipped) return fail(unit + ": zip: " + why);
+            got.clear();
+            if (!bytesOf(*zipped, unit, bones, got, why)) return fail(unit + ": zip: " + why);
+            if (got != canon) return fail(unit + ": shuffled in a zip, the bytes differ");
+            ++same;
+            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+        } catch (const std::exception& e) {
+            fail(units[i].prefix + ": " + e.what());
+        }
+    });
+    for (const auto& f : failures) std::printf("FAIL %s\n", f.c_str());
+    std::printf("shuffle-check: %zu/%zu unit(s) identical from archive, disk and zip (%zu files scattered), %zu skipped, %zu failed\n",
+                same.load(), units.size(), nodeFiles.load(), skipped.load(), failures.size());
+    return failures.empty() ? 0 : 1;
+}
+
 /// @brief `origins-check`: every graph unit of a .hky (or the one named) serialized with its object origins
 ///        (SerializeGraph); each origin's offset and class must be exactly what a loader reads from the packfile's
 ///        virtual fixups, one per object, and every file node (a unit file with an id) must carry its FormID.
@@ -269,10 +377,8 @@ int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, con
             if (listed[i].first != sorted[i].offset || listed[i].second != sorted[i].className)
                 why = "object " + std::to_string(i) + ": packfile " + listed[i].second + " @" + std::to_string(listed[i].first) + ", origin " +
                       sorted[i].className + " @" + std::to_string(sorted[i].offset);
-        // Every file node (a category folder, or the root container) has a FormID; an inline object has none.
-        std::size_t nodes = 0;
-        for (const auto& [obj, cat] : graph.identity.category)
-            if (!cat.empty() || std::string(obj->ClassName()) == "hkRootLevelContainer") ++nodes;
+        // Every file node has a FormID; an inline object has none.
+        const std::size_t nodes = graph.identity.nodes.size();
         std::size_t named = 0, orphans = 0;
         for (const auto& o : origins) {
             named += o.formId.empty() ? 0 : 1;
@@ -700,6 +806,7 @@ void usage() {
                 "  hky-tool embedded-roundtrip <in.hky> <schemaDir>\n"
                 "  hky-tool anim-reformat <unpackedDir> <schemaDir>\n"
                 "  hky-tool origins-check <in.hky> <schemaDir> [unit]\n"
+                "  hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n"
                 "  hky-tool loadorder  <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
@@ -734,6 +841,7 @@ int main(int argc, char** argv) {
     if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
     if (verb == "embedded-roundtrip") return doEmbeddedRoundTrip(arg, arg2);
     if (verb == "origins-check") return doOriginsCheck(arg, arg2, arg3);
+    if (verb == "shuffle-check") return doShuffleCheck(arg, arg2, out, arg3);
     if (verb == "mm-sample")   return doMmSample(arg, out);
     if (verb == "anim-reformat") return doAnimReformat(arg, arg2);
     usage();

@@ -27,10 +27,9 @@ std::shared_ptr<SchemaObject> make(const schema::SchemaRegistry& reg, const std:
     return o;
 }
 
-/// @brief Own `o` in `hky` as an inline object (category "", as a parse leaves every inline object).
+/// @brief Own `o` in `hky` as an inline object (not a node, as a parse leaves every inline object).
 void adopt(decompile::ParsedHky& hky, const std::shared_ptr<SchemaObject>& o) {
     hky.objects.push_back(o);
-    hky.identity.category[o.get()] = "";
     hky.identity.ids[o.get()]      = "~rule" + std::to_string(hky.objects.size());
 }
 

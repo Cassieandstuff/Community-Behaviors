@@ -15,8 +15,8 @@ fields:
   - { name: frameDuration,    type: float }
   - { name: compression,      type: struct, ref: CBAnimationCompression }
   - { pad: 8 }
-  - { name: tracks,           type: structarray, ref: CBAnimationTrack }
-  - { name: floatTracks,      type: structarray, ref: CBAnimationFloatTrack }
+  - { name: tracks,           type: structarray, ref: CBAnimationTrack, roster: whole }
+  - { name: floatTracks,      type: structarray, ref: CBAnimationFloatTrack, roster: whole }
   - { name: motion,           type: struct, ref: CBAnimationMotion }
   - { name: curves,           type: structarray, ref: CBAnimationCurve, roster: field:name }
   - { name: motionTarget,     type: int8, enum: AnimationMotionTarget }

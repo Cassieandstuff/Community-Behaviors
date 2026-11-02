@@ -390,6 +390,28 @@ std::vector<mm::MmDatabase> DatabasesByFolder(const Json& list, const std::vecto
     return dbs;
 }
 
+/// @brief Each clip's searched range from a `ranges` object {"<clip path>": [startSeconds, endSeconds]} (end <= 0 = the
+///        clip's end), the clip named by path identity; a clip not named stays whole.
+/// @throws std::runtime_error on a malformed entry or a path no database holds.
+void ApplyRanges(const Json& ranges, std::vector<mm::MmDatabase>& dbs) {
+    using CB::engine::codec::resource::PathKey;
+    if (!ranges.is_object()) throw std::runtime_error("'ranges' is not an object");
+    for (const auto& [path, r] : ranges.items()) {
+        if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number())
+            throw std::runtime_error("range of '" + path + "' is not [start, end]");
+        const auto key   = PathKey(path);
+        bool       found = false;
+        for (auto& db : dbs)
+            for (auto& c : db.clips)
+                if (PathKey(c.path) == key) {
+                    c.rangeStart = r[0].get<float>();
+                    c.rangeEnd   = r[1].get<float>();
+                    found        = true;
+                }
+        if (!found) throw std::runtime_error("range of '" + path + "': no database holds that clip");
+    }
+}
+
 /// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a selector (`rootClass`) over one clip per
 ///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
 ///        `timeVariable` (only the selected child plays, so one shared time is safe).
@@ -407,6 +429,7 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
         mm::MmBundleSpec spec;
         spec.rosterRoot   = j["rosterRoot"].get<std::string>();
         spec.databases    = DatabasesByFolder(j["databases"], clips);
+        if (j.contains("ranges")) ApplyRanges(j["ranges"], spec.databases);
         spec.unitPath     = out;
         spec.selectorName = selector;
         spec.clipVariable = clipVar;
@@ -418,7 +441,8 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
     }
     if (rootClass != "hkbManualSelectorGenerator")
         throw std::runtime_error("'rootClass' " + rootClass + " is neither hkbManualSelectorGenerator nor CBPoseSearchGenerator");
-    if (j.contains("databases")) throw std::runtime_error("'databases' are a CBPoseSearchGenerator's");
+    if (j.contains("databases") || j.contains("ranges"))
+        throw std::runtime_error("'databases' and 'ranges' are a CBPoseSearchGenerator's");
     if (clips.size() > 128)
         throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (128)");
     const auto slash = out.rfind('/');
@@ -436,28 +460,24 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
         "          " + Quote(timeVar) + ": {type: VARIABLE_TYPE_REAL, value: 0}\n"
         "        characterProperties: {}\n        events: {}\n        attributes: {}\n");
 
-    const std::string sel = out + "/selectors/" + OwnId(2) + "/";
-    files.emplace_back(sel + OwnId(2) + ".yaml",
-        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
-        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
     std::string children;
     for (std::size_t i = 0; i < clips.size(); ++i)
-        children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
-    files.emplace_back(sel + "generators.yaml", children);
-    files.emplace_back(sel + "variableBindingSet.bindings.yaml",
-        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
-        "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
+        children += "  " + Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
+    files.emplace_back(out + "/" + OwnId(2) + ".yaml",
+        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+        "    'selectedGeneratorIndex':\n      variableIndex: 0\n      variable: " + Quote(clipVar) +
+        "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\n"
+        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\ngenerators:\n" + children);
 
     for (std::size_t i = 0; i < clips.size(); ++i) {
-        const std::string id = OwnId(static_cast<unsigned>(i + 3)), dir = out + "/clips/" + id + "/";
-        files.emplace_back(dir + id + ".yaml",
-            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\nuserData: 0\n"
+        const std::string id = OwnId(static_cast<unsigned>(i + 3));
+        files.emplace_back(out + "/" + id + ".yaml",
+            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n  bindings:\n"
+            "    'userControlledTimeFraction':\n      variableIndex: 1\n      variable: " + Quote(timeVar) +
+            "\n      bitIndex: -1\n      bindingType: BINDING_TYPE_VARIABLE\nuserData: 0\n"
             "name: " + Quote(clips[i].stem) + "\nanimationName: " + Quote(clips[i].roster) + "\n"
             "cropStartAmountLocalTime: 0\ncropEndAmountLocalTime: 0\nstartTime: 0\nplaybackSpeed: 1\nenforcedDuration: 0\n"
             "userControlledTimeFraction: 0\nanimationBindingIndex: user\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
-        files.emplace_back(dir + "variableBindingSet.bindings.yaml",
-            "'userControlledTimeFraction':\n  variableIndex: 1\n  variable: " + Quote(timeVar) +
-            "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
     }
     return files;
 }
@@ -544,6 +564,7 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
     if (kind == "clipSelectorBehavior") {
         Json named = params;
         named.erase("databases");
+        named.erase("ranges");
         ExpectKeys(named, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" });
     } else if (kind == "rosterPatch") {
         ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });

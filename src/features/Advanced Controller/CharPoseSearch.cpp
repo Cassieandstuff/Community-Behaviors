@@ -141,9 +141,8 @@ namespace CB::feature::controller::motion {
 
     PoseSearchGenerator::PoseSearchGenerator(hk::hkFinishLoadedObjectFlag flag)
     :   hkbGenerator(flag),
-        m_generators(flag),
-        m_databases(flag),
-        m_childFlags(flag)
+        m_children(flag),
+        m_databases(flag)
     {
         m_currentIndex = 0;
     }
@@ -154,14 +153,14 @@ namespace CB::feature::controller::motion {
         m_currentIndex(0),
         m_chooser(nullptr)
     {
-        m_generators = other.m_generators;
-        for (int i = 0; i < m_generators.getSize(); i++) m_generators[i]->addReference();
+        m_children = other.m_children;
+        for (int i = 0; i < m_children.getSize(); i++) m_children[i].m_generator->addReference();
     }
 
     PoseSearchGenerator::~PoseSearchGenerator()
     {
-        for (int i = 0; i < m_generators.getSize(); i++)
-            if (m_generators[i]) m_generators[i]->removeReference();
+        for (int i = 0; i < m_children.getSize(); i++)
+            if (m_children[i].m_generator) m_children[i].m_generator->removeReference();
     }
 
     const void* PoseSearchGenerator::getClassType() const
@@ -184,7 +183,7 @@ namespace CB::feature::controller::motion {
         }
         const int previous = m_currentIndex;
         m_currentIndex     = computeCurrentIndex();
-        if (previous != m_currentIndex && m_generators[previous] != m_generators[m_currentIndex]) {
+        if (previous != m_currentIndex && m_children[previous].m_generator != m_children[m_currentIndex].m_generator) {
             hk::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
             rootBehavior->m_updateActiveNodes  = true;
         }
@@ -192,7 +191,7 @@ namespace CB::feature::controller::motion {
 
     int PoseSearchGenerator::getMaxNumChildren(GetChildrenFlags flags)
     {
-        return m_generators.getSize();
+        return m_children.getSize();
     }
 
     /// @note Every child stays active, so a switch activates and deactivates nothing: a clip requests its animation on
@@ -201,10 +200,10 @@ namespace CB::feature::controller::motion {
     ///       the rest skip generate and events, as hkbGeneratorTransitionEffect keeps its to-generator warm.
     void PoseSearchGenerator::getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo)
     {
-        const int n = m_generators.getSize();
+        const int n = m_children.getSize();
         childrenInfo.m_childInfos.setSize(n);
         if (!(flags & FLAG_ACTIVE_ONLY)) {
-            for (int i = 0; i < n; i++) childrenInfo.m_childInfos[i].m_node = m_generators[i];
+            for (int i = 0; i < n; i++) childrenInfo.m_childInfos[i].m_node = m_children[i].m_generator;
             return;
         }
         childrenInfo.m_anyIgnoreEvents = true;
@@ -212,7 +211,7 @@ namespace CB::feature::controller::motion {
         int        slot = 0;
         const auto put  = [&](int i, bool playing) {
             ChildInfo& ci     = childrenInfo.m_childInfos[slot++];
-            ci.m_node         = m_generators[i];
+            ci.m_node         = m_children[i].m_generator;
             ci.m_ignoreEvents = !playing;
             ci.m_reactivate   = false;
             ci.m_isActive     = false;
@@ -225,13 +224,13 @@ namespace CB::feature::controller::motion {
 
     bool PoseSearchGenerator::isValid(hk::hkStringPtr& errorString) const
     {
-        const int n = m_generators.getSize();
+        const int n = m_children.getSize();
         if (n == 0) {
             errorString = "You must have at least one child generator.";
             return false;
         }
         for (int i = 0; i < n; i++) {
-            if (m_generators[i] == HK_NULL) {
+            if (m_children[i].m_generator == HK_NULL) {
                 errorString = "At least one of the child generators is null.";
                 return false;
             }
@@ -337,7 +336,7 @@ namespace CB::feature::controller::motion {
     void PoseSearchGenerator::updateSync(const hk::hkbContext& context, hk::hkbNodeInfo& info)
     {
         hk::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
-        const hk::hkbNode*    child        = m_generators[m_currentIndex];
+        const hk::hkbNode*    child        = m_children[m_currentIndex].m_generator;
         if (child->m_cloneState == CLONE_STATE_CLONE) child = rootBehavior->getNodeTemplate(child);
         const int index   = rootBehavior->m_activeNodeTemplateToIndexMap->getWithDefault(child, 0);
         info.m_isProxy    = true;
@@ -346,7 +345,7 @@ namespace CB::feature::controller::motion {
 
     int PoseSearchGenerator::computeCurrentIndex() const
     {
-        const int last = m_generators.getSize() - 1;
+        const int last = m_children.getSize() - 1;
         if (m_selectedIndex < 0) return 0;
         return m_selectedIndex > last ? last : m_selectedIndex;
     }

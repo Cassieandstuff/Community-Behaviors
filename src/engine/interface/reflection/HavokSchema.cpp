@@ -236,6 +236,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneOf   = childStr(fn, "boneof");
                     f.charPropIf = childStr(fn, "charpropif");
                     f.roster     = childStr(fn, "roster");
+                    if (f.roster == "whole") { f.whole = true; f.roster.clear(); }
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky
@@ -536,17 +537,52 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         }
     }
 
+    /// @note Every list states how it merges, so none is a last-writer-wins value by accident: a `roster:` key, `roster: whole`,
+    ///       a per-bone form (`boneweights:`, `boneset:`), or `union` in the merge semantics. A key kind is checked against the
+    ///       element it reads. An ignored field never merges, and metadata records are never patched.
+    {
+        const auto isList = [](FieldKind k) {
+            return k == FieldKind::StructArray || k == FieldKind::PtrArray || k == FieldKind::Vec4Array ||
+                   k == FieldKind::QsTransformArray || k == FieldKind::StringArray || k == FieldKind::ScalarArray;
+        };
+        for (const auto& [name, cs] : m_byName) {
+            if (cs.metadata) continue;
+            for (const Field& f : cs.fields) {
+                const std::string where = "class '" + name + "' field '" + f.name + "'";
+                if (!f.roster.empty()) {
+                    const std::string kind = f.roster.substr(0, f.roster.find(':'));
+                    const bool objects = f.kind == FieldKind::StructArray || f.kind == FieldKind::PtrArray;
+                    const bool known = kind == "value" ? f.roster == kind
+                                     : kind == "field" || kind == "bone" ? f.roster.size() > kind.size() + 1
+                                     : (kind == "ref" || kind == "id" || kind == "slot") && f.roster == kind;
+                    if (!known) { err = where + ": unknown roster '" + f.roster + "'"; return false; }
+                    if (kind == "value" ? f.kind != FieldKind::StringArray : !objects) {
+                        err = where + ": roster '" + f.roster + "' does not fit this field's type";
+                        return false;
+                    }
+                    continue;
+                }
+                if (!isList(f.kind) || f.ignored || f.whole || f.boneWeights || f.boneSet || f.merge == "union") continue;
+                err = where + ": a list must declare how it merges (roster: <key> or roster: whole)";
+                return false;
+            }
+        }
+    }
+
     /// @note A `view:` is checked against the views editors know, each role naming one of the class's own fields, so a
     ///       misspelt role or field fails here instead of drawing nothing; an embedded kind must name a loaded class.
     {
         static const std::map<std::string, std::vector<std::string>> kViewRoles{
             { "curve", { "keys", "label" } },
             { "curvekey", { "time", "value", "interp" } },
+            { "clipset", { "children", "groups" } },
+            { "clipchild", { "clip", "group", "start", "end" } },
+            { "clipgroup", { "label" } },
         };
         for (const auto& [name, cs] : m_byName) {
             if (cs.view.kind.empty()) continue;
             const auto known = kViewRoles.find(cs.view.kind);
-            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey)"; return false; }
+            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey, clipset, clipchild, clipgroup)"; return false; }
             for (const auto& role : known->second)
                 if (!cs.view.roles.count(role)) { err = "class '" + name + "': view '" + cs.view.kind + "' has no '" + role + "'"; return false; }
             for (const auto& [role, field] : cs.view.roles) {

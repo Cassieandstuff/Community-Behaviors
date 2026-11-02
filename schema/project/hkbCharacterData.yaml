@@ -9,8 +9,8 @@ fields:
   - { name: modelUpMS,      type: vector4 }
   - { name: modelForwardMS, type: vector4 }
   - { name: modelRightMS,   type: vector4 }
-  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo }
-  - { name: numBonesPerLod,          type: scalararray, scalar: int32 }
+  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo, roster: whole }
+  - { name: numBonesPerLod,          type: scalararray, scalar: int32, roster: whole }
   - { name: characterPropertyValues, type: ptr, ref: hkbVariableValueSet }
   - { name: footIkDriverInfo,        type: ptr, ref: hkbFootIkDriverInfo }
   - { name: handIkDriverInfo,        type: ptr, ref: hkbHandIkDriverInfo }

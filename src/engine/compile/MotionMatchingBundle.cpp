@@ -143,15 +143,12 @@ namespace CB::engine::compile {
             selector->Str("name")                     = spec.selectorName;
             selector->FieldRef("variableBindingSet").obj = Binding(edit, "selectedIndex", clipIndex);
 
-            auto& children = selector->FieldRef("generators").objs;
+            auto& children = selector->FieldRef("children").objs;
             auto& dbs      = selector->FieldRef("databases").objs;
-            std::vector<std::uint8_t> flags;
             const long userControlled = EnumValue("PlaybackMode", "MODE_USER_CONTROLLED");
             for (const auto& db : spec.databases) {
                 auto d = Make(edit, "CBPoseSearchDatabase");
                 d->Str("name") = db.name;
-                d->SetInt("firstChild", static_cast<std::int64_t>(children.size()));
-                d->SetInt("numChildren", static_cast<std::int64_t>(db.clips.size()));
                 d->Str("baseCostBias")           = db.baseCostBias;
                 d->Str("continuingPoseCostBias") = db.continuingPoseCostBias;
                 d->Str("loopingCostBias")        = db.loopingCostBias;
@@ -168,11 +165,16 @@ namespace CB::engine::compile {
                     clip->SetInt("animationBindingIndex", -1);
                     clip->SetInt("mode", userControlled);
                     clip->FieldRef("variableBindingSet").obj = Binding(edit, "userControlledTimeFraction", timeIndex);
-                    children.push_back(clip);
-                    flags.push_back(c.flags);
+                    auto row = Make(edit, "CBPoseSearchChild");
+                    row->FieldRef("generator").obj = clip;
+                    row->Str("database")           = db.name;
+                    row->SetFloat("rangeStart", c.rangeStart);
+                    row->SetFloat("rangeEnd", (std::max)(c.rangeEnd, 0.0f));
+                    row->SetBool("disableReselection", (c.flags & kMmDisableReselection) != 0);
+                    row->SetBool("looping", (c.flags & kMmLooping) != 0);
+                    children.push_back(row);
                 }
             }
-            selector->SetArray<std::uint8_t>("childFlags", flags);
 
             auto chooser = Make(edit, "CBPoseSearchChooser");
             for (const auto& r : spec.rows) {

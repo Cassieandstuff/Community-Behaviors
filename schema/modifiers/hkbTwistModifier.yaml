@@ -11,5 +11,5 @@ fields:
   - { name: rotationAxisCoordinates, type: int8, enum: RotationAxisCoordinates }
   - { name: isAdditive,              type: bool }
   - { skip: 5 }
-  - { name: boneChainIndices,  type: scalararray, scalar: int16, bonelist: true }
-  - { name: parentBoneIndices, type: scalararray, scalar: int16, bonelist: true }
+  - { name: boneChainIndices,  type: scalararray, scalar: int16, bonelist: true, roster: whole }
+  - { name: parentBoneIndices, type: scalararray, scalar: int16, bonelist: true, roster: whole }

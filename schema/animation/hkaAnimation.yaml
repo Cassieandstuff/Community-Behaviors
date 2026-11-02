@@ -10,4 +10,4 @@ fields:
   - { name: numberOfTransformTracks, type: int32 }
   - { name: numberOfFloatTracks,     type: int32 }
   - { name: extractedMotion,         type: ptr, ref: hkaDefaultAnimatedReferenceFrame }
-  - { name: annotationTracks,        type: structarray, ref: hkaAnnotationTrack }
+  - { name: annotationTracks,        type: structarray, ref: hkaAnnotationTrack, roster: whole }

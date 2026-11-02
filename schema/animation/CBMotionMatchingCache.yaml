@@ -7,5 +7,5 @@ size:      56
 fields:
   - { name: featureDims, type: int32 }
   - { pad: 8 }
-  - { name: horizons,    type: scalararray, scalar: float }
+  - { name: horizons,    type: scalararray, scalar: float, roster: whole }
   - { name: clips,       type: structarray, ref: CBMotionClip, roster: field:name }

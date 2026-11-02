@@ -6,4 +6,4 @@ size:      24
 # does not compile never does.
 fields:
   - { name: when,      type: string }
-  - { name: databases, type: stringarray }
+  - { name: databases, type: stringarray, roster: value }

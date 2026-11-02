@@ -14,13 +14,13 @@ fields:
   - { name: sceneLength,      type: float }
   - { name: numFrames,        type: uint32 }
   - { name: rootNode,         type: ptr, ref: hkxNode }              # the control-rig node tree
-  - { name: selectionSets,    type: ptrarray, ref: hkReferencedObject }
-  - { name: cameras,          type: ptrarray, ref: hkReferencedObject }
-  - { name: lights,           type: ptrarray, ref: hkReferencedObject }
-  - { name: meshes,           type: ptrarray, ref: hkReferencedObject }
-  - { name: materials,        type: ptrarray, ref: hkReferencedObject }
-  - { name: inplaceTextures,  type: ptrarray, ref: hkReferencedObject }
-  - { name: externalTextures, type: ptrarray, ref: hkReferencedObject }
-  - { name: skinBindings,     type: ptrarray, ref: hkReferencedObject }
-  - { name: splines,          type: ptrarray, ref: hkReferencedObject }
+  - { name: selectionSets,    type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: cameras,          type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: lights,           type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: meshes,           type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: materials,        type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: inplaceTextures,  type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: externalTextures, type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: skinBindings,     type: ptrarray, ref: hkReferencedObject, roster: whole }
+  - { name: splines,          type: ptrarray, ref: hkReferencedObject, roster: whole }
   - { name: appliedTransform, type: vector4, count: 3 }              # hkMatrix3 (48B)

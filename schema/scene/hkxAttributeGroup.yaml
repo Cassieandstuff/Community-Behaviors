@@ -5,4 +5,4 @@ size:      24
 # Inline element of hkxAttributeHolder::m_attributeGroups. No signature (value type).
 fields:
   - { name: name,       type: string }
-  - { name: attributes, type: structarray, ref: hkxAttribute }
+  - { name: attributes, type: structarray, ref: hkxAttribute, roster: whole }

@@ -11,7 +11,7 @@
 // or in a packed .hky (ZipUnitSource) without the reader knowing which.
 //
 // A "unit-relative path" is the path of a file inside the unit, forward-slashed, e.g. "graph.yaml",
-// "states/0000x0001.yaml", "states/0000x0001/transitions.yaml".
+// "0000x0001.yaml", "Combat/Locomotion/0000x0002.yaml". Below graph.yaml a path means nothing to the reader.
 
 namespace CB::engine::common {
 
@@ -35,10 +35,10 @@ struct IUnitSource {
     virtual std::optional<std::string> read(const std::string& rel) const = 0;
 
     // List unit-relative paths of *.yaml files directly under `subdir` (or the
-    // whole subtree when `recursive`), e.g. listYaml("states", false) ->
-    // {"states/1.yaml", ...}. Empty if the subdir is absent. Ordering matches the
+    // whole subtree when `recursive`), e.g. listYaml("Combat", false) ->
+    // {"Combat/1.yaml", ...}. Empty if the subdir is absent. Ordering matches the
     // backend's native enumeration (for DiskUnitSource, std::filesystem's
-    // directory_iterator order — the loader groups nodes in first-seen order).
+    // directory_iterator order); the reader orders files by identity, so it never matters.
     virtual std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const = 0;
 
     // True if `subdir` exists as a directory/prefix.

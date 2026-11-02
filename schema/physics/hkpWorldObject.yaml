@@ -9,5 +9,5 @@ fields:
   - { name: multiThreadCheck, type: struct, ref: hkMultiThreadCheck } # @160 (12B)
   - { skip: 4 }                                     # pad -> 176
   - { name: name,           type: string }          # @176
-  - { name: properties,     type: structarray, ref: hkpProperty }     # @184
+  - { name: properties,     type: structarray, ref: hkpProperty, roster: whole }     # @184
   - { empty: ptr }                                  # @200 m_treeData (IGNORED)
