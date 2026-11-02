@@ -3,6 +3,11 @@
 #include "Camera.h"
 #include "CameraRig.h"
 
+#include "features/Advanced Controller/CharSweep.h"
+
+#include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
+#include <Physics/Collide/Shape/hkpShape.h>
+#include <core/debug/Settings.h>
 #include <platform/game/Camera.h>
 #include <platform/hooks/CallSite.h>
 #include <platform/hooks/VirtualSlot.h>
@@ -10,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <mutex>
 #include <utility>
@@ -143,6 +149,8 @@ namespace CB::feature::camera {
                 p.orientation.speed = IniFloat("fFreeRotationSpeed:Camera", 3.0f);
                 p.boom.minDistance  = IniFloat("fVanityModeMinDist:Camera", 155.0f);
                 p.boom.maxDistance  = IniFloat("fVanityModeMaxDist:Camera", 600.0f);
+                p.collision.passThin = !core::debug::FlagOn("camera_collide_thin");
+                p.probes.enabled     = !core::debug::FlagOn("camera_no_probes");
                 LOG_INFO("camera: profile '{}' - look rate {:.2f}, boom {:.0f}..{:.0f}, anchor lag xy {:.2f} s / z {:.2f} s, collision radius {:.0f}",
                          p.name, p.orientation.speed, p.boom.minDistance, p.boom.maxDistance, p.anchor.halflifeXY, p.anchor.halflifeZ,
                          p.collision.radius);
@@ -185,29 +193,95 @@ namespace CB::feature::camera {
         struct Cast {
             float clear = 1.0f;  ///< the share of the ray that is clear (1 = nothing hit)
             int   layer = -1;    ///< the hit's collision layer (COL_LAYER), -1 without a hit
+            bool  thin  = false; ///< the hit is a thin object
         };
 
-        /// @note On the camera-sphere layer and in the player's own system group, which the collision filter keeps
-        ///       from colliding with itself: the ray starts at eye height on the shoulder, at the top of the player's
-        ///       capsule, so the player must not be something it can hit.
-        Cast CastBoom(RE::PlayerCharacter* player, rig::Vec3 from, rig::Vec3 to)
+        namespace hk = CB::havok;
+
+        constexpr std::uint64_t LayerBit(RE::COL_LAYER layer) { return 1ull << static_cast<unsigned>(layer); }
+
+        /// @brief Layers the camera passes through: bodies and what they drop. Vanilla's caster skips the living ones
+        ///        (0x14054f720) and stops on debris, weapons and corpses; CB's does not.
+        constexpr std::uint64_t kPassLayers = LayerBit(RE::COL_LAYER::kCharController) | LayerBit(RE::COL_LAYER::kBiped) |
+                                              LayerBit(RE::COL_LAYER::kBipedNoCC) | LayerBit(RE::COL_LAYER::kDeadBip) |
+                                              LayerBit(RE::COL_LAYER::kWeapon) | LayerBit(RE::COL_LAYER::kDebrisSmall) |
+                                              LayerBit(RE::COL_LAYER::kDebrisLarge) | LayerBit(RE::COL_LAYER::kShellCasting) |
+                                              LayerBit(RE::COL_LAYER::kCollisionBox);
+
+        /// @note The trees layer, or bounds whose second-largest extent is small: a pole or a railing qualifies, a wall
+        ///       (long and tall) does not however thin it is. World AABBs overestimate a tilted object, which then stays
+        ///       solid: the safe side. The shape's getAabb is vtable slot 7 (see CharGround.cpp).
+        bool IsThin(const hk::hkpCollidable* body, float widthHavok)
         {
-            auto* cell  = player->GetParentCell();
-            auto* world = cell ? cell->GetbhkWorld() : nullptr;
-            if (!world) return {};
-            RE::CFilter own;
-            player->GetCollisionFilterInfo(own);
-            const float     s = RE::bhkWorld::GetWorldScale();
-            RE::bhkPickData pick;
-            pick.rayInput.from = RE::hkVector4(from.x * s, from.y * s, from.z * s, 0.0f);
-            pick.rayInput.to   = RE::hkVector4(to.x * s, to.y * s, to.z * s, 0.0f);
-            pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kCameraSphere);
-            pick.rayInput.filterInfo.SetSystemGroup(own.GetSystemGroup());
-            world->PickObject(pick);
-            if (!pick.rayOutput.HasHit()) return {};
-            return { std::clamp(pick.rayOutput.hitFraction, 0.0f, 1.0f),
-                     pick.rayOutput.rootCollidable ? static_cast<int>(pick.rayOutput.rootCollidable->GetCollisionLayer()) : -1 };
+            const unsigned layer = body->getCollisionFilterInfo() & 0x7f;
+            if (layer == static_cast<unsigned>(RE::COL_LAYER::kTrees)) return true;
+            if (layer == static_cast<unsigned>(RE::COL_LAYER::kTerrain) || layer == static_cast<unsigned>(RE::COL_LAYER::kGround)) return false;
+            const hk::hkpShape* shape = body->getShape();
+            if (!shape || !body->m_motion) return false;
+            hk::hkAabb aabb;
+            using Fn      = void (*)(const hk::hkpShape*, const hk::hkTransform&, float, hk::hkAabb&);
+            const auto fn = reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(shape))[7]);
+            fn(shape, body->getTransform(), 0.0f, aabb);
+            float e[3] = { aabb.m_max(0) - aabb.m_min(0), aabb.m_max(1) - aabb.m_min(1), aabb.m_max(2) - aabb.m_min(2) };
+            std::sort(e, e + 3);
+            return e[1] < widthHavok;
         }
+
+        struct ThinFilter {
+            float widthHavok  = 0.0f;
+            float thinFrom    = 1.0f;  ///< a thin hit counts only between these shares of the path: where the eye sits
+            float thinTo      = 0.0f;
+            bool  sawThinBest = false;
+        };
+
+        /// @note A thin hit counts only where the eye would sit in it.
+        bool AcceptHit(void* user, const hk::hkpCollidable* body, float fraction)
+        {
+            auto&      f    = *static_cast<ThinFilter*>(user);
+            const bool thin = body && IsThin(body, f.widthHavok);
+            if (thin && (fraction < f.thinFrom || fraction > f.thinTo)) return false;
+            f.sawThinBest = thin;
+            return true;
+        }
+
+        /// @brief Sweeps vanilla's camera sphere (PlayerCamera+0x120's phantom) from `from` to `to`, without moving it.
+        /// @note Vanilla sets the sphere's radius on this same chain before each cast (0x14054f720), so writing it here
+        ///       is safe: ApplyCameraCaster sets its own again.
+        /// @param thinFrom,thinTo the shares of the path where a thin object counts; the defaults never.
+        Cast SweepBoom(RE::PlayerCharacter* player, RE::PlayerCamera* camera, const rig::CollisionParams& p, float radius, rig::Vec3 from, rig::Vec3 to,
+                       float thinFrom = 1.0f, float thinTo = 0.0f)
+        {
+            auto* cell   = player->GetParentCell();
+            auto* world  = cell ? cell->GetbhkWorld() : nullptr;
+            auto* caster = camera->GetRuntimeData().unk120;
+            auto* bhk    = caster ? caster->unk00.get() : nullptr;
+            /// @note bhkRefObject's referenced Havok object, +0x10 (0x14054f720 reads it so).
+            auto* object = bhk ? *reinterpret_cast<void* const*>(reinterpret_cast<const std::uint8_t*>(bhk) + 0x10) : nullptr;
+            if (!world || !object) return {};
+            const float s      = RE::bhkWorld::GetWorldScale();
+            const float length = rig::Length(to - from);
+            if (length <= 1.0e-3f) return {};
+            const auto* collidable = reinterpret_cast<const hk::hkpCollidable*>(reinterpret_cast<const std::uint8_t*>(object) + 0x20);
+            const auto* wrapper    = reinterpret_cast<const std::uint8_t*>(collidable->getShape());
+            const auto* child      = wrapper ? *reinterpret_cast<const std::uint8_t* const*>(wrapper + 0x10) : nullptr;
+            auto*       sphere     = child ? *reinterpret_cast<std::uint8_t* const*>(child + 0x10) : nullptr;
+            if (!sphere) return {};
+            *reinterpret_cast<float*>(sphere + 0x20) = radius * s;
+
+            ThinFilter filter{ p.thinWidth * s, thinFrom, thinTo };
+            const controller::HitFilter hitFilter{ &AcceptHit, &filter };
+            hk::hkVector4 start, end;
+            start.set(from.x * s, from.y * s, from.z * s, 0.0f);
+            end.set(to.x * s, to.y * s, to.z * s, 0.0f);
+            const controller::SweepHit hit = controller::SweepFrom(reinterpret_cast<hk::bhkWorld*>(world), collidable, start, end, 0.0f, 2.0f,
+                                                                   kPassLayers, p.passThin ? &hitFilter : nullptr);
+            if (!hit.hit) return {};
+            return { std::clamp(hit.fraction, 0.0f, 1.0f), hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1,
+                     p.passThin && filter.sawThinBest };
+        }
+
+        /// @brief Vanilla's own Update is inside OnUpdate: its caster call is skipped there (OnVanillaCaster).
+        thread_local bool t_inOwnedUpdate = false;
 
         void OnUpdate(Update::Next next, RE::ThirdPersonState* tps, RE::BSTSmartPointer<RE::TESCameraState>* nextState)
         {
@@ -270,7 +344,9 @@ namespace CB::feature::camera {
             tps->freeRotation.y           = 0.0f;
             player->data.angle.x          = l.view.pitch;
             controls->data.lookInputVec   = RE::NiPoint2(0.0f, 0.0f);
+            t_inOwnedUpdate = true;
             next(tps, nextState);
+            t_inOwnedUpdate = false;
             controls->data.lookInputVec   = look;
             const float headingAfter      = player->GetHeading(false);
 
@@ -364,15 +440,63 @@ namespace CB::feature::camera {
             boomIn.pitchZoom = tps->pitchZoomOffset;
             boomIn.rotation  = basis;
             const rig::BoomOut boom = rig::StepBoom(profile.boom, boomIn);
-            const Cast         cast = CastBoom(player, boom.pivot, boom.eye);
-            const rig::Vec3    eye  = rig::StepCollision(profile.collision, l.rig.collision, { boom.pivot, boom.eye, cast.clear, dt });
+
+            /// @note Two legs: the shoulder can reach through a wall the player stands against, where a sweep starting at
+            ///       the pivot would miss it from behind. So the pivot is swept out from the anchor first.
+            const rig::CollisionParams& col = profile.collision;
+            const rig::ProbeParams&     pro = profile.probes;
+            const float     shoulderLength = rig::Length(boom.pivot - anchor);
+            const Cast      shoulderCast   = SweepBoom(player, camera, col, col.radius, anchor, boom.pivot,
+                                                       shoulderLength > 0.0f ? 1.0f - 2.0f * col.radius / shoulderLength : 0.0f, 1.0f);
+            const rig::Vec3 pivotSafe    = rig::StepCollision(profile.collision, l.rig.shoulder, { anchor, boom.pivot, shoulderCast.clear, shoulderCast.thin, 0.0f, dt });
+            const rig::Vec3 eyeWant      = pivotSafe + (boom.eye - boom.pivot);
+
+            /// @note The boom is swept a probe's reach past the eye: a surface there shortens it softly, so the camera
+            ///       slows on its way to a wall behind it instead of stopping dead.
+            const float     armLength = rig::Length(eyeWant - pivotSafe);
+            const float     reach     = pro.enabled ? pro.reach : 0.0f;
+            const float     farLength = armLength + reach;
+            const rig::Vec3 eyeFar    = armLength > 1.0e-3f ? pivotSafe + (eyeWant - pivotSafe) * (farLength / armLength) : eyeWant;
+            const float     thinFrom  = farLength > 0.0f ? (armLength - 2.0f * col.radius) / farLength : 0.0f;
+            const float     thinTo    = farLength > 0.0f ? armLength / farLength : 1.0f;
+            const Cast      farCast   = SweepBoom(player, camera, col, col.radius, pivotSafe, eyeFar, thinFrom, thinTo);
+            const float     hitAt     = farCast.clear * farLength;
+            Cast            cast      = farCast;
+            float           softPull  = 0.0f;
+            if (farCast.clear >= 1.0f || hitAt >= armLength) {
+                if (farCast.clear < 1.0f) softPull = rig::SoftPull(pro, hitAt - armLength);
+                cast.clear = 1.0f;
+            } else if (armLength > 1.0e-3f) {
+                cast.clear = hitAt / armLength;
+            }
+            const rig::Vec3 eyeBoom = rig::StepCollision(col, l.rig.collision, { pivotSafe, eyeWant, cast.clear, cast.thin, softPull, dt });
+
+            /// @note Probed from the boom's eye, not the shifted one: the push never feeds itself, so it cannot limit-cycle.
+            rig::Vec3 eye = eyeBoom;
+            if (pro.enabled) {
+                const auto probe = [&](rig::Vec3 local) {
+                    return SweepBoom(player, camera, col, pro.radius, eyeBoom, eyeBoom + basis.Apply(local)).clear;
+                };
+                const rig::ProbeIn probes{ probe({ -pro.reach, 0.0f, 0.0f }), probe({ pro.reach, 0.0f, 0.0f }),
+                                           probe({ 0.0f, 0.0f, -pro.reach }), probe({ 0.0f, 0.0f, pro.reach }), dt };
+                const rig::Vec3 shifted = eyeBoom + basis.Apply(rig::StepProbes(pro, l.rig.probes, probes));
+                if (rig::Length(shifted - eyeBoom) > 0.1f) {
+                    const Cast clamp = SweepBoom(player, camera, col, col.radius, eyeBoom, shifted);
+                    eye              = rig::Lerp(eyeBoom, shifted, clamp.clear);
+                }
+            }
+
+            /// @note Vanilla's caster only for what it does besides its position: fading the player and the actors at the
+            ///       camera, here at the eye CB shows. The position it answers is dropped.
+            RE::NiPoint3 fadeAt(eye.x, eye.y, eye.z);
+            platform::game::PlayerCamera_ApplyCameraCaster(camera, &fadeAt, true);
 
             /// @note Diagnostic: twice a second, what the camera read and what it showed; and every boom hit (up to a
             ///       budget), with what it hit.
             constexpr float kDeg = 57.29578f;
             if (cast.layer >= 0 && l.diags < 600) {
                 ++l.diags;
-                LOG_INFO("camera: boom hit layer {} at {:.2f} of {:.0f}", cast.layer, cast.clear, rig::Length(boom.eye - boom.pivot));
+                LOG_INFO("camera: boom hit layer {}{} at {:.2f} of {:.0f}", cast.layer, cast.thin ? " (thin)" : "", cast.clear, rig::Length(boom.eye - boom.pivot));
             }
             if (now - l.lastDiag > std::chrono::milliseconds(500) && l.diags < 600) {
                 l.lastDiag = now;
@@ -460,6 +584,18 @@ namespace CB::feature::camera {
             ReleaseMount(camera, "dismounted");
         }
 
+        /// @brief ThirdPersonState's position math calling PlayerCamera::ApplyCameraCaster (0x1408e8640).
+        using VanillaCaster = hooks::CallSite<hooks::engine::ThirdPersonPosition_ApplyCameraCasterCall, bool(RE::PlayerCamera*, RE::NiPoint3*, bool)>;
+
+        /// @note The same code serves kAnimated and the other third-person states, so it is skipped only inside CB's
+        ///       update: vanilla's position is discarded there and its fades would fight the ones at CB's eye. "No hit"
+        ///       takes vanilla's recovery path, which is idle.
+        bool OnVanillaCaster(VanillaCaster::Next next, RE::PlayerCamera* camera, RE::NiPoint3* position, bool fade)
+        {
+            return t_inOwnedUpdate ? false : next(camera, position, fade);
+        }
+
+        [[maybe_unused]] const bool s_vanillaCaster = VanillaCaster::Subscribe(&OnVanillaCaster, hooks::Priority::Normal, "Camera", "camera");
         [[maybe_unused]] const bool s_update       = Update::Subscribe(&OnUpdate, hooks::Priority::Normal, "Camera", "camera");
         [[maybe_unused]] const bool s_freeRotation = FreeRotation::Subscribe(&OnFreeRotation, hooks::Priority::Normal, "Camera", "camera");
         [[maybe_unused]] const bool s_aimPick      = AimPickFree::Subscribe(&OnAimPickFree, hooks::Priority::Normal, "Camera", "camera");

@@ -20,6 +20,13 @@ namespace CB::feature::controller {
         const CB::havok::hkpCollidable* body = nullptr;   ///< the hit root collidable
     };
 
+    /// @brief A caller's say over each hit: return false to pass through it.
+    /// @note Runs inside the cast, under the world's read lock; a refused hit never hides one beyond it.
+    struct HitFilter {
+        bool (*accept)(void* user, const CB::havok::hkpCollidable* body, float fraction) = nullptr;
+        void* user = nullptr;
+    };
+
     /// @brief Sweeps `collidable`'s shape from its current transform to `to` (Havok world space) and returns the first
     ///        hit, holding the world's read lock for the cast.
     /// @param startTolerance points already within this distance at the start are ignored as path hits (Havok's
@@ -35,8 +42,10 @@ namespace CB::feature::controller {
     /// @brief Sweep with the shape starting at `from` instead of the collidable's current transform (the step query's
     ///        up / forward / down legs, the predictor's later segments).
     /// @param ignoreLayers bit n set = hits on collision layer n are skipped (e.g. 1 << 30, other characters).
+    /// @param filter optional, see HitFilter.
     /// @note Implemented by the step query work (CharSweep.cpp); the rotation stays the collidable's.
     SweepHit SweepFrom(CB::havok::bhkWorld* world, const CB::havok::hkpCollidable* collidable, const CB::havok::hkVector4& from,
-                       const CB::havok::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
+                       const CB::havok::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0,
+                       const HitFilter* filter = nullptr);
 
 }  // namespace CB::feature::controller
