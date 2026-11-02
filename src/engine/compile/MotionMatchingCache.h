@@ -28,6 +28,13 @@ namespace CB::engine::anim {
     /// @return the fingerprint of an animation unit's text, as MmCachedClip::fingerprint stores it
     std::uint64_t MmFingerprint(std::string_view unitText) noexcept;
 
+    /// @brief The animation unit `unitText` measured into a cached clip: MeasureClip + AppendClipFeatures + its curves.
+    /// @param name the clip's animationName, kept byte-exact
+    /// @param path where the text came from, for errors
+    /// @warning Throws std::exception when the text is no clip, it cannot be measured, or it lacks the humanoid leg chains.
+    /// @pre   The shared schema registry is available: the loader parses through it.
+    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint);
+
     /// @brief `clips` as the cache packfile.
     /// @return false with `err` set when the schema lacks a cache class.
     bool WriteMmCache(const std::vector<MmCachedClip>& clips, std::vector<std::uint8_t>& out, std::string& err);

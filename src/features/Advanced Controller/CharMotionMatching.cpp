@@ -10,9 +10,9 @@
 #include <core/debug/Settings.h>
 #include <core/resolve/LoadOrderReader.h>
 #include <platform/relay/Relay.h>
-#include <codec/format/AnimationYamlLoader.h>
-#include <compile/MotionFeatures.h>
 #include <compile/MotionMatchingCache.h>
+#include <decompile/BehaviorDecompile.h>
+#include <locomotion/PoseSearch.h>
 #include <core/discover/ServeKey.h>
 #include <core/resolve/CacheKey.h>
 #include <disk/Disk.h>
@@ -65,10 +65,18 @@ namespace CB::feature {
         namespace mv    = CB::feature::controller::move;
         namespace game  = CB::platform::game;
         namespace ea    = CB::engine::anim;
-        namespace F     = CB::engine::anim::features;
+        namespace ps    = CB::engine::locomotion;
         using Frame     = hooks::Override<&game::MovementControllerNPC_ComputeFrameMovement>;
         using Clock     = std::chrono::steady_clock;
-        using CB::engine::codec::io::SchemaObject;
+        using ps::Biases;
+        using ps::Clip;
+        using ps::Database;
+        using ps::Expression;
+        using ps::PoseDatabase;
+        using ps::FrameOf;
+        using ps::IsActive;
+        using ps::kForceMoving;
+        using ps::kIgnoreSurrounding;
 
         constexpr std::string_view kGraphKey   = "meshes/actors/character/behaviors/motionmatching.hkx";
         constexpr std::string_view kProjectDir = "meshes/actors/character/";   ///< a clip's animationName is below this
@@ -81,7 +89,6 @@ namespace CB::feature {
         constexpr double kForcedSpacing     = 0.05;
         constexpr float  kForceSpeed        = 100.0f;      ///< game units/s change of the desired speed
         constexpr float  kForceCos          = 0.8660254f;  ///< cos 30 deg: a turn of the desired direction past it
-        constexpr float  kForceMoving       = 10.0f;       ///< game units/s: a direction counts only above this speed
 
         /// @brief fMMReselectTime (settings.ini [Character], read once): seconds a pick's neighbourhood stays banned.
         /// @note  Why: 12% of switches once went A -> B -> A within a second. A forced search keeps the ban, so input
@@ -98,15 +105,7 @@ namespace CB::feature {
             return lod;
         }
 
-        constexpr int    kIgnoreSurrounding = 20;    ///< frames: a candidate this close in the current clip is the current
         constexpr double kEndMargin         = 0.1;   ///< seconds before a clip's end that force a search
-
-        /// @brief Each feature group's weight (Holden's demo defaults).
-        /// @note  Applied at search time, never stored in the database, so a weight change needs no rebuild.
-        /// @note  The past groups start at the future's weights.
-        constexpr float kWeightTrajPos = 1.0f, kWeightTrajDir = 1.5f, kWeightPastPos = 1.0f, kWeightPastDir = 1.5f,
-                        kWeightFootPos = 0.75f, kWeightFootVel = 1.0f, kWeightHipVel = 1.0f;
-        constexpr int   kGroups = 7;
 
         /// @brief The playback rate's range: a clip plays at most this much slower or faster than authored; past it the
         ///        feet slide rather than the animation visibly slowing or fast-forwarding.
@@ -180,70 +179,6 @@ namespace CB::feature {
         /// @brief GASP's future velocity spans the trajectory's 0.4 -> 0.5 s; the model is stepped at kFutureStep.
         constexpr float kFutureFrom = 0.4f, kFutureTo = 0.5f, kFutureStep = 1.0f / 60.0f;
 
-        constexpr std::uint8_t kFlagDisableReselection = 1, kFlagLooping = 2;   ///< Clip::flags bits
-
-        /// @brief One child of the add-on's selector (MM_Clip indexes these).
-        struct Clip {
-            std::string  name;            ///< the clip generator's animationName
-            int          first    = 0;    ///< its first row
-            int          frames   = 0;    ///< 0 = the clip could not be measured (its index stays, never chosen)
-            double       dt       = 1.0 / 30.0;
-            double       duration = 0;    ///< what the user-controlled time fraction spans
-            int          database = -1;   ///< its PoseDatabase, -1 = in none (never searched)
-            std::uint8_t flags    = 0;    ///< kFlag* bits
-            float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd]
-            float        rangeEnd   = 0;  ///< <= 0 = the clip's end
-        };
-
-        /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
-        struct Expression {
-            std::string        text;
-            relay::CompiledExpr expr;   ///< invalid when `text` is empty or does not compile
-        };
-
-        /// @brief Unreal's per-database cost biases, added to the feature cost (negative = preferred), as evaluated for
-        ///        one frame.
-        struct Biases {
-            float base       = 0;   ///< every candidate from the database
-            float continuing = 0;   ///< the playing pose while it is from the database
-            float looping    = 0;   ///< candidates from its looping children
-        };
-
-        /// @brief One of the graph's databases (CBPoseSearchDatabase).
-        struct PoseDatabase {
-            std::string name;
-            /// @brief The biases' expressions, evaluated each frame by the frame hook (an invalid one is 0).
-            Expression  base, continuing, looping;
-            /// @brief The candidate gates over each row's curves, evaluated once per row at build (empty: every row; one
-            ///        that does not compile: no row).
-            Expression  standing, moving;
-            bool        pivots     = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
-        };
-
-        /// @brief One chooser row (CBPoseSearchChooserRow).
-        struct ChooserRow {
-            Expression       when;     ///< empty text: always holds; text that does not compile: never holds
-            std::vector<int> databases;
-        };
-
-        /// @brief The database: one row of kDims floats per child frame, normalized (mean, per-group spread) but unweighted.
-        struct Database {
-            std::vector<Clip>               clips;
-            std::vector<float>              rows;
-            std::vector<int>                clipOf;       ///< row -> clip
-            std::vector<char>               searchable;   ///< row's whole future lies inside its clip
-            std::vector<std::uint8_t>       rowGates;     ///< the frame's kRow* bits (the search's gates)
-            std::vector<std::uint8_t>       rowGait;      ///< the frame's ch::Gait from its Speed curve (None standing)
-            std::array<float, F::kDims>     mean{}, scale{}, weight{};
-            /// @brief The clips' own speed per gait (game units/s, indexed by ch::Gait), 0 where no clip has one: the
-            ///        median root speed of the steady forward frames in that gait's Speed band (CollectGaitSpeeds).
-            std::array<float, 4>            gaitSpeed{};
-            std::vector<PoseDatabase>       databases;
-            /// @brief Empty without a chooser: every database is searched.
-            std::vector<ChooserRow>         chooser;
-            std::vector<int>                fallback;     ///< none of the rows holds: these; empty = every database
-            bool                            haveChooser = false;
-        };
         /// @note Published once, never freed (process lifetime): the search and the frame hook read it lock-free.
         std::atomic<const Database*> g_db{ nullptr };
 
@@ -284,116 +219,6 @@ namespace CB::feature {
         };
         CostLog g_costs;
         constexpr std::size_t kCostLogCap = 4096;
-
-        int GroupOf(int d)
-        {
-            if (d < F::kTrajDir) return 0;
-            if (d < F::kPastPos) return 1;
-            if (d < F::kPastDir) return 2;
-            if (d < F::kFootPos) return 3;
-            if (d < F::kFootVel) return 4;
-            if (d < F::kHipVel) return 5;
-            return 6;
-        }
-
-        /// @brief The add-on graph's root selector, or null when the graph is not the contract's shape.
-        SchemaObject* RootSelector(const CB::engine::decompile::ParsedHky& g)
-        {
-            if (!g.root) return nullptr;
-            for (const auto& nv : g.root->Children("namedVariants")) {
-                const auto* v     = dynamic_cast<const SchemaObject*>(nv.get());
-                auto*       graph = v ? v->Child("variant") : nullptr;
-                if (!graph || std::string_view(graph->ClassName()) != "hkbBehaviorGraph") continue;
-                auto* gen = graph->Child("rootGenerator");
-                return gen && std::string_view(gen->ClassName()) == "CBPoseSearchGenerator" ? gen : nullptr;
-            }
-            return nullptr;
-        }
-
-        /// @brief The per-row bits the search gates on: its database's candidate gates, evaluated at the row's frame.
-        constexpr std::uint8_t kRowStanding = 1, kRowMoving = 2;
-
-        /// @brief The speed bands a frame's Speed curve falls in (game units/s): standing below kStandSpeed, then Walk,
-        ///        Run from kWalkRun, Sprint from kRunSprint. Midway between the clips' measured plateaus (walk 92, run 284,
-        ///        sprint 426), as hky-tool's tagger set them.
-        constexpr float kStandSpeed = 15.0f, kWalkRun = 188.0f, kRunSprint = 355.0f;
-        /// @brief A steady forward frame (the clips' own gait speeds): travel within kForwardDeg of facing, speed changing
-        ///        by less than kSteadyAccel (game units/s²).
-        constexpr float kForwardDeg = 45.0f, kSteadyAccel = 100.0f;
-
-        /// @brief The motion curves' names, byte-exact, as hky-tool's motionCurves generator writes them.
-        constexpr const char* kSpeedCurve = "Speed";
-        constexpr const char* kDirectionCurve = "MoveDirection";
-        constexpr const char* kAccelCurve = "Acceleration";
-
-        /// @brief One distinct clip's measurement (raw, unnormalized features), shared by every child that plays it.
-        struct Measured {
-            std::vector<float>        rows;
-            std::vector<char>         searchable;
-            std::vector<std::uint8_t> gait;     ///< per frame, a ch::Gait from the Speed curve's band
-            std::vector<ea::AnimCurveDef> curves;   ///< the clip's curves, which its databases' gates read per row
-            int                       frames   = 0;
-            double                    dt       = 1.0 / 30.0;
-            double                    duration = 0;
-        };
-
-        /// @return the curve named `name` (byte-exact) in `curves`, or null
-        const ea::AnimCurveDef* CurveNamed(const std::vector<ea::AnimCurveDef>& curves, std::string_view name)
-        {
-            const auto it = std::find_if(curves.begin(), curves.end(), [&](const ea::AnimCurveDef& c) { return c.name == name; });
-            return it == curves.end() ? nullptr : &*it;
-        }
-
-        /// @brief A clip's curves at one frame, as the variables a candidate gate reads (GraphVar("Speed")).
-        /// @note  A curve the clip lacks is not this source's: GraphVar then reads 0 (the build has no actor).
-        class CurveVariables final : public relay::VariableSource {
-        public:
-            explicit CurveVariables(const std::vector<ea::AnimCurveDef>& curves) : m_curves(curves) {}
-            float time = 0;   ///< seconds into the clip
-            bool  Read(const char* name, relay::Value& out) const override
-            {
-                const ea::AnimCurveDef* c = CurveNamed(m_curves, name);
-                if (!c) return false;
-                out = relay::Value::Float(ea::SampleCurve(*c, time));
-                return true;
-            }
-
-        private:
-            const std::vector<ea::AnimCurveDef>& m_curves;
-        };
-
-        /// @brief Each frame's gait from `c`'s Speed curve (None while standing, and for a clip without one).
-        void AppendRowGaits(const ea::MmCachedClip& c, Measured& out)
-        {
-            const ea::AnimCurveDef* speed = CurveNamed(c.curves, kSpeedCurve);
-            for (int i = 0; i < c.frames; i++) {
-                const float s = speed ? ea::SampleCurve(*speed, static_cast<float>(i * out.dt)) : 0.0f;
-                const ch::Gait gait = s >= kRunSprint ? ch::Gait::Sprint
-                                    : s >= kWalkRun   ? ch::Gait::Run
-                                    : s >= kStandSpeed ? ch::Gait::Walk
-                                                       : ch::Gait::None;
-                out.gait.push_back(static_cast<std::uint8_t>(gait));
-            }
-        }
-
-        /// @brief Add `c`'s steady forward frames' horizontal root speeds to their gait's list (see Database::gaitSpeed).
-        /// @note  A clip without the Speed, MoveDirection and Acceleration curves adds none.
-        void CollectGaitSpeeds(const ea::MmCachedClip& c, double dt, const std::vector<std::uint8_t>& gait,
-                               std::array<std::vector<float>, 4>& out)
-        {
-            const ea::AnimCurveDef* direction = CurveNamed(c.curves, kDirectionCurve);
-            const ea::AnimCurveDef* accel     = CurveNamed(c.curves, kAccelCurve);
-            if (!direction || !accel || gait.size() < static_cast<std::size_t>(c.frames)) return;
-            const auto& p = c.rootPositions;
-            for (int i = 0; i + 1 < c.frames; ++i) {
-                const float t = static_cast<float>(i * dt);
-                if (gait[i] == static_cast<std::uint8_t>(ch::Gait::None) || std::fabs(ea::SampleCurve(*direction, t)) >= kForwardDeg ||
-                    std::fabs(ea::SampleCurve(*accel, t)) >= kSteadyAccel)
-                    continue;
-                const double dx = p[(i + 1) * 3] - p[i * 3], dy = p[(i + 1) * 3 + 1] - p[i * 3 + 1];
-                out[gait[i]].push_back(static_cast<float>(std::sqrt(dx * dx + dy * dy) / dt));
-            }
-        }
 
         std::filesystem::path CachePath()
         {
@@ -438,140 +263,7 @@ namespace CB::feature {
                 return it->second;
             }
             hit = false;
-            const auto  def = ea::AnimationYamlLoader::LoadFromString(*text, path);
-            std::string err;
-            const auto  m = ea::MeasureClip(def, err);
-            if (!m) throw std::runtime_error(err);
-            if (!m->hasFeet || !m->hasHip) throw std::runtime_error("no humanoid leg chains");
-            ea::MmCachedClip c;
-            c.name          = name;
-            c.fingerprint   = fp;
-            c.frames        = m->frames;
-            c.frameDuration = static_cast<float>(m->dt);
-            c.duration      = static_cast<float>(def.duration > 0 ? def.duration : (m->frames - 1) * m->dt);
-            ea::AppendClipFeatures(*m, c.features);
-            c.rootPositions.reserve(static_cast<std::size_t>(m->frames) * 3);
-            for (const auto& r : m->rootPos) {
-                c.rootPositions.push_back(static_cast<float>(r.x));
-                c.rootPositions.push_back(static_cast<float>(r.y));
-                c.rootPositions.push_back(static_cast<float>(r.z));
-            }
-            c.curves = def.curves;
-            return c;
-        }
-
-        /// @brief `c` as the database's per-clip measurement.
-        /// @note  Built from the cached form on a miss too, so a cache hit and a fresh measurement build the same rows.
-        std::unique_ptr<Measured> MeasuredFrom(const ea::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds)
-        {
-            auto out          = std::make_unique<Measured>();
-            out->rows         = c.features;
-            out->frames       = c.frames;
-            out->dt           = c.frameDuration;
-            out->duration     = c.duration;
-            const int horizon = static_cast<int>(std::lround(F::kHorizons.back() / out->dt));
-            for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
-            AppendRowGaits(c, *out);
-            CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
-            out->curves = c.curves;
-            return out;
-        }
-
-        /// @return string field `name` of `o`, "" when it holds none (an empty string may be left out of a unit).
-        std::string StrOr(const SchemaObject& o, std::string_view name)
-        {
-            const auto* f = o.FindField(name);
-            return f ? f->str : std::string();
-        }
-
-        /// @brief `text` compiled as a condition expression; a non-empty one that fails is logged, naming `what` and
-        ///        `fallback` (what it counts as instead).
-        Expression CompileExpression(std::string text, std::string_view what, std::string_view fallback)
-        {
-            Expression e{ std::move(text), {} };
-            if (e.text.empty()) return e;
-            std::string err;
-            e.expr = relay::Compile(e.text, err);
-            if (!e.expr.Valid()) LOG_WARN("motion matching: {} '{}' does not compile ({}) - {}", what, e.text, err, fallback);
-            return e;
-        }
-
-        /// @brief Read the selector's databases into `db` and each row's columns into `clips` (sized to the rows).
-        /// @note  A graph without `databases` is one implicit database over every child, unbiased. A row naming a
-        ///        database the graph lacks is in none, so never searched.
-        void ReadDatabases(const SchemaObject& sel, Database& db)
-        {
-            const auto* field   = sel.HasField("databases") ? sel.FindField("databases") : nullptr;
-            const bool  implied = !field || field->objs.empty();
-            if (implied) {
-                db.databases.push_back({ "(every child)" });
-            } else {
-                for (const auto& o : field->objs) {
-                    const auto* d = dynamic_cast<const SchemaObject*>(o.get());
-                    if (!d) continue;
-                    PoseDatabase p;
-                    p.name       = d->Str("name");
-                    p.base       = CompileExpression(StrOr(*d, "baseCostBias"), "database '" + p.name + "' baseCostBias", "0");
-                    p.continuing = CompileExpression(StrOr(*d, "continuingPoseCostBias"), "database '" + p.name + "' continuingPoseCostBias", "0");
-                    p.looping    = CompileExpression(StrOr(*d, "loopingCostBias"), "database '" + p.name + "' loopingCostBias", "0");
-                    p.standing   = CompileExpression(StrOr(*d, "standingCandidate"), "database '" + p.name + "' standingCandidate",
-                                                     "no row is a standing candidate");
-                    p.moving     = CompileExpression(StrOr(*d, "movingCandidate"), "database '" + p.name + "' movingCandidate",
-                                                     "no row is a moving candidate");
-                    if (const auto* tags = d->FindField("tags"))
-                        p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
-                    db.databases.push_back(std::move(p));
-                }
-            }
-            const auto& rows = sel.Children("children");
-            for (std::size_t i = 0; i < rows.size(); ++i) {
-                const auto* row = dynamic_cast<const SchemaObject*>(rows[i].get());
-                if (!row) continue;
-                Clip& c      = db.clips[i];
-                c.flags      = static_cast<std::uint8_t>((row->GetBool("disableReselection") ? kFlagDisableReselection : 0) |
-                                                         (row->GetBool("looping") ? kFlagLooping : 0));
-                c.rangeStart = row->GetFloat("rangeStart");
-                c.rangeEnd   = row->GetFloat("rangeEnd");
-                if (implied) {
-                    c.database = 0;
-                    continue;
-                }
-                const std::string& name = row->Str("database");
-                const auto         it   = std::find_if(db.databases.begin(), db.databases.end(), [&](const PoseDatabase& d) { return d.name == name; });
-                if (it == db.databases.end()) LOG_WARN("motion matching: child {} names database '{}', which the graph lacks - never searched", i, name);
-                else c.database = static_cast<int>(it - db.databases.begin());
-            }
-        }
-
-        /// @brief The databases named `names` (byte-exact), warning of any the graph lacks.
-        std::vector<int> DatabasesNamed(const Database& db, const std::vector<std::string>& names, std::string_view where)
-        {
-            std::vector<int> out;
-            for (const auto& name : names) {
-                const auto it = std::find_if(db.databases.begin(), db.databases.end(), [&](const PoseDatabase& d) { return d.name == name; });
-                if (it == db.databases.end()) LOG_WARN("motion matching: the chooser's {} names database '{}', which the graph lacks - ignored", where, name);
-                else out.push_back(static_cast<int>(it - db.databases.begin()));
-            }
-            return out;
-        }
-
-        /// @brief Read the selector's chooser into `db` (none: every database is searched).
-        void ReadChooser(const SchemaObject& sel, Database& db)
-        {
-            const SchemaObject* chooser = sel.HasField("chooser") ? sel.Child("chooser") : nullptr;
-            if (!chooser) return;
-            db.haveChooser = true;
-            if (const auto* rows = chooser->FindField("rows"))
-                for (const auto& o : rows->objs) {
-                    const auto* r = dynamic_cast<const SchemaObject*>(o.get());
-                    if (!r) continue;
-                    ChooserRow row;
-                    row.when = CompileExpression(StrOr(*r, "when"), "chooser row " + std::to_string(db.chooser.size()) + " `when`",
-                                                 "the row never holds");
-                    if (const auto* names = r->FindField("databases")) row.databases = DatabasesNamed(db, names->strs, "row");
-                    db.chooser.push_back(std::move(row));
-                }
-            if (const auto* fallback = chooser->FindField("fallback")) db.fallback = DatabasesNamed(db, fallback->strs, "fallback");
+            return ea::MeasureMmClip(name, path, *text, fp);
         }
 
         /// @brief Measure every clip the add-on graph plays and publish the database.
@@ -587,53 +279,26 @@ namespace CB::feature {
                 LOG_INFO("motion matching: '{}' is not in the load order (no Motion Matching.hky database bundle installed) - off", kGraphKey);
                 return;
             }
-            auto* selector = RootSelector(graph);
+            auto* selector = ps::RootSelector(graph);
             if (!selector) {
                 LOG_WARN("motion matching: '{}' does not have a CBPoseSearchGenerator at its root - off", kGraphKey);
                 return;
             }
 
-            auto        db       = std::make_unique<Database>();
-            const auto& children = selector->Children("children");
-            db->clips.resize(children.size());
-            ReadDatabases(*selector, *db);
-            ReadChooser(*selector, *db);
-
-            /// @note Keyed by the exact animationName: case is never folded (a differently cased name is its own clip).
-            std::map<std::string, std::unique_ptr<Measured>> measured;
-            std::vector<const Measured*>                     of(children.size(), nullptr);
-            std::array<std::vector<float>, 4>                gaitSpeeds;
             const auto                    cache    = LoadCache();
             const std::string             compiler = core::resolve::CompilerIdentity(std::filesystem::current_path() / "Data");
             std::vector<ea::MmCachedClip> fresh;
             std::size_t                   cacheHits  = 0;
             bool                          cacheDirty = false;
-            for (std::size_t i = 0; i < children.size(); ++i) {
-                const auto* row = dynamic_cast<const SchemaObject*>(children[i].get());
-                const auto* gen = row ? row->Child("generator") : nullptr;
-                if (!gen || std::string_view(gen->ClassName()) != "hkbClipGenerator") {
-                    LOG_WARN("motion matching: selector child {} is not a clip generator - never chosen", i);
-                    continue;
-                }
-                Clip& c = db->clips[i];
-                c.name  = gen->Str("animationName");
-                auto it = measured.find(c.name);
-                if (it == measured.end()) {
-                    std::unique_ptr<Measured> m;
-                    try {
-                        bool hit  = false;
-                        auto clip = MeasureOrCached(reader, c.name, compiler, cache, hit);
-                        m         = MeasuredFrom(clip, gaitSpeeds);
-                        if (hit) ++cacheHits;
-                        else cacheDirty = true;
-                        fresh.push_back(std::move(clip));
-                    } catch (const std::exception& e) {
-                        LOG_WARN("motion matching: clip {} '{}' not measured ({}) - never chosen", i, c.name, e.what());
-                    }
-                    it = measured.emplace(c.name, std::move(m)).first;
-                }
-                of[i] = it->second.get();
-            }
+            const auto clipOf = [&](const std::string& name) -> const ea::MmCachedClip& {
+                bool hit = false;
+                fresh.push_back(MeasureOrCached(reader, name, compiler, cache, hit));
+                if (hit) ++cacheHits;
+                else cacheDirty = true;
+                return fresh.back();
+            };
+            ps::BuildReport report;
+            auto db = ps::BuildDatabase(*selector, clipOf, [](const std::string& message) { LOG_WARN("motion matching: {}", message); }, &report);
 
             /// @note Rewritten when a clip was measured now or a cached one is no longer played, so the file holds
             ///       exactly this load order's clips.
@@ -646,108 +311,19 @@ namespace CB::feature {
                     LOG_WARN("motion matching: cache not written ({})", err);
             }
             LOG_INFO("motion matching: {} of {} clip(s) from the cache", cacheHits, fresh.size());
-
-            /// @note Holden's normalization: each dimension centred on its mean, then each GROUP divided by its mean
-            ///       spread, so a group's dimensions keep their relative sizes and every group weighs in comparably.
-            ///       Taken over the distinct clips, so a clip listed in several databases does not weigh more.
-            std::array<double, F::kDims> mean{}, var{};
-            std::size_t                  distinctRows = 0, measuredClips = 0;
-            for (const auto& [name, m] : measured) {
-                if (!m) continue;
-                ++measuredClips;
-                distinctRows += static_cast<std::size_t>(m->frames);
-                for (std::size_t k = 0; k < m->rows.size(); ++k) mean[k % F::kDims] += m->rows[k];
-            }
-            if (distinctRows == 0) {
+            if (!db) {
                 LOG_WARN("motion matching: no clip of '{}' could be measured - off", kGraphKey);
                 return;
-            }
-            for (auto& m : mean) m /= static_cast<double>(distinctRows);
-            for (const auto& [name, m] : measured) {
-                if (!m) continue;
-                for (std::size_t k = 0; k < m->rows.size(); ++k) {
-                    const double x = m->rows[k] - mean[k % F::kDims];
-                    var[k % F::kDims] += x * x;
-                }
-            }
-            std::array<double, kGroups> groupSpread{}, groupDims{};
-            for (int d = 0; d < F::kDims; ++d) {
-                groupSpread[GroupOf(d)] += std::sqrt(var[d] / static_cast<double>(distinctRows));
-                groupDims[GroupOf(d)] += 1;
-            }
-            const std::array<float, kGroups> weights{ kWeightTrajPos, kWeightTrajDir, kWeightPastPos, kWeightPastDir,
-                                                      kWeightFootPos, kWeightFootVel, kWeightHipVel };
-            for (int d = 0; d < F::kDims; ++d) {
-                const double spread = groupSpread[GroupOf(d)] / groupDims[GroupOf(d)];
-                db->mean[d]   = static_cast<float>(mean[d]);
-                db->scale[d]  = static_cast<float>(spread > 1.0e-6 ? spread : 1.0);
-                db->weight[d] = weights[GroupOf(d)];
-            }
-
-            std::size_t total = 0;
-            for (const Measured* m : of) total += m ? static_cast<std::size_t>(m->frames) : 0;
-            db->rows.reserve(total * F::kDims);
-            db->clipOf.reserve(total);
-            db->searchable.reserve(total);
-            db->rowGates.reserve(total);
-            db->rowGait.reserve(total);
-            /// @note The gates read only the row's curves: the build has no actor, and the context is reset per row so
-            ///       the primitive memo never hands one row's curve value to the next.
-            relay::EvalContext ctx;
-            const auto         gate = [&](const Expression& e) {
-                if (e.text.empty()) return true;
-                return e.expr.Valid() && e.expr.Evaluate(ctx).AsBool();
-            };
-            for (std::size_t i = 0; i < db->clips.size(); ++i) {
-                Clip& c = db->clips[i];
-                c.first = static_cast<int>(db->rows.size() / F::kDims);
-                const Measured* m = of[i];
-                if (!m) continue;
-                c.frames   = m->frames;
-                c.dt       = m->dt;
-                c.duration = m->duration;
-                for (std::size_t k = 0; k < m->rows.size(); ++k) {
-                    const int d = static_cast<int>(k % F::kDims);
-                    db->rows.push_back((m->rows[k] - db->mean[d]) / db->scale[d]);
-                }
-                db->clipOf.insert(db->clipOf.end(), static_cast<std::size_t>(m->frames), static_cast<int>(i));
-                db->searchable.insert(db->searchable.end(), m->searchable.begin(), m->searchable.end());
-                /// @note The range cuts per CHILD: children sharing a clip share its Measured, not its range.
-                for (int f = 0; f < m->frames; ++f) {
-                    const double t = f * m->dt;
-                    if (t < c.rangeStart || (c.rangeEnd > 0 && t > c.rangeEnd)) db->searchable[c.first + f] = 0;
-                }
-                db->rowGait.insert(db->rowGait.end(), m->gait.begin(), m->gait.end());
-                const PoseDatabase* pd = c.database >= 0 ? &db->databases[c.database] : nullptr;
-                CurveVariables      vars(m->curves);
-                for (int f = 0; f < m->frames; ++f) {
-                    std::uint8_t bits = 0;
-                    if (pd) {
-                        ctx.Reset(nullptr);
-                        ctx.variables = &vars;
-                        vars.time     = static_cast<float>(f * m->dt);
-                        if (gate(pd->standing)) bits |= kRowStanding;
-                        if (gate(pd->moving)) bits |= kRowMoving;
-                    }
-                    db->rowGates.push_back(bits);
-                }
-            }
-
-            for (std::size_t g = 0; g < gaitSpeeds.size(); ++g) {
-                auto& v = gaitSpeeds[g];
-                if (v.empty()) continue;
-                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
-                db->gaitSpeed[g] = v[v.size() / 2];
             }
 
             const double secs = std::chrono::duration<double>(Clock::now() - t0).count();
             LOG_INFO("motion matching: database built in {:.1f} s - {} child(ren) over {} distinct clip(s) ({} measured), {} database(s), "
                      "chooser {}; {} frames x {} features; clip speeds walk {:.0f} ({} frames), run {:.0f} ({}), sprint {:.0f} ({}) "
                      "game units/s",
-                     secs, db->clips.size(), measured.size(), measuredClips, db->databases.size(),
+                     secs, db->clips.size(), report.distinctClips, report.measuredClips, db->databases.size(),
                      db->haveChooser ? std::format("{} row(s), {} fallback", db->chooser.size(), db->fallback.size()) : std::string("none"),
-                     total, F::kDims, db->gaitSpeed[1], gaitSpeeds[1].size(), db->gaitSpeed[2], gaitSpeeds[2].size(), db->gaitSpeed[3],
-                     gaitSpeeds[3].size());
+                     report.frames, CB::engine::anim::features::kDims, db->gaitSpeed[1], report.gaitFrames[1], db->gaitSpeed[2], report.gaitFrames[2],
+                     db->gaitSpeed[3], report.gaitFrames[3]);
             const auto text = [](const Expression& e) { return e.text.empty() ? std::string("0") : "`" + e.text + "`"; };
             for (const PoseDatabase& d : db->databases)
                 LOG_INFO("motion matching: database '{}' - bias base {}, continuing {}, looping {}{}", d.name, text(d.base),
@@ -772,11 +348,6 @@ namespace CB::feature {
             if (!player) return nullptr;
             const auto& mc = player->GetActorRuntimeData().movementController;
             return mc && static_cast<void*>(mc.get()) == controller ? player : nullptr;
-        }
-
-        int FrameOf(const Clip& c, double time)
-        {
-            return std::clamp(static_cast<int>(std::lround(time / c.dt)), 0, c.frames - 1);
         }
 
         /// @brief GASP's future velocity's speed: the displacement over kFutureFrom -> kFutureTo ahead, game units/s.
@@ -938,45 +509,6 @@ namespace CB::feature {
             return ctx;
         }
 
-        /// @return `e` evaluated to a float, 0 when it is empty or did not compile
-        float ValueOf(const Expression& e, const relay::EvalContext& ctx)
-        {
-            return e.expr.Valid() ? e.expr.Evaluate(ctx).AsFloat() : 0.0f;
-        }
-
-        /// @brief Every database's biases for this frame.
-        std::vector<Biases> EvaluateBiases(const Database& db, const relay::EvalContext& ctx)
-        {
-            std::vector<Biases> out(db.databases.size());
-            for (std::size_t d = 0; d < out.size(); ++d) {
-                const PoseDatabase& p = db.databases[d];
-                out[d] = { ValueOf(p.base, ctx), ValueOf(p.continuing, ctx), ValueOf(p.looping, ctx) };
-            }
-            return out;
-        }
-
-        /// @brief The chooser's pick, per database: the union of every row whose `when` holds; an empty union is the
-        ///        fallback, an empty fallback (or no chooser) every database.
-        std::vector<char> Choose(const Database& db, const relay::EvalContext& ctx)
-        {
-            std::vector<char> on(db.databases.size(), 0);
-            bool              any = false;
-            for (const ChooserRow& row : db.chooser) {
-                const bool holds = row.when.text.empty() || (row.when.expr.Valid() && row.when.expr.Evaluate(ctx).AsBool());
-                if (!holds) continue;
-                for (const int d : row.databases) on[d] = 1, any = true;
-            }
-            if (any) return on;
-            if (db.fallback.empty()) std::fill(on.begin(), on.end(), 1);
-            for (const int d : db.fallback) on[d] = 1;
-            return on;
-        }
-
-        bool IsActive(const std::vector<char>& active, int database)
-        {
-            return database >= 0 && (active.empty() || (static_cast<std::size_t>(database) < active.size() && active[database]));
-        }
-
         std::string ActiveNames(const Database& db, const std::vector<char>& active)
         {
             std::string out;
@@ -1049,8 +581,8 @@ namespace CB::feature {
             WriteInputs(player, inputs);
             const InputVariables     vars(inputs);
             const relay::EvalContext& ctx       = FrameContext(player, vars);
-            const std::vector<char>  active    = Choose(*db, ctx);
-            std::vector<Biases>      biases    = EvaluateBiases(*db, ctx);
+            const std::vector<char>  active    = ps::Choose(*db, ctx);
+            std::vector<Biases>      biases    = ps::EvaluateBiases(*db, ctx);
             const bool               interrupt = playingDb >= 0 && !IsActive(active, playingDb) && InputsInterrupt(before, inputs);
             {
                 std::scoped_lock lock(g_shared.lock);
@@ -1220,42 +752,6 @@ namespace CB::feature {
         last = now, lastWantX = q.desiredX, lastWantY = q.desiredY;
         const char* trigger = interrupt ? "interrupt" : clipEnd ? "clip end" : elapsed < kSearchInterval ? "forced" : "timer";
 
-        /// @note The query: the trajectory ahead and back from the predictor, the pose from the frame playing now.
-        std::array<float, F::kDims> qv{};
-        for (int k = 0; k < 3; ++k) {
-            const float raw[8] = { q.x[k], q.y[k], q.dirX[k], q.dirY[k], q.pastX[k], q.pastY[k], q.pastDirX[k], q.pastDirY[k] };
-            const int   at[8]  = { F::kTrajPos + 2 * k, F::kTrajPos + 2 * k + 1, F::kTrajDir + 2 * k, F::kTrajDir + 2 * k + 1,
-                                   F::kPastPos + 2 * k, F::kPastPos + 2 * k + 1, F::kPastDir + 2 * k, F::kPastDir + 2 * k + 1 };
-            for (int j = 0; j < 8; ++j) qv[at[j]] = (raw[j] - db->mean[at[j]]) / db->scale[at[j]];
-        }
-        int curRow = -1;
-        if (cur.clip >= 0 && db->clips[cur.clip].frames > 0) {
-            const Clip& c = db->clips[cur.clip];
-            curRow        = c.first + FrameOf(c, cur.time);
-            std::copy_n(db->rows.data() + static_cast<std::size_t>(curRow) * F::kDims + F::kFootPos, F::kDims - F::kFootPos,
-                        qv.data() + F::kFootPos);
-        }
-
-        const auto cost = [&](std::size_t r, float bound) {
-            const float* row = db->rows.data() + r * F::kDims;
-            float        sum = 0;
-            for (int d = 0; d < F::kDims && sum < bound; ++d) {
-                const float e = db->weight[d] * (qv[d] - row[d]);
-                sum += e * e;
-            }
-            return sum;
-        };
-        /// @brief The frame hook's latest biases for `database` (all 0 before its first frame or outside every database).
-        const auto biasesOf = [&](int database) {
-            return database >= 0 && static_cast<std::size_t>(database) < biases.size() ? biases[database] : Biases{};
-        };
-        /// @brief Unreal's additive biases for any candidate of `clip`: its database's base, plus looping for a looping child.
-        const auto bias = [&](int clip) {
-            const Clip&   c = db->clips[clip];
-            const Biases  b = biasesOf(c.database);
-            return b.base + ((c.flags & kFlagLooping) ? b.looping : 0.0f);
-        };
-
         /// @note The reselect ban: each pick of the last fMMReselectTime, advanced by the clip time played since (at the
         ///       current rate), bans the rows within kIgnoreSurrounding of where it would be now, as merged row ranges.
         struct Pick {
@@ -1277,39 +773,27 @@ namespace CB::feature {
         }
         std::sort(banned.begin(), banned.end());
 
-        const auto  t0      = Clock::now();
-        /// @note The playing row (the continuing pose) carries its database's continuing bias on top of a candidate's.
-        const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), 1.0e30f) + bias(cur.clip) +
-                                                biasesOf(db->clips[cur.clip].database).continuing
-                                          : 1.0e30f;
-        float       best     = 1.0e30f;
-        int         bestRow  = -1;
-        std::size_t ban      = 0, searched = 0;
-        /// @note disableReselection: while such a child plays, no other frame of it is a candidate (it goes on or leaves).
-        const bool  noRepick = curRow >= 0 && (db->clips[cur.clip].flags & kFlagDisableReselection);
-        /// @note The candidate gates: standing (the request near zero) cuts only into rows its database's
-        ///       standingCandidate passed, moving only into rows its movingCandidate passed (both evaluated at build).
-        ///       Only the chooser's databases are searched; rows ascend with the children, so the ban walk stays monotonic.
-        const bool standing = std::hypot(q.desiredX, q.desiredY) < kForceMoving;
-        for (int ci = 0; ci < static_cast<int>(db->clips.size()); ++ci) {
-            const Clip& c = db->clips[ci];
-            if (c.frames == 0 || !IsActive(active, c.database) || (noRepick && ci == cur.clip)) continue;
-            const float b = bias(ci);
-            for (int r = c.first; r < c.first + c.frames; ++r) {
-                if (!db->searchable[r]) continue;
-                if (!(db->rowGates[r] & (standing ? kRowStanding : kRowMoving))) continue;
-                if (curRow >= 0 && ci == cur.clip && std::abs(r - curRow) < kIgnoreSurrounding) continue;
-                while (ban < banned.size() && banned[ban].second < r) ++ban;
-                bool skip = false;
-                for (std::size_t k = ban; k < banned.size() && banned[k].first <= r; ++k)
-                    if (banned[k].second >= r) { skip = true; break; }
-                if (skip) continue;
-                ++searched;
-                const float f = cost(static_cast<std::size_t>(r), best - b);
-                if (f + b < best) best = f + b, bestRow = r;
-            }
-        }
-        const float searchMs = std::chrono::duration<float, std::milli>(Clock::now() - t0).count();
+        ps::Query query;
+        query.x = q.x, query.y = q.y, query.dirX = q.dirX, query.dirY = q.dirY;
+        query.pastX = q.pastX, query.pastY = q.pastY, query.pastDirX = q.pastDirX, query.pastDirY = q.pastDirY;
+        query.desiredX    = q.desiredX;
+        query.desiredY    = q.desiredY;
+        query.currentClip = cur.clip;
+        query.currentTime = cur.time;
+        query.active      = std::move(active);
+        query.biases      = std::move(biases);
+        query.banned      = std::move(banned);
+        query.clipEnd     = clipEnd;
+        query.interrupt   = interrupt;
+
+        const auto             t0       = Clock::now();
+        const ps::SearchResult result   = ps::Search(*db, query);
+        const float            searchMs = std::chrono::duration<float, std::milli>(Clock::now() - t0).count();
+        float                  best     = result.best;
+        int                    bestRow  = result.bestRow;
+        const int              curRow   = result.playingRow;
+        const float            playing  = result.playing;
+        const std::size_t      searched = result.searched;
         CB_PLOT("MM search ms", searchMs);
         {
             std::scoped_lock lock(g_costs.lock);
@@ -1317,12 +801,8 @@ namespace CB::feature {
             if (curRow >= 0 && g_costs.playing.size() < kCostLogCap) g_costs.playing.push_back(playing);
         }
 
-        /// @note At a clip's end or an interrupt the playing row cannot go on, so the best candidate wins outright;
-        ///       otherwise its biased cost must be below the playing row's.
-        const bool wins = bestRow >= 0 && (curRow < 0 || clipEnd || interrupt || best < playing);
-
         static int switches = 0;
-        if (wins) {
+        if (result.wins) {
             const int   clip = db->clipOf[bestRow];
             const Clip& c    = db->clips[clip];
             const char* dbName = c.database >= 0 ? db->databases[c.database].name.c_str() : "-";
@@ -1360,7 +840,7 @@ namespace CB::feature {
                 std::snprintf(h.database, sizeof(h.database), "%s", c.database >= 0 ? db->databases[c.database].name.c_str() : "-");
                 h.frame = bestRow - c.first;
             }
-            std::snprintf(h.active, sizeof(h.active), "%s", ActiveNames(*db, active).c_str());
+            std::snprintf(h.active, sizeof(h.active), "%s", ActiveNames(*db, query.active).c_str());
             std::snprintf(h.chooser, sizeof(h.chooser), "%s", InputsText(inputs).c_str());
             h.cost     = best;
             h.searchMs = searchMs;

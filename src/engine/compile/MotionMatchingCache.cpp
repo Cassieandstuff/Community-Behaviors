@@ -1,6 +1,7 @@
 #include "compile/MotionMatchingCache.h"
 
 #include "compile/MotionFeatures.h"
+#include <codec/format/AnimationYamlLoader.h>
 #include <codec/image/RuntimeImage.h>
 #include <codec/serialization/HavokIo.h>
 #include <codec/serialization/packfile/PackFileSerializer.h>
@@ -48,6 +49,30 @@ namespace CB::engine::anim {
     std::uint64_t MmFingerprint(std::string_view unitText) noexcept
     {
         return image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(unitText.data()), unitText.size());
+    }
+
+    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint)
+    {
+        const auto  def = AnimationYamlLoader::LoadFromString(unitText, path);
+        std::string err;
+        const auto  m = MeasureClip(def, err);
+        if (!m) throw std::runtime_error(err);
+        if (!m->hasFeet || !m->hasHip) throw std::runtime_error("no humanoid leg chains");
+        MmCachedClip c;
+        c.name          = name;
+        c.fingerprint   = fingerprint;
+        c.frames        = m->frames;
+        c.frameDuration = static_cast<float>(m->dt);
+        c.duration      = static_cast<float>(def.duration > 0 ? def.duration : (m->frames - 1) * m->dt);
+        AppendClipFeatures(*m, c.features);
+        c.rootPositions.reserve(static_cast<std::size_t>(m->frames) * 3);
+        for (const auto& r : m->rootPos) {
+            c.rootPositions.push_back(static_cast<float>(r.x));
+            c.rootPositions.push_back(static_cast<float>(r.y));
+            c.rootPositions.push_back(static_cast<float>(r.z));
+        }
+        c.curves = def.curves;
+        return c;
     }
 
     bool WriteMmCache(const std::vector<MmCachedClip>& clips, std::vector<std::uint8_t>& out, std::string& err)
