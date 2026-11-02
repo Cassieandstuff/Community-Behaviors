@@ -578,6 +578,8 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             { "clipset", { "children", "groups" } },
             { "clipchild", { "clip", "group", "start", "end" } },
             { "clipgroup", { "label" } },
+            { "blendspace", { "children", "parameter", "cycleMin", "cycleMax", "flags" } },
+            { "blendchild", { "clip", "position" } },
         };
         for (const auto& [name, cs] : m_byName) {
             if (cs.view.kind.empty()) continue;

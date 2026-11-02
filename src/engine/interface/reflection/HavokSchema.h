@@ -168,6 +168,8 @@ struct ClassSchema {
     ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and
     ///        its groups; `clipchild` (clip, group, start, end) — one row: the clip, the name of its group, and the
     ///        seconds searched; `clipgroup` (label) — one group, named by its rows.
+    ///        `blendspace` (children, parameter, cycleMin, cycleMax, flags) — a node blending children along an axis;
+    ///        `blendchild` (clip, position) — one child, where it sits.
     struct View {
         std::string                        kind;
         std::map<std::string, std::string> roles;   ///< role -> field name

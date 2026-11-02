@@ -2,6 +2,7 @@ name:      hkbBlenderGenerator
 parent:    hkbGenerator
 signature: 0x22df7147
 size:      160
+view:      { kind: blendspace, children: children, parameter: blendParameter, cycleMin: minCyclicBlendParameter, cycleMax: maxCyclicBlendParameter, flags: flags }
 fields:
   - { name: referencePoseWeightThreshold, type: float }
   - { name: blendParameter,               type: float }
