@@ -4,10 +4,11 @@
 
 #include <platform/ik/Fabrik.h>
 
-#include <Animation/Rig/hkaSkeleton.h>
-#include <Behavior/Driver/FootIk/hkbFootIkDriver.h>
-#include <Behavior/Generator/hkbGeneratorOutput.h>
-#include <Behavior/Modifier/FootIk/hkbFootIkGains.h>
+#include <Common/Base/hkBase.h>
+#include <Animation/Animation/Rig/hkaSkeleton.h>
+#include <Behavior/Behavior/Driver/FootIk/hkbFootIkDriver.h>
+#include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
+#include <Behavior/Behavior/Modifier/FootIk/hkbFootIkGains.h>
 
 #include <algorithm>
 #include <cmath>
@@ -17,22 +18,21 @@ namespace CB::feature::footik {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace ik = platform::ik;
 
         constexpr float     kPi = 3.14159265f;
         constexpr ik::Params kLimb{ 20, 0.1f };
         constexpr ik::Params kSpine{ 20, 0.1f };
 
-        ik::Vec3 V(const hk::hkVector4& v) { return { v.m_quad.m128_f32[0], v.m_quad.m128_f32[1], v.m_quad.m128_f32[2] }; }
-        ik::Quat Q(const hk::hkQuaternion& q)
+        ik::Vec3 V(const ::hkVector4& v) { return { v.getQuad().m128_f32[0], v.getQuad().m128_f32[1], v.getQuad().m128_f32[2] }; }
+        ik::Quat Q(const ::hkQuaternion& q)
         {
-            return { q.m_vec.m_quad.m128_f32[0], q.m_vec.m_quad.m128_f32[1], q.m_vec.m_quad.m128_f32[2], q.m_vec.m_quad.m128_f32[3] };
+            return { q.m_vec.getQuad().m128_f32[0], q.m_vec.getQuad().m128_f32[1], q.m_vec.getQuad().m128_f32[2], q.m_vec.getQuad().m128_f32[3] };
         }
-        hk::hkQuaternion HkQ(const ik::Quat& q)
+        ::hkQuaternion HkQ(const ik::Quat& q)
         {
-            hk::hkQuaternion out;
-            out.m_vec.m_quad = _mm_setr_ps(q.x, q.y, q.z, q.w);
+            ::hkQuaternion out;
+            out.m_vec.getQuad() = _mm_setr_ps(q.x, q.y, q.z, q.w);
             return out;
         }
         ik::Vec3 Mul(ik::Vec3 a, ik::Vec3 b) { return { a.x * b.x, a.y * b.y, a.z * b.z }; }
@@ -77,10 +77,10 @@ namespace CB::feature::footik {
         ///        scaled space.
         class Pose {
         public:
-            Pose(const hk::hkaSkeleton& skeleton, hk::hkbGeneratorOutput& output) :
+            Pose(const ::hkaSkeleton& skeleton, ::hkbGeneratorOutput& output) :
                 m_parents(skeleton.m_parentIndices),
                 m_out(output.accessPoseLocal()),
-                m_scale(output.accessWorldFromModel().m_scale.m_quad.m128_f32[0])
+                m_scale(output.accessWorldFromModel().m_scale.getQuad().m128_f32[0])
             {
                 const int numBones = std::min(output.getNumPoseLocal(), skeleton.m_parentIndices.getSize());
                 m_local.resize(numBones);
@@ -92,24 +92,24 @@ namespace CB::feature::footik {
                 Update();
             }
 
-            bool Valid(hk::hkInt16 bone) const { return bone >= 0 && bone < static_cast<int>(m_model.size()); }
+            bool Valid(::hkInt16 bone) const { return bone >= 0 && bone < static_cast<int>(m_model.size()); }
             bool Usable() const { return m_scale > 1e-6f && !m_model.empty(); }
-            const Xf& Model(hk::hkInt16 bone) const { return m_model[bone]; }
+            const Xf& Model(::hkInt16 bone) const { return m_model[bone]; }
 
             /// @brief Every bone's model transform from the locals (parents come before their children).
             void Update()
             {
                 for (std::size_t i = 0; i < m_local.size(); i++) {
-                    const hk::hkInt16 parent = m_parents[static_cast<int>(i)];
+                    const ::hkInt16 parent = m_parents[static_cast<int>(i)];
                     m_model[i]               = parent >= 0 && parent < static_cast<int>(i) ? Compose(m_model[parent], m_local[i]) : m_local[i];
                 }
             }
 
             /// @brief Turns `bone` to the model rotation `rotation`; its descendants keep their locals.
             /// @pre   Its parent's model rotation is current (set earlier in the same pass, or by Update).
-            void SetModelRotation(hk::hkInt16 bone, const ik::Quat& rotation)
+            void SetModelRotation(::hkInt16 bone, const ik::Quat& rotation)
             {
-                const hk::hkInt16 parent  = m_parents[bone];
+                const ::hkInt16 parent  = m_parents[bone];
                 const ik::Quat    local   = parent >= 0 ? ik::Normalized(ik::Conjugate(m_model[parent].r) * rotation) : rotation;
                 m_local[bone].r           = local;
                 m_model[bone].r           = rotation;
@@ -117,34 +117,34 @@ namespace CB::feature::footik {
             }
 
             /// @brief Moves `bone` by `delta` in model space; its descendants follow. Positions are stale until Update.
-            void MoveModel(hk::hkInt16 bone, const ik::Vec3& delta)
+            void MoveModel(::hkInt16 bone, const ik::Vec3& delta)
             {
-                const hk::hkInt16 parent = m_parents[bone];
+                const ::hkInt16 parent = m_parents[bone];
                 const ik::Vec3    local  = parent >= 0 ? ik::Rotate(ik::Conjugate(m_model[parent].r), delta) : delta;
                 m_local[bone].t += local;
                 const ik::Vec3 out = local * (1.0f / m_scale);
-                m_out[bone].m_translation.m_quad =
-                    _mm_add_ps(m_out[bone].m_translation.m_quad, _mm_setr_ps(out.x, out.y, out.z, 0.0f));
+                m_out[bone].m_translation.getQuad() =
+                    _mm_add_ps(m_out[bone].m_translation.getQuad(), _mm_setr_ps(out.x, out.y, out.z, 0.0f));
             }
 
         private:
-            const hk::hkArray<hk::hkInt16>& m_parents;
-            hk::hkQsTransform*              m_out;
+            const ::hkArray<::hkInt16>& m_parents;
+            ::hkQsTransform*              m_out;
             float                           m_scale;
             std::vector<Xf>                 m_local, m_model;
         };
 
-        std::vector<ik::Vec3> Positions(const Pose& pose, const std::vector<hk::hkInt16>& bones)
+        std::vector<ik::Vec3> Positions(const Pose& pose, const std::vector<::hkInt16>& bones)
         {
             std::vector<ik::Vec3> out;
-            for (const hk::hkInt16 bone : bones) out.push_back(pose.Model(bone).t);
+            for (const ::hkInt16 bone : bones) out.push_back(pose.Model(bone).t);
             return out;
         }
 
-        std::vector<ik::Quat> Rotations(const Pose& pose, const std::vector<hk::hkInt16>& bones)
+        std::vector<ik::Quat> Rotations(const Pose& pose, const std::vector<::hkInt16>& bones)
         {
             std::vector<ik::Quat> out;
-            for (const hk::hkInt16 bone : bones) out.push_back(pose.Model(bone).r);
+            for (const ::hkInt16 bone : bones) out.push_back(pose.Model(bone).r);
             return out;
         }
 
@@ -153,7 +153,7 @@ namespace CB::feature::footik {
         /// @note  Vanilla measures the angle between the hip-knee and knee-ankle chords; here it limits the bend between
         ///        the knee bone and the bone below it, which matches where no bone sits between knee and ankle. The
         ///        animated bend is always allowed, so a pose already outside the range does not snap.
-        void ApplyKneeRange(ik::Chain& chain, const RigLeg& leg, const hk::hkaTwoJointsIkSolver::Setup& setup, const ik::Quat& kneeRotation)
+        void ApplyKneeRange(ik::Chain& chain, const RigLeg& leg, const ::hkaTwoJointsIkSolver::Setup& setup, const ik::Quat& kneeRotation)
         {
             const auto knee = std::find(leg.chain.begin(), leg.chain.end(), setup.m_secondJointIdx);
             if (knee == leg.chain.end() || knee == leg.chain.begin() || knee + 1 == leg.chain.end()) return;
@@ -197,15 +197,15 @@ namespace CB::feature::footik {
         bool Usable(const Pose& pose, const LegRequest& request)
         {
             if (!request.rigLeg || request.rigLeg->chain.size() < 2 || !pose.Valid(request.setup.m_secondJointIdx)) return false;
-            for (const hk::hkInt16 bone : request.rigLeg->chain)
+            for (const ::hkInt16 bone : request.rigLeg->chain)
                 if (!pose.Valid(bone)) return false;
             return true;
         }
 
     }  // namespace
 
-    void SolveBodyAndLegs(const Rig& rig, const hk::hkaSkeleton& skeleton, std::span<const LegRequest> requests, const BodyInputs& inputs,
-                          hk::hkbGeneratorOutput& output)
+    void SolveBodyAndLegs(const Rig& rig, const ::hkaSkeleton& skeleton, std::span<const LegRequest> requests, const BodyInputs& inputs,
+                          ::hkbGeneratorOutput& output)
     {
         Pose pose(skeleton, output);
         if (!pose.Usable() || !pose.Valid(rig.bodyRoot)) return;
@@ -218,10 +218,10 @@ namespace CB::feature::footik {
         std::vector<ik::Quat> ankles;
         for (const LegRequest* leg : legs) ankles.push_back(pose.Model(leg->rigLeg->chain.back()).r);
 
-        std::vector<std::vector<hk::hkInt16>> spineBones;
-        for (const std::vector<hk::hkInt16>& spine : rig.spines) {
-            spineBones.push_back(spine.empty() ? std::vector<hk::hkInt16>{ rig.bodyRoot } : spine);
-            for (const hk::hkInt16 bone : spineBones.back())
+        std::vector<std::vector<::hkInt16>> spineBones;
+        for (const std::vector<::hkInt16>& spine : rig.spines) {
+            spineBones.push_back(spine.empty() ? std::vector<::hkInt16>{ rig.bodyRoot } : spine);
+            for (const ::hkInt16 bone : spineBones.back())
                 if (!pose.Valid(bone)) return;
         }
 
@@ -254,7 +254,7 @@ namespace CB::feature::footik {
             if (rigid) {
                 rigidAsk /= static_cast<float>(rigid);
                 for (std::size_t a = 0; a < spineBones.size(); a++) {
-                    const std::vector<hk::hkInt16>& bones = spineBones[a];
+                    const std::vector<::hkInt16>& bones = spineBones[a];
                     if (bones.size() < 2 || !pulled(a)) continue;
                     ik::Chain      chain  = SpineChain(Positions(pose, bones));
                     const ik::Vec3 anchor = chain.joints.back();
@@ -270,7 +270,7 @@ namespace CB::feature::footik {
         }
 
         for (std::size_t l = 0; l < legs.size(); l++) {
-            const std::vector<hk::hkInt16>& bones = legs[l]->rigLeg->chain;
+            const std::vector<::hkInt16>& bones = legs[l]->rigLeg->chain;
             ik::Chain                       chain = LegChain(pose, *legs[l]);
             ik::Solve(chain, Target(*legs[l], chain.joints.back()), kLimb);
             const std::vector<ik::Quat> rotations = ik::AimRotations(chain, Rotations(pose, bones));
@@ -280,12 +280,12 @@ namespace CB::feature::footik {
         }
     }
 
-    bool AlignToGround(const Rig& rig, hk::hkbFootIkDriver& driver, const hk::hkVector4& modelUpMS, const hk::hkVector4& modelRightMS,
-                       hk::hkbGeneratorOutput& output, const hk::hkbFootIkGains& gains)
+    bool AlignToGround(const Rig& rig, ::hkbFootIkDriver& driver, const ::hkVector4& modelUpMS, const ::hkVector4& modelRightMS,
+                       ::hkbGeneratorOutput& output, const ::hkbFootIkGains& gains)
     {
         if (rig.spines.size() != 2 || static_cast<int>(rig.legs.size()) != driver.m_internalLegData.getSize() || !driver.m_isGroundPositionValid)
             return false;
-        const hk::hkInt16 hindAnchor = rig.spines[0].empty() ? rig.bodyRoot : rig.spines[0].back();
+        const ::hkInt16 hindAnchor = rig.spines[0].empty() ? rig.bodyRoot : rig.spines[0].back();
         ik::Vec3          ground[2];
         int               count[2] = { 0, 0 };
         for (std::size_t i = 0; i < rig.legs.size(); i++) {
@@ -296,7 +296,7 @@ namespace CB::feature::footik {
         if (!count[0] || !count[1]) return false;
         if (gains.m_alignWorldFromModelGain <= 0.0f) return true;
 
-        hk::hkQsTransform& worldFromModel = output.accessWorldFromModel();
+        ::hkQsTransform& worldFromModel = output.accessWorldFromModel();
         const ik::Quat     rotation       = Q(worldFromModel.m_rotation);
         const ik::Vec3     up             = ik::Normalized(ik::Rotate(rotation, V(modelUpMS)));
         const ik::Vec3     right          = ik::Normalized(ik::Rotate(rotation, V(modelRightMS)));

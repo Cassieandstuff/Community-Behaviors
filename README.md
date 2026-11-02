@@ -23,6 +23,20 @@ Third-party code keeps its own license: vendored sources carry theirs beside the
 their upstream terms. The `schema/templates/` XML is derived from Skyrim's own behavior files, for use
 with the game.
 
+### The CB SDK
+
+The plugin compiles against the CB SDK, a private repository at `lib/cb-sdk` holding CB's reconstruction
+of the Havok and Bethesda code inside Skyrim. It is not covered by this repository's license and its
+source is not published, so only people with access to it can build the plugin. Contributors work by
+invitation for now.
+
+As an additional permission under GPL-3.0 section 7, Community Behaviors may be combined with the CB SDK
+as a *Modding Library* without the SDK's source shipping with the combination. Every other condition of
+the license, including the source of Community Behaviors itself, still applies.
+
+The plan is to release the SDK's headers publicly at a later time, with the compiled code as a prebuilt
+library, so that anyone can build the plugin. That work is not finished and has no date.
+
 ## Layout
 
 ```

@@ -3,14 +3,16 @@
 #include "CharDebugHud.h"
 #include "CharGround.h"
 
+#include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContextAccess.h>
 #include <core/debug/Settings.h>
 #include <platform/hooks/hookslib.h>
 #include <platform/hooks/Override.h>
 
+#include <Common/Base/hkBase.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>
+#include <BSHavok/bhkCharacterController.h>
+#include <BSHavok/bhkCharacterState.h>
+#include <BSHavok/bhkWorld.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
@@ -41,11 +43,10 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
         namespace eng        = platform::hooks::engine;
-        using GetState       = platform::hooks::Override<&hk::hkpCharacterStateManager::getState>;
-        using SimulateFn     = void (*)(const void* state, hk::bhkCharacterController* controller);
+        using GetState       = platform::hooks::Override<&::hkpCharacterStateManager::getState>;
+        using SimulateFn     = void (*)(const void* state, ::bhkCharacterController* controller);
 
         constexpr int kSlots        = 9;   ///< hkReferencedObject 0-2, getType 3, enter/leave 4-5, update/change 6-7, Simulate 8
         constexpr int kSimulateSlot = 8;
@@ -100,8 +101,8 @@ namespace CB::feature {
         ///        air control no longer depends on the frame rate.
         /// @note Assumed 60 Hz (vanilla's usual physics step); unverified against bhkWorld's step time.
         constexpr float kAirReferenceStep = 1.0f / 60.0f;
-        constexpr hk::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
-        constexpr hk::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
+        constexpr ::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
+        constexpr ::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
 
         /// @note No Sliding mode: ground too steep to stand on is Grounded with low support, where the slide velocity
         ///       (ch::SlideStep) drags the character down and the player cannot climb (ch::ClipUphill).
@@ -176,7 +177,7 @@ namespace CB::feature {
         constexpr std::uint32_t    kLogCap = 4000;
         bool LogBudget() { return g_logs.fetch_add(1, std::memory_order_relaxed) < kLogCap; }
 
-        Track& TrackFor(const hk::bhkCharacterController* ctrl)
+        Track& TrackFor(const ::bhkCharacterController* ctrl)
         {
             std::scoped_lock lock(g_trackLock);
             return g_tracks[static_cast<const void*>(ctrl)];
@@ -192,25 +193,25 @@ namespace CB::feature {
         }
 
         /// @brief The world's gravity (Havok units/s^2), zero without a world.
-        void WorldGravity(hk::bhkCharacterController& c, float& gx, float& gy, float& gz)
+        void WorldGravity(::bhkCharacterController& c, float& gx, float& gy, float& gz)
         {
             gx = gy = gz = 0.0f;
-            hk::bhkWorld* world = c.GetHavokWorld();
+            ::bhkWorld* world = c.GetHavokWorld();
             if (!world) return;
-            const hk::hkVector4& g = world->GetGravity();
+            const ::hkVector4& g = world->GetGravity();
             gx = g(0), gy = g(1), gz = g(2);
         }
 
         using ch::DesiredHorizontal;
 
-        float HeightGame(hk::bhkCharacterController& c)
+        float HeightGame(::bhkCharacterController& c)
         {
-            hk::hkVector4 pos;
+            ::hkVector4 pos;
             c.GetPositionImpl(pos, true);
             return pos(2) * kGameUnitsPerHavok;
         }
 
-        void Commit(hk::bhkCharacterController& c, hk::hkpCharacterStateType state)
+        void Commit(::bhkCharacterController& c, ::hkpCharacterStateType state)
         {
             c.m_wantState = state;
             c.CommitWantedState();
@@ -310,7 +311,7 @@ namespace CB::feature {
         /// @brief A player jump's rising step: returns the gravity multiplier and may lower `oz` (Havok units/s).
         /// @note Full height is vanilla's whenever Jump stays held, so jump-height settings and NPC path jumps (never
         ///       variable: player only) keep their meaning; releasing only ever shortens the rise.
-        float VariableRise(hk::bhkCharacterController& c, Track& t, float& oz, float height, float g)
+        float VariableRise(::bhkCharacterController& c, Track& t, float& oz, float height, float g)
         {
             const JumpTunables& j    = Jump();
             JumpInput&          in   = JumpInput::Get();
@@ -342,9 +343,9 @@ namespace CB::feature {
         /// @brief G7 + G6: one Airborne step. Gravity 1x while rising (above m_fallStartHeight, which it raises),
         ///        fInAirFallingCharGravityMult:HAVOK while falling; air control as the ground spring at the stiffness
         ///        vanilla InAir's gain implies.
-        void AirStep(hk::bhkCharacterController& c, Track& t, float dt, bool steer)
+        void AirStep(::bhkCharacterController& c, Track& t, float dt, bool steer)
         {
-            const hk::hkVector4 v = c.m_outVelocity;
+            const ::hkVector4 v = c.m_outVelocity;
             float ox = v(0), oy = v(1), oz = v(2);
             if (steer && c.m_acrobatics > 0.0f) {
                 static const float base = GmstFloat("fJumpMoveBase", 0.0f);
@@ -390,10 +391,10 @@ namespace CB::feature {
         ///        uphill part cut by the ground's lack of support), the slide velocity is added, the sum is laid along
         ///        the ground plane at the same speed (as vanilla's surface frame does), plus one step of gravity
         ///        pressing into the floor (vanilla OnGround's pressure, never its 4x).
-        void GroundStep(hk::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, float dt)
+        void GroundStep(::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, float dt)
         {
-            const hk::hkVector4 v    = c.m_outVelocity;
-            const hk::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
+            const ::hkVector4 v    = c.m_outVelocity;
+            const ::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
             if (!t.springInit) {
                 t.vx = v(0) - surf(0) - t.sx, t.vy = v(1) - surf(1) - t.sy, t.ax = t.ay = 0.0f;
                 t.springInit = true;
@@ -413,7 +414,7 @@ namespace CB::feature {
             ///       own direction it is held to the body's actual speed before this step's gain.
             const float slide = std::sqrt(t.sx * t.sx + t.sy * t.sy);
             if (slide > 1.0e-6f) {
-                hk::hkVector4 body;
+                ::hkVector4 body;
                 c.GetLinearVelocityImpl(body);
                 const float made = (std::max)(0.0f, ((body(0) - surf(0)) * t.sx + (body(1) - surf(1)) * t.sy) / slide);
                 if (made < slide) t.sx *= made / slide, t.sy *= made / slide;
@@ -453,7 +454,7 @@ namespace CB::feature {
 
         /// @brief Under the pogo, a fall that would carry the feet below the floor its rays found this step lands on it
         ///        instead: the floating shape would not stop them until they were the lift below it.
-        void ClampLanding(hk::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
+        void ClampLanding(::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
         {
             float floor = 0.0f;
             if (!ch::PogoOn() || !(dt > 0.0f) || !ch::PogoFloor(c, fv, floor) || floor > 0.0f) return;
@@ -468,7 +469,7 @@ namespace CB::feature {
                      Name(to), why, ch::Name(fv.ground), fv.supportHits, fv.walkableHits, fv.stickable, fv.stickDz, vz, t.airTime);
         }
 
-        void EnterAirborne(hk::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float vz)
+        void EnterAirborne(::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float vz)
         {
             LogTransition(t, Mode::Airborne, Name(entry), fv, vz);
             t.mode       = Mode::Airborne;
@@ -482,10 +483,10 @@ namespace CB::feature {
             t.pogoHeld   = false;
             t.riding     = false;
             if (entry != AirEntry::Jumped && entry != AirEntry::OutOfWater) c.m_fallStartHeight = HeightGame(c);
-            Commit(c, hk::HK_CHARACTER_IN_AIR);
+            Commit(c, ::HK_CHARACTER_IN_AIR);
         }
 
-        void EnterGrounded(hk::bhkCharacterController& c, Track& t, Mode to, const char* why, const ch::FloorVerdict& fv, float vz)
+        void EnterGrounded(::bhkCharacterController& c, Track& t, Mode to, const char* why, const ch::FloorVerdict& fv, float vz)
         {
             LogTransition(t, to, why, fv, vz);
             if (t.mode == Mode::Airborne) {
@@ -499,11 +500,11 @@ namespace CB::feature {
             t.entry   = AirEntry::None;
             t.airTime = 0.0f;
             t.windup  = -1.0f;
-            Commit(c, hk::HK_CHARACTER_ON_GROUND);
+            Commit(c, ::HK_CHARACTER_ON_GROUND);
         }
 
         /// @brief The jump's vertical launch speed (Havok units/s): vanilla's full height (m_jumpHeight) under gravity.
-        float LaunchSpeed(hk::bhkCharacterController& c)
+        float LaunchSpeed(::bhkCharacterController& c)
         {
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
@@ -517,10 +518,10 @@ namespace CB::feature {
         ///       wall); from the air (coyote, out of water) the body's own.
         /// @note From the ground the launch is ch::JumpLaunch: the ground velocity's slope part kept, the push straight up
         ///       uphill and along the normal downhill. From the air it is straight up.
-        void Launch(hk::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float dt)
+        void Launch(::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float dt)
         {
-            const hk::hkVector4 v    = c.m_outVelocity;
-            const hk::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
+            const ::hkVector4 v    = c.m_outVelocity;
+            const ::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
             float hx = v(0) - surf(0), hy = v(1) - surf(1);
             if (t.mode != Mode::Airborne && t.springInit) hx = t.vx + t.sx, hy = t.vy + t.sy;
             const float            speed  = LaunchSpeed(c);
@@ -557,31 +558,31 @@ namespace CB::feature {
         }
 
         /// @brief Snaps the character down onto the walkable floor `dz` (negative, Havok units) below its feet (M8).
-        void Stick(hk::bhkCharacterController& c, float dz)
+        void Stick(::bhkCharacterController& c, float dz)
         {
-            hk::hkVector4 pos;
+            ::hkVector4 pos;
             c.GetPositionImpl(pos, true);
             pos(2) += dz;
             c.SetPositionImpl(pos, true, false);
         }
 
-        void SetSupportFrom(hk::bhkCharacterController& c, const ch::FloorVerdict& fv)
+        void SetSupportFrom(::bhkCharacterController& c, const ch::FloorVerdict& fv)
         {
             if (!fv.supportBody) return;
-            hk::hkpRigidBody* body = hk::hkpGetRigidBody(fv.supportBody);
-            if (body && body != c.m_supportBody.m_pntr) c.SetSupportBody(body);
+            ::hkpRigidBody* body = ::hkpGetRigidBody(fv.supportBody);
+            if (body && body != c.m_supportBody.val()) c.SetSupportBody(body);
         }
 
         /// @brief Runs one managed step through the vanilla state now current (Swimming, Climbing, ...).
-        void RunCurrentVanilla(hk::bhkCharacterController& c)
+        void RunCurrentVanilla(::bhkCharacterController& c)
         {
-            const hk::hkpCharacterState* state = c.m_context.m_stateManager->getState(c.m_context.m_currentState);
+            const ::hkpCharacterState* state = ::hkExtensionAccess<::hkpCharacterContext>::stateManager(c.m_context)->getState(c.m_context.getState());
             if (!state) return;
             const auto fn = reinterpret_cast<SimulateFn>((*reinterpret_cast<void* const* const*>(state))[kSimulateSlot]);
             fn(state, &c);
         }
 
-        void PublishHud(hk::bhkCharacterController& c, const Track& t, const ch::Hull& hull, const ch::FloorVerdict& fv)
+        void PublishHud(::bhkCharacterController& c, const Track& t, const ch::Hull& hull, const ch::FloorVerdict& fv)
         {
             ch::hud::Controller h;
             const ch::FloorTunables tun;
@@ -600,7 +601,7 @@ namespace CB::feature {
             h.airTime      = t.airTime;
             h.variableJump = t.variableJump;
             h.jumpReleased = t.released;
-            const hk::hkVector4 v = c.m_outVelocity;
+            const ::hkVector4 v = c.m_outVelocity;
             h.velocity = { v(0), v(1), v(2) };
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
@@ -645,12 +646,12 @@ namespace CB::feature {
         ///       m_fallTime, kHitFlags on landing).
         /// @warning kCanJump is written here, but the proxy's constraints callback during the integrate (Unk_0B) may
         ///          OR it in again for a supported, unchanged state; it never clears it.
-        void CbSimulate(int id, hk::bhkCharacterController& c)
+        void CbSimulate(int id, ::bhkCharacterController& c)
         {
             Track&      t   = TrackFor(&c);
             const float dt  = c.m_stepInfo.m_deltaTime;
             if (ch::IsPlayer(&c)) JumpInput::Get().EnsureRegistered();
-            const int   cur = static_cast<int>(c.m_context.m_currentState);
+            const int   cur = static_cast<int>(c.m_context.getState());
             const int   previousState = t.init ? t.lastState : -1;
 
             /// @note The pogo's correction rate moved the feet last step and stops there: the velocity this step reads
@@ -660,7 +661,7 @@ namespace CB::feature {
 
             if (!t.init || t.lastState != cur) {
                 const Mode before = t.mode;
-                t.mode       = cur == hk::HK_CHARACTER_IN_AIR ? Mode::Airborne : Mode::Grounded;
+                t.mode       = cur == ::HK_CHARACTER_IN_AIR ? Mode::Airborne : Mode::Grounded;
                 t.entry      = t.mode == Mode::Airborne ? AirEntry::Launched : AirEntry::None;
                 t.springInit = false;
                 t.sx = t.sy  = 0.0f;
@@ -674,17 +675,17 @@ namespace CB::feature {
             }
 
             int want = static_cast<int>(c.m_wantState);
-            if (want == cur) want = hk::HK_CHARACTER_MAX_STATE_ID;
+            if (want == cur) want = ::HK_CHARACTER_MAX_STATE_ID;
 
             /// @note G2: states CB does not run are honoured at once and simulated by vanilla this step.
-            if (want == hk::HK_CHARACTER_CLIMBING || want == hk::HK_CHARACTER_FLYING
-                || (want >= hk::HK_CHARACTER_USER_STATE_0 && want < hk::HK_CHARACTER_MAX_STATE_ID)) {
+            if (want == ::HK_CHARACTER_CLIMBING || want == ::HK_CHARACTER_FLYING
+                || (want >= ::HK_CHARACTER_USER_STATE_0 && want < ::HK_CHARACTER_MAX_STATE_ID)) {
                 if (LogBudget()) LOG_INFO("ground states: {} -> vanilla state {} (requested)", Name(t.mode), want);
                 if (t.mode == Mode::Airborne) c.m_fallTime = 0.0f;
-                Commit(c, static_cast<hk::hkpCharacterStateType>(want));
+                Commit(c, static_cast<::hkpCharacterStateType>(want));
                 t.lastState = want;
                 t.init      = false;
-                if (want != hk::HK_CHARACTER_FLYING) RunCurrentVanilla(c);
+                if (want != ::HK_CHARACTER_FLYING) RunCurrentVanilla(c);
                 return;
             }
 
@@ -702,12 +703,12 @@ namespace CB::feature {
                 t.lastVerdict = fv.ground;
             }
 
-            if (id == hk::HK_CHARACTER_JUMPING || cur == hk::HK_CHARACTER_JUMPING) {
+            if (id == ::HK_CHARACTER_JUMPING || cur == ::HK_CHARACTER_JUMPING) {
                 /// @note A Jumping state some vanilla state committed (Swimming's jump out of the water): launch.
-                Launch(c, t, previousState == hk::HK_CHARACTER_USER_STATE_0 ? AirEntry::OutOfWater : AirEntry::Jumped, fv, dt);
+                Launch(c, t, previousState == ::HK_CHARACTER_USER_STATE_0 ? AirEntry::OutOfWater : AirEntry::Jumped, fv, dt);
             } else if (t.mode != Mode::Airborne) {
                 bool grounded = true;
-                if (want == hk::HK_CHARACTER_IN_AIR) {
+                if (want == ::HK_CHARACTER_IN_AIR) {
                     EnterAirborne(c, t, AirEntry::Launched, fv, vz);
                     grounded = false;
                 } else if (fv.ground != ch::Ground::Airborne) {
@@ -730,7 +731,7 @@ namespace CB::feature {
 
                 if (grounded) {
                     if (fv.ground == ch::Ground::Grounded) t.lastGround = fv;
-                    if (want == hk::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
+                    if (want == ::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
                         t.windup = JumpWindup();
                         if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s", t.windup);
                     }
@@ -751,18 +752,18 @@ namespace CB::feature {
                     EnterGrounded(c, t, Mode::Grounded, "landed", fv, vz);
                     if (ch::Supported(fv)) SetSupportFrom(c, fv);
                     GroundStep(c, t, fv, dt);
-                } else if (want == hk::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
+                } else if (want == ::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
                     /// @note G2: a forced OnGround only onto support within probe depth.
                     if (fv.supportHits == 0 && !pogo) Stick(c, fv.stickDz);
                     EnterGrounded(c, t, Mode::Grounded, "forced", fv, vz);
                     GroundStep(c, t, fv, dt);
-                } else if ((want == hk::HK_CHARACTER_JUMPING || t.windup >= 0.0f) && coyote) {
+                } else if ((want == ::HK_CHARACTER_JUMPING || t.windup >= 0.0f) && coyote) {
                     /// @note A wind-up the character walked off during launches at once, as a coyote jump.
                     if (LogBudget())
                         LOG_INFO("ground states: coyote jump {:.3f} s after walking off{}", t.airTime, t.windup >= 0.0f ? " (cut the wind-up short)" : "");
                     Launch(c, t, AirEntry::Jumped, fv, dt);
                 } else {
-                    if (want == hk::HK_CHARACTER_ON_GROUND || want == hk::HK_CHARACTER_JUMPING) {
+                    if (want == ::HK_CHARACTER_ON_GROUND || want == ::HK_CHARACTER_JUMPING) {
                         if (LogBudget()) LOG_INFO("ground states: dropped request {} in Airborne ({})", want, Name(t.entry));
                     }
                     AirStep(c, t, dt, true);
@@ -809,11 +810,11 @@ namespace CB::feature {
             }
             ch::PublishGroundNote(c, note);
             if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, fv);
-            t.lastState = static_cast<int>(c.m_context.m_currentState);
+            t.lastState = static_cast<int>(c.m_context.getState());
         }
 
         /// @brief Whether CB's ground states run `controller` this step.
-        bool CbRuns(hk::bhkCharacterController* controller)
+        bool CbRuns(::bhkCharacterController* controller)
         {
             static const bool on = core::debug::FlagOn("char_ground_states");
             if (!on || !controller || !ch::IsManaged(*controller)) return false;
@@ -834,7 +835,7 @@ namespace CB::feature {
         }
 
         template <int Id>
-        void WrapperSimulate(const void* /*self*/, hk::bhkCharacterController* controller)
+        void WrapperSimulate(const void* /*self*/, ::bhkCharacterController* controller)
         {
             const Wrapper& w = g_wrappers[Id];
             if (ch::IsPlayer(controller)) {
@@ -877,9 +878,9 @@ namespace CB::feature {
                      reinterpret_cast<std::uintptr_t>(vanillaTable), reinterpret_cast<std::uintptr_t>(vanillaTable[kSimulateSlot]));
         }
 
-        hk::hkpCharacterState* OnGetState(GetState::Next next, const hk::hkpCharacterStateManager* manager, hk::hkpCharacterStateType type)
+        ::hkpCharacterState* OnGetState(GetState::Next next, const ::hkpCharacterStateManager* manager, ::hkpCharacterStateType type)
         {
-            hk::hkpCharacterState* vanilla = next(manager, type);
+            ::hkpCharacterState* vanilla = next(manager, type);
             const int id = static_cast<int>(type);
             if (!vanilla || id < 0 || id >= kWrapped) return vanilla;
             Wrapper& w = g_wrappers[id];
@@ -892,7 +893,7 @@ namespace CB::feature {
                     return vanilla;
                 }
             }
-            return reinterpret_cast<hk::hkpCharacterState*>(w.bytes);
+            return reinterpret_cast<::hkpCharacterState*>(w.bytes);
         }
 
         [[maybe_unused]] const bool s_subscribed =

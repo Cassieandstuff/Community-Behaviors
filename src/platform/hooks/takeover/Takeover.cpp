@@ -3,7 +3,7 @@
 #include "platform/hooks/takeover/Takeover.h"
 
 #include "core/debug/Settings.h"
-#include "platform/hooks/takeover/ImageSource.h"
+#include "platform/hooks/takeover/DllSource.h"
 #include "platform/hooks/takeover/NearExe.h"
 
 #include <PluginLogger.h>
@@ -17,7 +17,6 @@ namespace CB::platform::hooks {
 
     namespace {
 
-        constexpr const char* kImageFile = "Data/community_behaviors/runtime/havok-runtime.cbimg";
         constexpr const char* kSection   = "HavokRuntime";
         /// @brief A cell stub: `jmp [rip+0]`, the 8-byte cell right after it, padded to 16.
         constexpr std::size_t kStub = 16;
@@ -134,8 +133,11 @@ namespace CB::platform::hooks {
                 LOG_INFO("havok runtime: off ([{}] bEnable) — vanilla runs", kSection);
                 return;
             }
-            auto image = ImageSource::Load(kImageFile);
-            if (!image) return;
+            auto image = std::make_unique<DllSource>();
+            if (!image->Count()) {
+                LOG_INFO("havok runtime: the plugin compiled none of the registry's functions — vanilla runs");
+                return;
+            }
             std::byte* stubs = AllocateNearExe(image->Count() * kStub);
             if (!stubs) {
                 LOG_ERROR("havok runtime: no free memory near the exe for the cell table — vanilla runs");
@@ -154,7 +156,7 @@ namespace CB::platform::hooks {
                     continue;
                 }
                 if (choice != image->Name()) {
-                    LOG_WARN("havok runtime: [{}] {}={} names no code source (image, off) — vanilla runs it", kSection, cls, choice);
+                    LOG_WARN("havok runtime: [{}] {}={} names no code source (dll, off) — vanilla runs it", kSection, cls, choice);
                     ++off;
                     continue;
                 }

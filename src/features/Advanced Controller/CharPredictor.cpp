@@ -11,8 +11,9 @@
 #include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
 #include <platform/profile/Profile.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
+#include <Common/Base/hkBase.h>
+#include <BSHavok/bhkCharProxyController.h>
+#include <BSHavok/bhkCollisionFilter.h>
 
 #include <algorithm>
 #include <array>
@@ -33,9 +34,8 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
-        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief The pogo's spring, the ground states' own (char_pogo).
         constexpr CB::engine::locomotion::Pogo kPogo{};
@@ -83,7 +83,7 @@ namespace CB::feature {
         /// @note Why: 47 of 113 blocked predictions in one session hit layer 22 (ActorZone), a trigger volume.
         std::uint64_t SweepIgnoreLayers()
         {
-            const hk::bhkCollisionFilter* filter = platform::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
+            const ::bhkCollisionFilter* filter = ::bhkCollisionFilter::s_singleton;
             return kIgnoreLayers | (filter ? static_cast<std::uint64_t>(filter->m_sensorField) : 0ull);
         }
 
@@ -204,7 +204,7 @@ namespace CB::feature {
 
         /// @brief The horizontal frame vanilla's grounded states move the character in: where a forward request
         ///        (m_velocityMod y) and a sideways one (m_velocityMod x) move it, from calculateMovement itself.
-        bool MovementFrame(const hk::bhkCharacterController& ctrl, Vec2& tangent, Vec2& side)
+        bool MovementFrame(const ::bhkCharacterController& ctrl, Vec2& tangent, Vec2& side)
         {
             return ch::MovementAxes(ctrl, tangent.x, tangent.y, side.x, side.y);
         }
@@ -275,7 +275,7 @@ namespace CB::feature {
         ///       falsely low support) or their reach above a downhill one (a false Airborne).
         /// @note Under the pogo (`pogo`) the floor is the one the live pogo holds the feet to (ch::PogoFloor), not the
         ///       highest hit, so the predicted height follows the same floor the character will.
-        ch::FloorVerdict SettleFloor(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
+        ch::FloorVerdict SettleFloor(::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
                                      float& z, bool pogo)
         {
             auto floorOf = [&](const ch::FloorVerdict& v, float& dz) { return pogo ? ch::PogoFloor(ctrl, v, dz) : HighestFloor(v, dz); };
@@ -294,7 +294,7 @@ namespace CB::feature {
         /// @brief Where a fall from `zTop` to `zBottom` (feet heights) at (x, y) lands: the highest floor-like hit between
         ///        them, probed with the floor query stepped down the drop (its rays reach one hull radius above the feet
         ///        and the step height below).
-        bool Land(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zTop, float zBottom, float& zLand,
+        bool Land(::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zTop, float zBottom, float& zLand,
                   ch::FloorVerdict& floor)
         {
             const float span = hull.radius + ctrl.m_stepHeight;
@@ -331,8 +331,8 @@ namespace CB::feature {
         /// @param queryTimes seconds ahead for Trajectory::query, ascending, each at most kMaxPathPoints * kPathStep; 0 = none.
         ///        A query sample's facing is its integration substep's; its position and height lie between the resolved
         ///        points on either side, by time; its ground is the later point's.
-        Trajectory Predict(State& s, hk::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
-                           const hk::hkVector4& velocity, const ch::GroundNote& note, const Drive& drive, std::int32_t iState,
+        Trajectory Predict(State& s, ::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
+                           const ::hkVector4& velocity, const ch::GroundNote& note, const Drive& drive, std::int32_t iState,
                            const std::array<float, kFutureSamples>& queryTimes, std::array<Vec2, kFutureSamples>& worldOut, Path& path)
         {
             CB_ZONE(zone, "predictor step");
@@ -378,7 +378,7 @@ namespace CB::feature {
             const float wantSpeed  = std::sqrt(want.x * want.x + want.y * want.y);
             const float facingGoal = wantSpeed > kStillSpeed ? heading + WrapAngle(std::atan2(want.y, want.x) - heading) : heading;
 
-            const hk::hkVector4& gw       = hull.world->GetGravity();
+            const ::hkVector4& gw       = hull.world->GetGravity();
             const float          gx = gw(0) * ctrl.m_gravity, gy = gw(1) * ctrl.m_gravity, gz = gw(2) * ctrl.m_gravity;
             const float          gravity  = std::sqrt(gx * gx + gy * gy + gz * gz);
             static const float   fallMult = ch::IniFloat("fInAirFallingCharGravityMult:HAVOK", 1.35f);
@@ -387,7 +387,7 @@ namespace CB::feature {
             ///       blocks; walkable faces are skipped (m_zNormal) and other characters too. Each grounded point's height
             ///       follows the floor query, so stairs and slopes keep the next leg at the floor.
             /// @note A floating shape (char_pogo) already rides hull.lift above the feet: the sweep adds only the rest.
-            const hk::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
+            const ::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
             const float          lift      = (std::max)(0.0f, ctrl.m_stepHeight - hull.lift);
             const std::uint64_t  ignore    = SweepIgnoreLayers();
             ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
@@ -522,7 +522,7 @@ namespace CB::feature {
                     float       fromZ     = prevZ, toZ = z;
                     float       travelled = 0.0f;
                     for (int slide = 0;; slide++) {
-                        hk::hkVector4 a, b;
+                        ::hkVector4 a, b;
                         a.set(origin(0) + from.x, origin(1) + from.y, origin(2) + fromZ + lift, 0.0f);
                         b.set(origin(0) + to.x, origin(1) + to.y, origin(2) + toZ + lift, 0.0f);
                         const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, ignore);
@@ -536,7 +536,7 @@ namespace CB::feature {
                         const Vec2  contact = { from.x + dx * back, from.y + dy * back };
                         const float contactZ = fromZ + (toZ - fromZ) * back;
                         travelled += len * back;
-                        const hk::hkVector4& n = hit.contact.m_separatingNormal;
+                        const ::hkVector4& n = hit.contact.getSeparatingNormal();
                         if (horizon) {
                             tr.hitNz     = n(2);
                             tr.hitLayer  = hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1;
@@ -708,11 +708,11 @@ namespace CB::feature {
         ///       (m_velocityMod) and support are final but before the state simulates, so the prediction starts from
         ///       exactly the inputs the state is about to read, and it is inside UpdatePhysics, where the floor query and
         ///       the sweep may query the world.
-        void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
+        void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
             next(self);
             if (!self || !ch::IsManaged(*self) || !ch::IsControlled(self)) return;
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             const RE::NiPointer<RE::Actor> actor = ch::ManagedActor(ctrl);
             if (!actor) return;
             /// @note Motion matching and the frame speed are the player's: the ridden horse's prediction feeds the HUD and
@@ -742,7 +742,7 @@ namespace CB::feature {
             if (s.historyCount) Score(s, s.history[s.historyHead], here);
             PushHistory(s, here);
 
-            hk::hkVector4 v;
+            ::hkVector4 v;
             self->GetLinearVelocityImpl(v);
             const float vmx = ctrl.m_velocityMod(0), vmy = ctrl.m_velocityMod(1);
             const Vec2  desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };

@@ -3,19 +3,21 @@
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
+#include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContextAccess.h>
 #include <platform/hooks/hookslib.h>
 #include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
 
+#include <Common/Base/hkBase.h>
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Dynamics/Phantom/hkpShapePhantom.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterCollisionHandler.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/Setting.h>
+#include <BSHavok/bhkCharProxyController.h>
+#include <BSHavok/bhkCharacterCollisionHandler.h>
+#include <BSHavok/bhkCollisionFilter.h>
+#include <BSMain/Setting.h>
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxy.h>
 
 #include <algorithm>
@@ -43,15 +45,14 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk  = CB::havok;
         namespace ch  = CB::feature::controller;
 
-        using Process = platform::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
+        using Process = platform::hooks::Override<&::bhkCharProxyController::processConstraintsCallback>;
 
-        constexpr hk::hkUint32 kTryStep          = 1u << 2;
-        constexpr hk::hkUint32 kStuckQuad        = 1u << 5;
-        constexpr hk::hkUint32 kAnimStaticContact = 0x20000000u;
-        constexpr hk::hkUint32 kOtherSneakPass   = 0x08000000u;
+        constexpr ::hkUint32 kTryStep          = 1u << 2;
+        constexpr ::hkUint32 kStuckQuad        = 1u << 5;
+        constexpr ::hkUint32 kAnimStaticContact = 0x20000000u;
+        constexpr ::hkUint32 kOtherSneakPass   = 0x08000000u;
         constexpr float        kAntiCreep        = 5.7700005f;   ///< Bethesda's extraDown on walkable contacts
         constexpr float        kSteepMinZ        = 1.0e-3f;
         constexpr float        kPenetrationScale = 1.25f;
@@ -61,13 +62,13 @@ namespace CB::feature {
         enum class Kind : std::uint8_t { Block, Zeroed, Character };
 
         /// @brief Bethesda's flatten, as the matched callback does it: z = 0, then normalize3IfNotZero.
-        void Flatten(hk::hkVector4& plane)
+        void Flatten(::hkVector4& plane)
         {
             plane(2) = 0.0f;
             plane.normalize3IfNotZero();
         }
 
-        void Zero(hk::hkSurfaceConstraintInfo& c)
+        void Zero(::hkpSurfaceConstraintInfo& c)
         {
             c.m_plane.set(0.0f, 0.0f, 0.0f, 0.0f);
             c.m_velocity.set(0.0f, 0.0f, 0.0f, 0.0f);
@@ -78,7 +79,7 @@ namespace CB::feature {
 
         /// @brief One line per change of (contacts, zeroed, planes added, support contacts, verdict, bits).
         /// @note The player runs on one thread, so the last signature is plain.
-        void Log(int contacts, int zeroed, int characters, int penetration, int support, const ch::FloorVerdict& v, hk::hkUint32 flags)
+        void Log(int contacts, int zeroed, int characters, int penetration, int support, const ch::FloorVerdict& v, ::hkUint32 flags)
         {
             static std::uint64_t last = ~0ull;
             const std::uint64_t  sig  = static_cast<std::uint64_t>(contacts) | (static_cast<std::uint64_t>(zeroed) << 8)
@@ -99,11 +100,11 @@ namespace CB::feature {
                      v.groundNx, v.groundNy, v.groundNz, (flags >> 9) & 1, (flags >> 10) & 1);
         }
 
-        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Publishes the raw floor verdict before the proxy's integrate (see ch::PublishVerdict); the ground
         ///        states, when on, publish their decided mode after it each step.
-        void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
+        void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
             if (ch::IsManaged(*self)) {
                 /// @note Samples the graph for the planes (ch::GraphMovesPublished), outside the integrate.
@@ -115,10 +116,10 @@ namespace CB::feature {
         }
 
         /// @brief The spec's constraint planes for the managed controller; any other controller runs Bethesda's.
-        void OnProcess(Process::Next next, hk::bhkCharProxyController* self, const hk::hkpCharacterProxy* proxy,
-                       const hk::hkArray<hk::hkRootCdPoint>& manifold, hk::hkSimplexSolverInput& input)
+        void OnProcess(Process::Next next, ::bhkCharProxyController* self, const ::hkpCharacterProxy* proxy,
+                       const ::hkArray<::hkpRootCdPoint>& manifold, ::hkpSimplexSolverInput& input)
         {
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             const int numPoints = (std::min)(input.m_numConstraints, manifold.getSize());
             /// @note While the graph moves the player (a synced clip onto its mark), Bethesda's planes run, its character
             ///       contacts included.
@@ -140,26 +141,26 @@ namespace CB::feature {
 
             /// @note Bethesda's stuck-quad test (kStuckQuad when a contact is near a 3-shape quadruped list's capsule tops),
             ///       kept as is.
-            hk::hkVector4 capsuleTopA, capsuleTopB;
+            ::hkVector4 capsuleTopA, capsuleTopB;
             float         capsuleRadiusSq = 0.0f;
             bool          haveCapsules    = false;
             if ((ctrl.m_flags & 0x80020) == 0x80000) {
-                hk::bhkCachingShapePhantom* bp      = self->m_shapePhantom.get();
-                const hk::hkpShapePhantom*  phantom = bp ? bp->GetPhantom() : nullptr;
-                hk::bhkShape*               s0      = ctrl.m_shapes[0].get();
-                const hk::hkpShape*         shape   = s0 ? s0->GetShape() : nullptr;
-                if (phantom && shape && shape->getType() == hk::HK_SHAPE_LIST) {
-                    const auto* list = static_cast<const hk::hkpListShape*>(shape);
+                ::bhkCachingShapePhantom* bp      = self->m_shapePhantom.get();
+                const ::hkpShapePhantom*  phantom = bp ? bp->GetPhantom() : nullptr;
+                ::bhkShape*               s0      = ctrl.m_shapes[0].get();
+                const ::hkpShape*         shape   = s0 ? s0->GetShape() : nullptr;
+                if (phantom && shape && shape->getType() == ::HK_SHAPE_LIST) {
+                    const auto* list = static_cast<const ::hkpListShape*>(shape);
                     if (list->m_childInfo.getSize() == 3) {
-                        const hk::hkpShape* a = list->m_childInfo[1].m_shape;
-                        const hk::hkpShape* b = list->m_childInfo[2].m_shape;
-                        if (a && a->getType() == hk::HK_SHAPE_CAPSULE && b && b->getType() == hk::HK_SHAPE_CAPSULE) {
-                            const auto*   ca   = static_cast<const hk::hkpCapsuleShape*>(a);
-                            const auto*   cb   = static_cast<const hk::hkpCapsuleShape*>(b);
-                            hk::hkVector4 topA = ca->m_vertexA;
+                        const ::hkpShape* a = list->m_childInfo[1].m_shape;
+                        const ::hkpShape* b = list->m_childInfo[2].m_shape;
+                        if (a && a->getType() == ::HK_SHAPE_CAPSULE && b && b->getType() == ::HK_SHAPE_CAPSULE) {
+                            const auto*   ca   = static_cast<const ::hkpCapsuleShape*>(a);
+                            const auto*   cb   = static_cast<const ::hkpCapsuleShape*>(b);
+                            ::hkVector4 topA = ca->getVertex(0);
                             topA(2) += ca->getRadius();
                             capsuleTopA._setTransformedPos(phantom->getTransform(), topA);
-                            hk::hkVector4 topB = cb->m_vertexA;
+                            ::hkVector4 topB = cb->getVertex(0);
                             topB(2) += cb->getRadius();
                             capsuleTopB._setTransformedPos(phantom->getTransform(), topB);
                             haveCapsules    = true;
@@ -171,18 +172,18 @@ namespace CB::feature {
 
             const float keep       = proxy->m_keepDistance;
             const float perch      = hull.radius * tun.perchFraction;
-            const float moveLimit  = platform::hooks::Live<&hk::g_fMoveLimitMass>();
-            const hk::bhkCollisionFilter* filter = platform::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
+            const float moveLimit  = ::g_fMoveLimitMass;
+            const ::bhkCollisionFilter* filter = ::bhkCollisionFilter::s_singleton;
 
             std::array<Kind, kMaxPoints> kind{};
             bool animStatic = false;
             int  zeroed = 0, characters = 0;
             for (int i = 0; i < numPoints; i++) {
-                hk::hkSurfaceConstraintInfo& c     = input.m_constraints[i];
-                const hk::hkRootCdPoint&     point = manifold[i];
-                hk::hkpRigidBody* const      body  = hk::hkpGetRigidBody(point.m_rootCollidableB);
-                const hk::hkUint32           layer = point.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
-                if ((ctrl.m_flags & 0x210000) == 0x210000 && hk::bhkCharacterController::IsHurtfulBody(body))
+                ::hkpSurfaceConstraintInfo& c     = input.m_constraints[i];
+                const ::hkpRootCdPoint&     point = manifold[i];
+                ::hkpRigidBody* const      body  = ::hkpGetRigidBody(point.m_rootCollidableB);
+                const ::hkUint32           layer = point.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
+                if ((ctrl.m_flags & 0x210000) == 0x210000 && ::bhkCharacterController::IsHurtfulBody(body))
                     ctrl.ProcessHurtfulBody(body, &point.m_contact);
                 animStatic |= (layer == 2);
                 /// @note M3: no static friction; the anti-creep extraDown is granted below to supporting contacts only
@@ -196,14 +197,14 @@ namespace CB::feature {
                     if (layer == ch::kCharControllerLayer) {
                         /// @note M9: another character blocks as a flattened plane and never supports.
                         kind[i] = Kind::Character;
-                        hk::bhkCharacterController* other = hk::bhkCharacterController::GetControllerFromCollidable(body);
+                        ::bhkCharacterController* other = ::bhkCharacterController::GetControllerFromCollidable(body);
                         if (other) {
                             Flatten(c.m_plane);
                             ctrl.PushCharacter(other, point.m_contact);
-                            if (auto* handler = platform::hooks::Live<&hk::bhkCharacterCollisionHandler::s_singleton>())
+                            if (auto* handler = ::bhkCharacterCollisionHandler::s_singleton)
                                 handler->HandleCharacterCollision(&ctrl, other);
                         }
-                    } else if (hk::bhkIsDynamicMotionType(body->getMotionType())) {
+                    } else if (::bhkIsDynamicMotionType(body->getMotionType())) {
                         /// @note M10: a light body neither blocks nor supports; a heavy one blocks and Havok's object
                         ///       interaction pushes it. Bethesda's forced up normal (standing on clutter) is gone.
                         if (body->getMass() < moveLimit) {
@@ -212,9 +213,9 @@ namespace CB::feature {
                         }
                     } else if (layer != 2 && layer != 4 && layer != 5 && layer != 6) {
                         if (haveCapsules && !ctrl.IsFlagSet(5)) {
-                            hk::hkVector4 toA, toB;
-                            toA.setSub4(point.m_contact.m_position, capsuleTopA);
-                            toB.setSub4(point.m_contact.m_position, capsuleTopB);
+                            ::hkVector4 toA, toB;
+                            toA.setSub4(point.m_contact.getPosition(), capsuleTopA);
+                            toB.setSub4(point.m_contact.getPosition(), capsuleTopB);
                             if (toA.lengthSquared3().getReal() < capsuleRadiusSq || toB.lengthSquared3().getReal() < capsuleRadiusSq)
                                 ctrl.m_flags |= kStuckQuad;
                         }
@@ -225,8 +226,8 @@ namespace CB::feature {
                 } else if (layer == 14) {
                     if (ctrl.IsFlagSet(16)) c.m_velocity.set(0.0f, 0.0f, 0.0f, 0.0f);
                 } else if (layer == ch::kCharControllerLayer) {
-                    hk::bhkCharacterController* other =
-                        hk::bhkCharacterController::GetControllerFromCollidable(static_cast<const hk::hkpWorldObject*>(point.m_rootCollidableB->getOwner()));
+                    ::bhkCharacterController* other =
+                        ::bhkCharacterController::GetControllerFromCollidable(static_cast<const ::hkpWorldObject*>(point.m_rootCollidableB->getOwner()));
                     if (other && (other->m_flags & kOtherSneakPass)) {
                         Zero(c);
                         kind[i] = Kind::Zeroed;
@@ -245,13 +246,13 @@ namespace CB::feature {
             const float deep = -kPenetrationScale * keep;
             for (int i = 0; i < numPoints; i++) {
                 if (kind[i] != Kind::Block) continue;
-                const hk::hkContactPoint& ci = manifold[i].m_contact;
-                if (!(ci.m_separatingNormal(3) < deep)) continue;
+                const ::hkContactPoint& ci = manifold[i].m_contact;
+                if (!(ci.getSeparatingNormal()(3) < deep)) continue;
                 for (int j = i + 1; j < numPoints; j++) {
                     if (kind[j] != Kind::Block || manifold[j].m_rootCollidableB != manifold[i].m_rootCollidableB) continue;
-                    const hk::hkContactPoint& cj = manifold[j].m_contact;
-                    if (!(cj.m_separatingNormal(3) < deep) || ci.m_separatingNormal.dot3(cj.m_separatingNormal).getReal() >= 0.0f) continue;
-                    const int shallow = ci.m_separatingNormal(3) > cj.m_separatingNormal(3) ? i : j;
+                    const ::hkContactPoint& cj = manifold[j].m_contact;
+                    if (!(cj.getSeparatingNormal()(3) < deep) || ci.getSeparatingNormal().dot3(cj.getSeparatingNormal()).getReal() >= 0.0f) continue;
+                    const int shallow = ci.getSeparatingNormal()(3) > cj.getSeparatingNormal()(3) ? i : j;
                     Zero(input.m_constraints[shallow]);
                     kind[shallow] = Kind::Zeroed;
                     ++penetration;
@@ -268,19 +269,19 @@ namespace CB::feature {
             if (supported) {
                 for (int i = 0; i < numPoints; i++) {
                     if (kind[i] != Kind::Block) continue;
-                    const hk::hkRootCdPoint& point = manifold[i];
-                    const hk::hkVector4&     pos   = point.m_contact.m_position;
-                    if (point.m_contact.m_separatingNormal(2) <= kSteepMinZ || ch::SupportAxisDistSq(hull, pos(0), pos(1)) > perch * perch
+                    const ::hkpRootCdPoint& point = manifold[i];
+                    const ::hkVector4&     pos   = point.m_contact.getPosition();
+                    if (point.m_contact.getSeparatingNormal()(2) <= kSteepMinZ || ch::SupportAxisDistSq(hull, pos(0), pos(1)) > perch * perch
                         || std::fabs(pos(2) - hull.feetZ) > tun.footTolerance)
                         continue;
                     if (!ctrl.IsFlagSet(3)) input.m_constraints[i].m_extraDownStaticFriction = kAntiCreep * verdict.support;
                     ++support;
                     if (!ctrl.IsFlagSet(16) && ctrl.m_orientationCtrl) ctrl.m_orientationCtrl->OnSupportContact(point);
                     ctrl.UpdateContactMaterial(point);
-                    if (ctrl.IsFlagSet(16)) ctrl.SetSupportBody(hk::hkpGetRigidBody(point.m_rootCollidableB));
+                    if (ctrl.IsFlagSet(16)) ctrl.SetSupportBody(::hkpGetRigidBody(point.m_rootCollidableB));
                 }
                 if (!support && ctrl.IsFlagSet(16) && verdict.supportBody)
-                    ctrl.SetSupportBody(hk::hkpGetRigidBody(verdict.supportBody));
+                    ctrl.SetSupportBody(::hkpGetRigidBody(verdict.supportBody));
             }
 
             if (animStatic) ctrl.m_flags |= kAnimStaticContact;
@@ -290,7 +291,7 @@ namespace CB::feature {
             ///       ground.
             if (supported) {
                 ctrl.m_flags |= ch::kHasPotentialSupportManifold;
-                if (ctrl.m_context.m_currentState == ctrl.m_context.m_previousState) ctrl.m_flags |= ch::kCanJump;
+                if (ctrl.m_context.getState() == ::hkExtensionAccess<::hkpCharacterContext>::previousState(ctrl.m_context)) ctrl.m_flags |= ch::kCanJump;
             }
             ctrl.m_onlyWallContacts = !supported;
             ctrl.m_supportCount     = support;

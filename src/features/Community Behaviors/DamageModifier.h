@@ -1,8 +1,9 @@
 #pragma once
 
-#include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
-#include <Behavior/Context/hkbContext.h>
-#include <Behavior/Modifier/hkbModifier.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
+#include <Behavior/Behavior/Modifier/hkbModifier.h>
 
 /// @file
 /// @brief CBDamageModifier, CB's own Havok modifier: while it is active and enabled, its actor takes hits, magic,
@@ -15,29 +16,29 @@
 
 namespace CB::feature::combat {
 
-    class DamageModifier : public CB::havok::hkbModifier {
+    class DamageModifier : public ::hkbModifier {
     public:
-        CB::havok::hkBool m_ignoreHits;            ///< +0x50
-        CB::havok::hkBool m_ignoreMagic;           ///< +0x51
-        CB::havok::hkReal m_incomingStaggerMult;   ///< +0x54
-        CB::havok::hkReal m_incomingDamageMult;    ///< +0x58
+        ::hkBool m_ignoreHits;            ///< +0x50
+        ::hkBool m_ignoreMagic;           ///< +0x51
+        ::hkReal m_incomingStaggerMult;   ///< +0x54
+        ::hkReal m_incomingDamageMult;    ///< +0x58
 
         /// @brief The finish constructor: the vtable on loaded bytes; serialized members stay as loaded.
-        explicit DamageModifier(CB::havok::hkFinishLoadedObjectFlag flag);
+        explicit DamageModifier(::hkFinishLoadedObjectFlag flag);
         DamageModifier(const DamageModifier& other);
         /// @note Retracts the node from the active table: a graph torn down while the node is active destroys its clone
         ///       without deactivating it.
         ~DamageModifier() override;
 
-        const void*          getClassType() const override;
-        void                 activate(const CB::havok::hkbContext& context) override;
+        const ::hkClass*          getClassType() const override;
+        void                 activate(const ::hkbContext& context) override;
         /// @brief Republishes the members, which bindings may have changed since the last frame.
         /// @note Overridden even if it did nothing: hkbNode's own marks the node update-free, and the graph then skips
         ///       copying bound variables into it.
-        void                 update(const CB::havok::hkbContext& context, CB::havok::hkReal timestep) override;
-        void                 deactivate(const CB::havok::hkbContext& context) override;
-        bool                 isValid(CB::havok::hkStringPtr& errorString) const override;
-        CB::havok::hkbNode*  cloneNode(CB::havok::hkbBehaviorGraph& rootBehavior) const override;
+        void                 update(const ::hkbContext& context, ::hkReal timestep) override;
+        void                 deactivate(const ::hkbContext& context) override;
+        bool                 isValid(::hkStringPtr& errorString) const override;
+        ::hkbNode*  cloneNode(::hkbBehaviorGraph& rootBehavior) const override;
     };
     static_assert(sizeof(DamageModifier) == 0x60, "DamageModifier size (schema: 96)");
 

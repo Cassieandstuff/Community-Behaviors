@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Common/Base/hkBase.h>
+#include <BSHavok/bhkCharProxyController.h>
 
 #include <locomotion/Movement.h>
 #include <locomotion/Pogo.h>
@@ -17,35 +18,34 @@
 
 namespace CB::feature::controller {
 
-    namespace hk = CB::havok;
 
-    constexpr hk::hkUint32 kSupport                     = 1u << 8;    ///< m_flags: UpdatePhysics' verdict
-    constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
-    constexpr hk::hkUint32 kCanJump                     = 1u << 10;
-    constexpr hk::hkUint32 kJumping                     = 1u << 13;
+    constexpr ::hkUint32 kSupport                     = 1u << 8;    ///< m_flags: UpdatePhysics' verdict
+    constexpr ::hkUint32 kHasPotentialSupportManifold = 1u << 9;
+    constexpr ::hkUint32 kCanJump                     = 1u << 10;
+    constexpr ::hkUint32 kJumping                     = 1u << 13;
     constexpr unsigned     kCharControllerLayer         = 30;
 
     /// @brief Whether `ctrl` is the player's controller.
-    bool IsPlayer(const hk::bhkCharacterController* ctrl);
+    bool IsPlayer(const ::bhkCharacterController* ctrl);
     /// @brief Whether `ctrl` is the bhkCharacterController base of a bhkCharProxyController.
-    bool IsProxy(const hk::bhkCharacterController& ctrl);
+    bool IsProxy(const ::bhkCharacterController& ctrl);
 
     /// @brief Publishes the horse the player rides (null: none), each frame its frame driver sees it ridden.
     /// @note The ground layer's side of the Ridden component (spec H12): physics callbacks ask IsRiddenHorse instead of
     ///       resolving the mount themselves (some run under the world's write lock).
     void PublishRiddenHorse(RE::Actor* horse);
     /// @brief Whether `ctrl` is the controller of the horse the player rides, as published within the last half second.
-    bool IsRiddenHorse(const hk::bhkCharacterController* ctrl);
+    bool IsRiddenHorse(const ::bhkCharacterController* ctrl);
     /// @brief Whether a ridden horse is published (within the last half second).
     bool Riding();
     /// @brief Whether `ctrl` is the controller the player controls: the ridden horse's while Riding(), else the player's.
     /// @note The debug HUD shows this controller's step.
-    inline bool IsControlled(const hk::bhkCharacterController* ctrl) { return Riding() ? IsRiddenHorse(ctrl) : IsPlayer(ctrl); }
+    inline bool IsControlled(const ::bhkCharacterController* ctrl) { return Riding() ? IsRiddenHorse(ctrl) : IsPlayer(ctrl); }
 
     /// @brief The controllers CB's decision layer runs: the player's and the ridden horse's, on the proxy.
-    inline bool IsManaged(const hk::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl)); }
+    inline bool IsManaged(const ::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl)); }
     /// @brief The actor a managed controller moves (the player, the ridden horse); null for any other.
-    RE::NiPointer<RE::Actor> ManagedActor(const hk::bhkCharacterController& ctrl);
+    RE::NiPointer<RE::Actor> ManagedActor(const ::bhkCharacterController& ctrl);
 
     /// @brief The graph flag under which the graph moves `actor` itself (bAnimationDriven, bIsSynced), empty when
     ///        neither is set: then every CB layer that steers the actor hands it to vanilla.
@@ -57,11 +57,11 @@ namespace CB::feature::controller {
     /// @brief The GraphMovesActor answer for the actor of managed controller `ctrl` as of its last call (false before any).
     /// @note For the proxy's constraint planes: integrate runs under the world's write lock (see PublishVerdict), so they
     ///       read this instead of the graph.
-    bool GraphMovesPublished(const hk::bhkCharacterController& ctrl);
+    bool GraphMovesPublished(const ::bhkCharacterController& ctrl);
 
     /// @brief The steepest face (as its normal's z) the managed controller walks on: the controller's own m_zNormal
     ///        (vanilla's 47 deg) for the player; the horse profile's steeper angle for the ridden horse (spec S12).
-    float WalkableZ(const hk::bhkCharacterController& ctrl);
+    float WalkableZ(const ::bhkCharacterController& ctrl);
 
     /// @brief The live hull in Havok world space, read from the phantom's shape AABB (so DCA's reshapes are seen).
     /// @note A long body (a horse: the engine builds it from capsules along its length, bhkCharacterControllerCinfo
@@ -69,8 +69,8 @@ namespace CB::feature::controller {
     ///       the actor (SetProxyOrientation 0x140ea06e0 -> RotateImpl): a world box would square off under a turn.
     struct Hull {
         bool                     valid  = false;
-        hk::bhkWorld*            world  = nullptr;
-        const hk::hkpCollidable* collidable = nullptr;   ///< the phantom's; Sweep() moves this shape
+        ::bhkWorld*            world  = nullptr;
+        const ::hkpCollidable* collidable = nullptr;   ///< the phantom's; Sweep() moves this shape
         float                    feetZ = 0, cx = 0, cy = 0, radius = 0, topZ = 0;   ///< radius: half the width for a long body
         bool                     longBody   = false;
         float                    fx = 0, fy = 1;          ///< a long body's length axis, horizontal, unit length
@@ -79,7 +79,7 @@ namespace CB::feature::controller {
         float                    lift = 0;
     };
     /// @pre `ctrl` is a proxy controller (IsProxy).
-    Hull GetHull(hk::bhkCharacterController& ctrl);
+    Hull GetHull(::bhkCharacterController& ctrl);
 
     /// @brief The hull's collision shape as it sits in the world (Havok units), for drawing.
     struct HullShape {
@@ -121,7 +121,7 @@ namespace CB::feature::controller {
         float                    dz  = 0;   ///< hit height above the feet (Havok units)
         float                    nx = 0, ny = 0, nz = 0;
         unsigned                 layer = 0;
-        const hk::hkpCollidable* body = nullptr;
+        const ::hkpCollidable* body = nullptr;
     };
 
     /// @brief The support at and above which the ground holds the character (Supported): the constraint planes treat its
@@ -137,7 +137,7 @@ namespace CB::feature::controller {
         bool                     stickable = false;   ///< a floor-like hit (walls and characters excluded) within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest such hit below the foot tolerance (negative)
         float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it); under the pogo its ray's
-        const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
+        const ::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};       ///< axis, then the ring at the perch radius (a long body's fore end)
         bool                     longBody = false;
@@ -164,12 +164,12 @@ namespace CB::feature::controller {
     ///        lower support when both ends are; when one end is, Grounded on that end alone (it stands, and moving on
     ///        steps the other end down); Airborne when neither is. Its hits are the fore end's.
     /// @pre Called where vanilla OnGround::Simulate calls PickObject: inside UpdatePhysics, outside the physics step.
-    FloorVerdict QueryFloor(hk::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
+    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
     /// @brief Where the floor query casts ray `i` (0 = the axis, 1-8 = the ring at the perch radius), Havok units; for a
     ///        long body, under its fore end, or its hind end with `hind`.
     void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind = false);
     /// @brief QueryFloor as if the hull stood displaced by (dx, dy, dz) (a step's landing spot, a predicted sample).
-    FloorVerdict QueryFloorAt(hk::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
+    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
 
     /// @brief Publishes this step's floor verdict for the proxy's constraint planes (step 4) to read during integrate.
     /// @note The planes cannot query themselves: integrate runs under the world WRITE lock, where a ray pick may
@@ -177,16 +177,16 @@ namespace CB::feature::controller {
     ///       (their decided mode). Simulate is the one that runs every step: UpdatePhysics skips CheckSupportImpl while
     ///       an OnGround character stands still, which left the planes on a stale Grounded verdict, its anti-creep
     ///       friction holding a steep slope's downhill motion.
-    void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v);
+    void PublishVerdict(const ::bhkCharacterController& ctrl, const FloorVerdict& v);
     /// @brief The verdict last published for `ctrl`; false when none is.
-    bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out);
+    bool PublishedVerdict(const ::bhkCharacterController& ctrl, FloorVerdict& out);
 
     /// @brief How much a ground of normal z `groundNz` holds the character up, 0-1: 1 up to [Character] fSlidePullStart
     ///        degrees (default 5) below the controller's max slope (acos WalkableZ), easing to 0 at fSlidePullFull
     ///        degrees (default 10) past it.
     /// @note Why a number and not a threshold: a hard walkable/too-steep line gave two movement models a degree apart
     ///       (and needed a hysteresis delay on rough ground); the slide below scales with it instead.
-    float Support(const hk::bhkCharacterController& ctrl, float groundNz);
+    float Support(const ::bhkCharacterController& ctrl, float groundNz);
 
     /// @brief The ground of `v` as the engine's slope helpers read it.
     inline CB::engine::locomotion::Surface SurfaceOf(const FloorVerdict& v)
@@ -231,15 +231,15 @@ namespace CB::feature::controller {
         float pogoRate = 0;             ///< its correction rate (Havok units/s): in the body's velocity, never its own
         float pogoDz   = 0;             ///< the floor it holds the feet to, above the feet as this step leaves them (Havok units)
     };
-    void PublishGroundNote(const hk::bhkCharacterController& ctrl, const GroundNote& note);
+    void PublishGroundNote(const ::bhkCharacterController& ctrl, const GroundNote& note);
     /// @brief The note last published for `ctrl`; false when none is.
-    bool PublishedGroundNote(const hk::bhkCharacterController& ctrl, GroundNote& out);
+    bool PublishedGroundNote(const ::bhkCharacterController& ctrl, GroundNote& out);
 
     /// @brief The movement the character asks for as a world-space horizontal velocity (Havok units/s).
     /// @note Through vanilla's calculateMovement with the ground flat, a zero current velocity and an unlimited delta:
     ///       exactly the frame OnGround steers in (m_velocityMod's x/y swapped, m_forward), with no sign convention of
     ///       ours to get wrong.
-    void DesiredHorizontal(const hk::bhkCharacterController& ctrl, float& dx, float& dy);
+    void DesiredHorizontal(const ::bhkCharacterController& ctrl, float& dx, float& dy);
 
     /// @brief The world directions DesiredHorizontal moves a pure forward request (m_velocityMod y) and a pure
     ///        sideways one (m_velocityMod x) along, unit length.
@@ -247,7 +247,7 @@ namespace CB::feature::controller {
     ///       products once got the side axis's sign wrong, which mirrored every sideways prediction (invisible while
     ///       True Directional Movement kept the character facing its movement, so the side request was always zero).
     /// @return false when the frame is degenerate (m_forward vertical or zero).
-    bool MovementAxes(const hk::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY);
+    bool MovementAxes(const ::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY);
 
     /// @brief settings.ini `[Character] key` as a float, `def` when absent or unparsable (callers cache it).
     float SettingFloat(std::string_view key, float def);
@@ -264,17 +264,17 @@ namespace CB::feature::controller {
     /// @brief How far `ctrl`'s collision shape floats above its feet (Havok units), 0 when it does not.
     /// @invariant The character's position (GetPositionImpl / SetPositionImpl with the center offset) is its feet: the
     ///            lift sits between them and the shape, so the actor, saves and every vanilla reader see the feet.
-    float Lift(const hk::bhkCharacterController& ctrl);
+    float Lift(const ::bhkCharacterController& ctrl);
 
     /// @brief Floats `ctrl`'s collision shape the step height above its feet and marks this step as the pogo's; returns
     ///        the lift. A single upright capsule is edited in place (bottom at feet + lift, top and radius from the
     ///        character file's characterControllerInfo when it authors them); any other hull floats whole.
     /// @pre Inside the controller's update, outside the physics step (it moves the proxy, as a teleport does).
-    float RaiseLift(hk::bhkCharacterController& ctrl, const Hull& hull);
+    float RaiseLift(::bhkCharacterController& ctrl, const Hull& hull);
 
     /// @brief The pogo's floor under `v`, above the feet (Havok units): locomotion::PogoSelect over its rays (a long
     ///        body: the higher of its two ends). False when no ray met a floor.
     /// @param ray receives the chosen ray when not null: 0-8 under `v.hits`, 9-17 under a long body's `v.hindHits`.
-    bool PogoFloor(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray = nullptr);
+    bool PogoFloor(const ::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray = nullptr);
 
 }  // namespace CB::feature::controller

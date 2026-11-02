@@ -5,6 +5,11 @@
 #include <platform/hooks/registry/Registry.h>
 
 #include <cstring>
+#include <algorithm>
+#include <cstring>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 namespace CB::platform::hooks::detail {
 
@@ -34,6 +39,136 @@ namespace CB::platform::hooks::detail {
             std::memcpy(r.to, reinterpret_cast<const void*>(engine::Resolve(*r.symbol)), r.size);
         }
         if (count) LOG_INFO("schema shim: {} const global(s) copied from the exe", count);
+    }
+
+    namespace {
+
+        struct Image {
+            std::uintptr_t base = 0, size = 0, text = 0, textEnd = 0, rdata = 0, rdataEnd = 0;
+            explicit Image(HMODULE module) : base(reinterpret_cast<std::uintptr_t>(module))
+            {
+                const auto* nt  = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+                const auto* sec = IMAGE_FIRST_SECTION(nt);
+                size            = nt->OptionalHeader.SizeOfImage;
+                for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+                    const std::string_view name(reinterpret_cast<const char*>(sec->Name), strnlen(reinterpret_cast<const char*>(sec->Name), 8));
+                    if (name == ".text" && sec->Misc.VirtualSize > textEnd - text) { text = base + sec->VirtualAddress; textEnd = text + sec->Misc.VirtualSize; }
+                    if (name == ".rdata") { rdata = base + sec->VirtualAddress; rdataEnd = rdata + sec->Misc.VirtualSize; }
+                }
+            }
+            bool InRdata(std::uintptr_t a) const { return a >= rdata && a < rdataEnd && rdataEnd - a >= 24; }
+            bool InText(std::uintptr_t a) const { return a >= text && a < textEnd; }
+        };
+
+        /// @brief Every vtable with RTTI in `image`: "class name at offset" -> its first slot. Null when the key repeats.
+        std::unordered_map<std::string, const std::uintptr_t*> Vtables(const Image& image)
+        {
+            std::unordered_map<std::string, const std::uintptr_t*> out;
+            for (std::uintptr_t at = image.rdata; at + 16 <= image.rdataEnd; at += 8) {
+                const auto col = *reinterpret_cast<const std::uintptr_t*>(at);
+                if (!image.InRdata(col) || !image.InText(*reinterpret_cast<const std::uintptr_t*>(at + 8))) continue;
+                const auto* c = reinterpret_cast<const std::uint32_t*>(col);
+                if (c[0] != 1 || image.base + c[5] != col || c[3] >= image.size) continue;
+                const char* name = reinterpret_cast<const char*>(image.base + c[3] + 0x10);
+                if (std::strncmp(name, ".?AV", 4) != 0) continue;
+                /// @note The runtime library's classes share names across modules but not code: the plugin's streams must
+                ///       keep the plugin's CRT.
+                if (std::strstr(name, "@std@@") || std::strstr(name, "type_info@@")) continue;
+                const auto [it, added] = out.try_emplace(std::string(name) + "+" + std::to_string(c[1]), reinterpret_cast<const std::uintptr_t*>(at + 8));
+                if (!added) it->second = nullptr;
+            }
+            return out;
+        }
+
+        const char* g_adoptPhase = "starting";
+        const char* g_adoptKey   = "";
+        std::uint32_t  g_adoptCode = 0;
+        std::uintptr_t g_adoptAt   = 0, g_adoptRead = 0;
+
+        int NoteAdoptFault(const EXCEPTION_POINTERS* e)
+        {
+            g_adoptCode = e->ExceptionRecord->ExceptionCode;
+            g_adoptAt   = reinterpret_cast<std::uintptr_t>(e->ExceptionRecord->ExceptionAddress);
+            g_adoptRead = e->ExceptionRecord->NumberParameters > 1 ? e->ExceptionRecord->ExceptionInformation[1] : 0;
+            return EXCEPTION_EXECUTE_HANDLER;
+        }
+
+        /// @brief Makes the plugin's copy of each exe class's vtable the exe's, slot for slot.
+        /// @note The SDK's headers declare fewer overrides than the exe's classes have, so a compiled vtable inherits
+        ///       where the game overrides: an object the plugin builds would silently run the base's function. Each slot
+        ///       now enters the exe's function, which is the shipped body when the takeover jumps it.
+        /// @note A CB class has no exe vtable of its name and keeps its own.
+        void AdoptExeVtables()
+        {
+            HMODULE self = nullptr;
+            GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(&AdoptExeVtables), &self);
+            const Image exe(GetModuleHandleA(nullptr)), plugin(self);
+            g_adoptPhase = "scanning the exe";
+            const auto  exeTables = Vtables(exe);
+            g_adoptPhase = "scanning the plugin";
+            const auto  pluginTables = Vtables(plugin);
+            LOG_INFO("schema shim: {} exe vtables, {} plugin vtables", exeTables.size(), pluginTables.size());
+            g_adoptPhase = "copying slots";
+            std::size_t adopted = 0, slots = 0, shorter = 0;
+            for (const auto& [key, own] : pluginTables) {
+                const auto theirs = exeTables.find(key);
+                if (!own || theirs == exeTables.end() || !theirs->second) continue;
+                std::size_t n = 0, ownCount = 0, exeCount = 0;
+                const auto  isSlot = [](const Image& i, const std::uintptr_t* t, std::size_t k) {
+                    const auto a = reinterpret_cast<std::uintptr_t>(t + k);
+                    return a + 8 <= i.rdataEnd && i.InText(t[k]);
+                };
+                while (isSlot(exe, theirs->second, exeCount)) ++exeCount;
+                while (isSlot(plugin, own, ownCount)) ++ownCount;
+                n = (std::min)(exeCount, ownCount);
+                if (ownCount > exeCount) ++shorter;
+                DWORD old = 0;
+                auto* target = const_cast<std::uintptr_t*>(own);
+                if (!n || !VirtualProtect(target, n * 8, PAGE_READWRITE, &old)) continue;
+                g_adoptKey = key.c_str();
+                std::memcpy(target, theirs->second, n * 8);
+                VirtualProtect(target, n * 8, old, &old);
+                ++adopted;
+                slots += n;
+            }
+            g_adoptPhase = "logging";
+            LOG_INFO("schema shim: {} plugin vtable(s) adopted the exe's ({} slots; {} longer than the exe's)", adopted, slots, shorter);
+        }
+
+        bool TryAdopt()
+        {
+            __try {
+                AdoptExeVtables();
+                return true;
+            } __except (NoteAdoptFault(GetExceptionInformation())) {
+                return false;
+            }
+        }
+
+        void GuardedAdopt()
+        {
+            if (TryAdopt()) return;
+            LOG_ERROR("schema shim: vtable adoption faulted while {} (last {}): code {:#x} at {:#x}, address {:#x}", g_adoptPhase,
+                      g_adoptKey, g_adoptCode, g_adoptAt, g_adoptRead);
+        }
+
+    }  // namespace
+
+    void BindShimRefs(const ShimRef* rows, std::size_t count)
+    {
+        std::size_t bound = 0;
+        for (std::size_t i = 0; i < count; i++) {
+            const ShimRef& r = rows[i];
+            if (!engine::Available(*r.symbol)) {
+                LOG_WARN("schema shim: {} has no address on this runtime; a use of it faults", r.symbol->name);
+                continue;
+            }
+            *r.slot = reinterpret_cast<void*>(engine::Resolve(*r.symbol));
+            ++bound;
+        }
+        if (count) LOG_INFO("schema shim: {} of {} exe global(s) bound by reference", bound, count);
+        GuardedAdopt();
     }
 
 }  // namespace CB::platform::hooks::detail

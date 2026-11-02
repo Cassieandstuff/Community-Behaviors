@@ -2,11 +2,12 @@
 
 #include "CharGround.h"
 
+#include <Common/Base/hkBase.h>
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkPickData.h>
+#include <BSHavok/bhkPickData.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
 #include <algorithm>
@@ -30,17 +31,17 @@ namespace CB::feature::controller {
         /// @brief hkpShape::getAabb, vtable slot 7 (the schema still calls it unk_07).
         /// @note Proven twice in the exe: bhkCharacterControllerCinfo (0x140e9cdf0) and hkpWorldLinearCaster
         ///       (0x140bea990) call a shape's +0x38 with (transform, tolerance, out AABB).
-        void GetAabb(const hk::hkpShape* shape, const hk::hkTransform& transform, hk::hkAabb& out)
+        void GetAabb(const ::hkpShape* shape, const ::hkTransform& transform, ::hkAabb& out)
         {
-            using Fn      = void (*)(const hk::hkpShape*, const hk::hkTransform&, float, hk::hkAabb&);
+            using Fn      = void (*)(const ::hkpShape*, const ::hkTransform&, float, ::hkAabb&);
             const auto fn = reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(shape))[7]);
             fn(shape, transform, 0.0f, out);
         }
 
-        FloorHit CastDown(hk::bhkWorld* world, hk::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
+        FloorHit CastDown(::bhkWorld* world, ::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
         {
             FloorHit         h;
-            hk::bhkPickData  pick;
+            ::bhkPickData  pick;
             pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
             pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
             pick.m_rayInput.m_filterInfo = filter;
@@ -62,21 +63,21 @@ namespace CB::feature::controller {
         /// @brief Reads a long body's length axis, centre and width from `shape`'s own box rotated by `world`'s rotation.
         /// @note  The identity is built from scratch: hkTransform::getIdentity reads a vanilla global the plugin does not
         ///        link (the schema link trap).
-        void ReadLongBody(const hk::hkpShape* shape, const hk::hkTransform& world, Hull& h)
+        void ReadLongBody(const ::hkpShape* shape, const ::hkTransform& world, Hull& h)
         {
-            alignas(16) hk::hkTransform identity;
-            identity.m_rotation.m_col0 = hk::hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
-            identity.m_rotation.m_col1 = hk::hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
-            identity.m_rotation.m_col2 = hk::hkVector4(0.0f, 0.0f, 1.0f, 0.0f);
-            identity.m_translation     = hk::hkVector4(0.0f, 0.0f, 0.0f, 0.0f);
-            hk::hkAabb local;
+            alignas(16) ::hkTransform identity;
+            identity.getColumn(0) = ::hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
+            identity.getColumn(1) = ::hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
+            identity.getColumn(2) = ::hkVector4(0.0f, 0.0f, 1.0f, 0.0f);
+            identity.getTranslation()     = ::hkVector4(0.0f, 0.0f, 0.0f, 0.0f);
+            ::hkAabb local;
             GetAabb(shape, identity, local);
             const float ex = local.m_max(0) - local.m_min(0), ey = local.m_max(1) - local.m_min(1);
             if ((std::max)(ex, ey) < kLongBodyRatio * (std::min)(ex, ey)) return;
-            hk::hkTransform t   = world;
+            ::hkTransform t   = world;
             const bool      onX = ex >= ey;
-            const float     ax = t.m_rotation.m_col0(0) * (onX ? 1.0f : 0.0f) + t.m_rotation.m_col1(0) * (onX ? 0.0f : 1.0f);
-            const float     ay = t.m_rotation.m_col0(1) * (onX ? 1.0f : 0.0f) + t.m_rotation.m_col1(1) * (onX ? 0.0f : 1.0f);
+            const float     ax = t.getColumn(0)(0) * (onX ? 1.0f : 0.0f) + t.getColumn(1)(0) * (onX ? 0.0f : 1.0f);
+            const float     ay = t.getColumn(0)(1) * (onX ? 1.0f : 0.0f) + t.getColumn(1)(1) * (onX ? 0.0f : 1.0f);
             const float     len = std::sqrt(ax * ax + ay * ay);
             if (len < 1.0e-4f) return;
             const float lx = (local.m_min(0) + local.m_max(0)) * 0.5f, ly = (local.m_min(1) + local.m_max(1)) * 0.5f;
@@ -84,8 +85,8 @@ namespace CB::feature::controller {
             h.longBody   = true;
             h.fx         = ax / len;
             h.fy         = ay / len;
-            h.cx         = t.m_translation(0) + t.m_rotation.m_col0(0) * lx + t.m_rotation.m_col1(0) * ly + t.m_rotation.m_col2(0) * lz;
-            h.cy         = t.m_translation(1) + t.m_rotation.m_col0(1) * lx + t.m_rotation.m_col1(1) * ly + t.m_rotation.m_col2(1) * lz;
+            h.cx         = t.getTranslation()(0) + t.getColumn(0)(0) * lx + t.getColumn(1)(0) * ly + t.getColumn(2)(0) * lz;
+            h.cy         = t.getTranslation()(1) + t.getColumn(0)(1) * lx + t.getColumn(1)(1) * ly + t.getColumn(2)(1) * lz;
             h.radius     = (std::min)(ex, ey) * 0.5f;
             h.halfLength = (std::max)(ex, ey) * 0.5f;
         }
@@ -114,7 +115,7 @@ namespace CB::feature::controller {
         g_ridden.at.store(ctrl ? Now() : -1.0e9, std::memory_order_release);
     }
 
-    bool IsRiddenHorse(const hk::bhkCharacterController* ctrl)
+    bool IsRiddenHorse(const ::bhkCharacterController* ctrl)
     {
         if (!ctrl || g_ridden.ctrl.load(std::memory_order_relaxed) != static_cast<const void*>(ctrl)) return false;
         return Now() - g_ridden.at.load(std::memory_order_acquire) <= kRiddenStale;
@@ -125,7 +126,7 @@ namespace CB::feature::controller {
         return g_ridden.ctrl.load(std::memory_order_relaxed) && Now() - g_ridden.at.load(std::memory_order_acquire) <= kRiddenStale;
     }
 
-    RE::NiPointer<RE::Actor> ManagedActor(const hk::bhkCharacterController& ctrl)
+    RE::NiPointer<RE::Actor> ManagedActor(const ::bhkCharacterController& ctrl)
     {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return {};
@@ -136,16 +137,16 @@ namespace CB::feature::controller {
         return mount;
     }
 
-    float WalkableZ(const hk::bhkCharacterController& ctrl) { return IsRiddenHorse(&ctrl) ? kHorseWalkableZ : ctrl.m_zNormal; }
+    float WalkableZ(const ::bhkCharacterController& ctrl) { return IsRiddenHorse(&ctrl) ? kHorseWalkableZ : ctrl.m_zNormal; }
 
-    bool IsPlayer(const hk::bhkCharacterController* ctrl)
+    bool IsPlayer(const ::bhkCharacterController* ctrl)
     {
         auto*       player = RE::PlayerCharacter::GetSingleton();
         const auto* own    = player ? player->GetCharController() : nullptr;
         return own && static_cast<const void*>(ctrl) == static_cast<const void*>(own);
     }
 
-    bool IsProxy(const hk::bhkCharacterController& ctrl)
+    bool IsProxy(const ::bhkCharacterController& ctrl)
     {
         static const std::uintptr_t vtable = REL::Relocation<std::uintptr_t>(RE::VTABLE_bhkCharProxyController[1]).address();
         return *reinterpret_cast<const std::uintptr_t*>(&ctrl) == vtable;
@@ -161,12 +162,12 @@ namespace CB::feature::controller {
         if (actor->GetGraphVariableBool(animationDriven, on) && on) flag = "bAnimationDriven";
         else if (actor->GetGraphVariableBool(isSynced, on) && on) flag = "bIsSynced";
         if (actor == RE::PlayerCharacter::GetSingleton()) g_playerGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
-        else if (IsRiddenHorse(reinterpret_cast<const hk::bhkCharacterController*>(actor->GetCharController())))
+        else if (IsRiddenHorse(reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController())))
             g_horseGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
         return flag;
     }
 
-    bool GraphMovesPublished(const hk::bhkCharacterController& ctrl)
+    bool GraphMovesPublished(const ::bhkCharacterController& ctrl)
     {
         if (IsPlayer(&ctrl)) return g_playerGraphMoves.load(std::memory_order_relaxed);
         return IsRiddenHorse(&ctrl) && g_horseGraphMoves.load(std::memory_order_relaxed);
@@ -174,18 +175,18 @@ namespace CB::feature::controller {
 
     const char* Name(Ground g) { return g == Ground::Grounded ? "Grounded" : "Airborne"; }
 
-    Hull GetHull(hk::bhkCharacterController& ctrl)
+    Hull GetHull(::bhkCharacterController& ctrl)
     {
         Hull h;
-        auto&                       proxyCtrl = static_cast<hk::bhkCharProxyController&>(ctrl);
-        hk::bhkCachingShapePhantom* bp        = proxyCtrl.m_shapePhantom.get();
-        hk::hkpCachingShapePhantom* phantom   = bp ? bp->GetPhantom() : nullptr;
+        auto&                       proxyCtrl = static_cast<::bhkCharProxyController&>(ctrl);
+        ::bhkCachingShapePhantom* bp        = proxyCtrl.m_shapePhantom.get();
+        ::hkpCachingShapePhantom* phantom   = bp ? bp->GetPhantom() : nullptr;
         h.world                               = ctrl.GetHavokWorld();
         if (!h.world || !phantom) return h;
         h.collidable = phantom->getCollidable();
-        const hk::hkpShape* shape = h.collidable->getShape();
+        const ::hkpShape* shape = h.collidable->getShape();
         if (!shape) return h;
-        hk::hkAabb aabb;
+        ::hkAabb aabb;
         GetAabb(shape, h.collidable->getTransform(), aabb);
         h.lift   = Lift(ctrl);
         h.feetZ  = aabb.m_min(2) - h.lift;
@@ -201,27 +202,27 @@ namespace CB::feature::controller {
     namespace {
 
         /// @note List children carry no transform of their own (hkpListShape), so every capsule is in the shape's frame.
-        void CollectCapsules(const hk::hkpShape* shape, const hk::hkTransform& world, HullShape& out, int depth)
+        void CollectCapsules(const ::hkpShape* shape, const ::hkTransform& world, HullShape& out, int depth)
         {
             if (!shape || depth > 4) return;
-            if (shape->getType() == hk::HK_SHAPE_CAPSULE) {
+            if (shape->getType() == ::HK_SHAPE_CAPSULE) {
                 if (out.count >= static_cast<int>(out.capsules.size())) {
                     out.other = true;
                     return;
                 }
-                const auto*        capsule = static_cast<const hk::hkpCapsuleShape*>(shape);
+                const auto*        capsule = static_cast<const ::hkpCapsuleShape*>(shape);
                 HullShape::Capsule& c      = out.capsules[out.count++];
-                hk::hkVector4      a, b;
-                a._setTransformedPos(world, capsule->m_vertexA);
-                b._setTransformedPos(world, capsule->m_vertexB);
+                ::hkVector4      a, b;
+                a._setTransformedPos(world, capsule->getVertex(0));
+                b._setTransformedPos(world, capsule->getVertex(1));
                 for (int i = 0; i < 3; i++) c.a[i] = a(i), c.b[i] = b(i);
                 c.radius = capsule->getRadius();
                 return;
             }
             /// @note Only enabled children collide: the player's list holds a disabled clone of the skeleton's own capsule
             ///       (FUN_140ea4020 disables it as it builds the list), which drawing would pass off as part of the hull.
-            if (shape->getType() == hk::HK_SHAPE_LIST) {
-                const auto* list = static_cast<const hk::hkpListShape*>(shape);
+            if (shape->getType() == ::HK_SHAPE_LIST) {
+                const auto* list = static_cast<const ::hkpListShape*>(shape);
                 for (int i = 0; i < list->m_childInfo.getSize(); i++)
                     if (list->m_enabledChildren[(i >> 5) & 7] & (1u << (i & 31)))
                         CollectCapsules(list->m_childInfo[i].m_shape, world, out, depth + 1);
@@ -236,11 +237,11 @@ namespace CB::feature::controller {
     {
         HullShape out;
         if (!hull.valid || !hull.collidable) return out;
-        const hk::hkpShape* shape = hull.collidable->getShape();
+        const ::hkpShape* shape = hull.collidable->getShape();
         if (!shape) return out;
-        const hk::hkTransform& world = hull.collidable->getTransform();
+        const ::hkTransform& world = hull.collidable->getTransform();
         CollectCapsules(shape, world, out, 0);
-        hk::hkAabb aabb;
+        ::hkAabb aabb;
         GetAabb(shape, world, aabb);
         for (int i = 0; i < 3; i++) out.min[i] = aabb.m_min(i), out.max[i] = aabb.m_max(i);
         return out;
@@ -265,7 +266,7 @@ namespace CB::feature::controller {
             y                 = centreY + (i == 0 ? 0.0f : perch * std::sin(a));
         }
 
-        FloorVerdict Footprint(hk::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t);
+        FloorVerdict Footprint(::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t);
         bool         PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which);
 
         /// @brief A long body's verdict from its two ends (see QueryFloor).
@@ -305,12 +306,12 @@ namespace CB::feature::controller {
         RingXY(cx, cy, hull.radius, i, t, x, y);
     }
 
-    FloorVerdict QueryFloor(hk::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
+    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
     {
         return QueryFloorAt(ctrl, hull, 0.0f, 0.0f, 0.0f, t);
     }
 
-    FloorVerdict QueryFloorAt(hk::bhkCharacterController& ctrl, const Hull& hullHere, float dx, float dy, float dz, const FloorTunables& t)
+    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hullHere, float dx, float dy, float dz, const FloorTunables& t)
     {
         if (!hullHere.valid) return FloorVerdict{};
         Hull hull = hullHere;
@@ -336,13 +337,13 @@ namespace CB::feature::controller {
                          n + 8 * rings);
         }
 
-        FloorVerdict Footprint(hk::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t)
+        FloorVerdict Footprint(::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t)
         {
             CB_ZONE(zone, "floor query");
             FloorVerdict      v;
             const float       probe  = ctrl.m_stepHeight;
             const float       walkZ  = WalkableZ(ctrl);
-            const hk::CFilter filter = ctrl.GetCollisionFilterInfo();
+            const ::CFilter filter = ctrl.GetCollisionFilterInfo();
             const float       top    = hull.feetZ + (std::max)(hull.radius, hull.lift);
             auto cast = [&](int i) {
                 float x, y;
@@ -420,7 +421,7 @@ namespace CB::feature::controller {
 
     }  // namespace
 
-    bool PogoFloor(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray)
+    bool PogoFloor(const ::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray)
     {
         const float walkZ = WalkableZ(ctrl);
         float       fore = 0.0f, hind = 0.0f;
@@ -443,30 +444,30 @@ namespace CB::feature::controller {
     namespace {
 
         /// @brief calculateMovement's output for a request of `forward` along the tangent and `side` along the side.
-        void Steer(const hk::bhkCharacterController& c, float forward, float side, float& dx, float& dy)
+        void Steer(const ::bhkCharacterController& c, float forward, float side, float& dx, float& dy)
         {
-            alignas(16) std::array<std::uint8_t, sizeof(hk::hkpMovementUtilInput)> storage{};
-            auto& in = *reinterpret_cast<hk::hkpMovementUtilInput*>(storage.data());
+            alignas(16) std::array<std::uint8_t, sizeof(::hkpCharacterMovementUtil::hkpMovementUtilInput)> storage{};
+            auto& in = *reinterpret_cast<::hkpCharacterMovementUtil::hkpMovementUtilInput*>(storage.data());
             in.m_forward = c.m_forward;
             in.m_up.set(0.0f, 0.0f, 1.0f, 0.0f);
             in.m_surfaceNormal.set(0.0f, 0.0f, 1.0f, 0.0f);
             in.m_desiredVelocity.set(forward, side, 0.0f, 0.0f);
             in.m_gain             = 1.0f;
             in.m_maxVelocityDelta = 1.0e6f;
-            hk::hkVector4 out;
+            ::hkVector4 out;
             out.set(0.0f, 0.0f, 0.0f, 0.0f);
-            hk::hkpCharacterMovementUtil::calculateMovement(in, out);
+            ::hkpCharacterMovementUtil::calculateMovement(in, out);
             dx = out(0), dy = out(1);
         }
 
     }  // namespace
 
-    void DesiredHorizontal(const hk::bhkCharacterController& ctrl, float& dx, float& dy)
+    void DesiredHorizontal(const ::bhkCharacterController& ctrl, float& dx, float& dy)
     {
         Steer(ctrl, ctrl.m_velocityMod(1), ctrl.m_velocityMod(0), dx, dy);
     }
 
-    bool MovementAxes(const hk::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY)
+    bool MovementAxes(const ::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY)
     {
         Steer(ctrl, 1.0f, 0.0f, forwardX, forwardY);
         Steer(ctrl, 0.0f, 1.0f, sideX, sideY);
@@ -492,7 +493,7 @@ namespace CB::feature::controller {
         return s ? s->GetFloat() : def;
     }
 
-    float Support(const hk::bhkCharacterController& ctrl, float groundNz)
+    float Support(const ::bhkCharacterController& ctrl, float groundNz)
     {
         constexpr float      kDegToRad = 0.017453292f;
         static const float start = std::clamp(SettingFloat("fSlidePullStart", 5.0f), 0.0f, 45.0f) * kDegToRad;
@@ -526,16 +527,16 @@ namespace CB::feature::controller {
         constexpr std::size_t                          kMaxPublished = 8;
 
         /// @pre g_publishLock is held.
-        Published& SlotOf(const hk::bhkCharacterController& ctrl)
+        Published& SlotOf(const ::bhkCharacterController& ctrl)
         {
             if (g_published.size() >= kMaxPublished && !g_published.contains(&ctrl)) {
-                std::erase_if(g_published, [](const auto& kv) { return !IsPlayer(static_cast<const hk::bhkCharacterController*>(kv.first)); });
+                std::erase_if(g_published, [](const auto& kv) { return !IsPlayer(static_cast<const ::bhkCharacterController*>(kv.first)); });
             }
             return g_published[&ctrl];
         }
     }  // namespace
 
-    void PublishGroundNote(const hk::bhkCharacterController& ctrl, const GroundNote& note)
+    void PublishGroundNote(const ::bhkCharacterController& ctrl, const GroundNote& note)
     {
         std::scoped_lock lock(g_publishLock);
         Published&       slot = SlotOf(ctrl);
@@ -543,7 +544,7 @@ namespace CB::feature::controller {
         slot.haveNote         = true;
     }
 
-    bool PublishedGroundNote(const hk::bhkCharacterController& ctrl, GroundNote& out)
+    bool PublishedGroundNote(const ::bhkCharacterController& ctrl, GroundNote& out)
     {
         std::scoped_lock lock(g_publishLock);
         const auto       it = g_published.find(&ctrl);
@@ -552,7 +553,7 @@ namespace CB::feature::controller {
         return true;
     }
 
-    void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v)
+    void PublishVerdict(const ::bhkCharacterController& ctrl, const FloorVerdict& v)
     {
         std::scoped_lock lock(g_publishLock);
         Published&       slot = SlotOf(ctrl);
@@ -585,7 +586,7 @@ namespace CB::feature::controller {
         return CB::engine::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
     }
 
-    bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out)
+    bool PublishedVerdict(const ::bhkCharacterController& ctrl, FloorVerdict& out)
     {
         std::scoped_lock lock(g_publishLock);
         const auto       it = g_published.find(&ctrl);

@@ -13,3 +13,9 @@ GPL-3.0 Linking Exception (with Corresponding Source)
 Additional permission under GNU GPL version 3 section 7
 
 If you modify this Program, or any covered work, by linking or combining it with Modding Libraries (or a modified version thereof), containing parts covered by the terms of Modding Library Licenses, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall include the source code for the parts of Modding Libraries used as well as that of the covered work.
+
+===
+
+CB SDK Exception
+
+As an additional permission under GNU GPL version 3 section 7, the authors give You the right to link or combine this Program with the CB SDK, the separately held reconstruction of the Havok and Bethesda code in the Modded Code, without the source of the CB SDK being conveyed with the combination. The CB SDK is not covered by this License. All other conditions of this License continue to apply to this Program, including conveying the Corresponding Source of this Program itself.

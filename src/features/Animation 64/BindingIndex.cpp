@@ -6,7 +6,8 @@
 #include <platform/classes/ClassRegistry.h>
 #include <platform/classes/TypeRegistries.h>
 
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <atomic>
 #include <cstddef>
@@ -15,7 +16,6 @@ namespace CB::feature::widen {
 
     namespace {
 
-        namespace hk = CB::havok;
 
         std::int64_t* Slot(void* clip, int offset) { return reinterpret_cast<std::int64_t*>(static_cast<std::byte*>(clip) + offset); }
 
@@ -23,7 +23,7 @@ namespace CB::feature::widen {
         std::atomic<std::uint64_t> g_unconvertedWrites{ 0 };
 
         /// @brief Logs the first 16, then each power of two: the tripwire must stay readable with every writer unconverted.
-        void ReportUnconvertedWrite(const hk::hkbClipGenerator* clip, std::int16_t mirror, std::int64_t wide)
+        void ReportUnconvertedWrite(const ::hkbClipGenerator* clip, std::int16_t mirror, std::int64_t wide)
         {
             const std::uint64_t n = g_unconvertedWrites.fetch_add(1, std::memory_order_relaxed) + 1;
             if (n > 16 && (n & (n - 1)) != 0) return;
@@ -42,13 +42,13 @@ namespace CB::feature::widen {
             const int offset = WideBindingOffset();
             if (offset < 0) return;
             if (source) *Slot(object, offset) = *Slot(const_cast<void*>(source), offset);
-            else *Slot(object, offset) = static_cast<const hk::hkbClipGenerator*>(object)->m_animationBindingIndex;
+            else *Slot(object, offset) = static_cast<const ::hkbClipGenerator*>(object)->m_animationBindingIndex;
         }
 
         /// @brief Every activation through CB's vtable: run the writer tripwire, and offer the clip to the reader watch.
         void OnActivate(void* object)
         {
-            BindingIndex(static_cast<hk::hkbClipGenerator*>(object));
+            BindingIndex(static_cast<::hkbClipGenerator*>(object));
             OfferToWatch(object);
         }
 
@@ -68,7 +68,7 @@ namespace CB::feature::widen {
         return offset;
     }
 
-    std::int64_t BindingIndex(hk::hkbClipGenerator* clip)
+    std::int64_t BindingIndex(::hkbClipGenerator* clip)
     {
         const std::int16_t mirror = clip->m_animationBindingIndex;
         const int          offset = WideBindingOffset();
@@ -81,7 +81,7 @@ namespace CB::feature::widen {
         return wide;
     }
 
-    void SetBindingIndex(hk::hkbClipGenerator* clip, std::int64_t index)
+    void SetBindingIndex(::hkbClipGenerator* clip, std::int64_t index)
     {
         if (const int offset = WideBindingOffset(); offset >= 0) *Slot(clip, offset) = index;
         clip->m_animationBindingIndex = MirrorOf(index);

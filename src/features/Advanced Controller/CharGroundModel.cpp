@@ -2,7 +2,8 @@
 
 #include <core/debug/Settings.h>
 #include <platform/hooks/Override.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Common/Base/hkBase.h>
+#include <BSHavok/bhkCharProxyController.h>
 
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
@@ -28,16 +29,15 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::havok;
-        using Process      = platform::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
-        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using Process      = platform::hooks::Override<&::bhkCharProxyController::processConstraintsCallback>;
+        using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
-        constexpr hk::hkUint32 kSupport                     = 1u << 8;
-        constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
-        constexpr hk::hkUint32 kJumping                     = 1u << 13;
+        constexpr ::hkUint32 kSupport                     = 1u << 8;
+        constexpr ::hkUint32 kHasPotentialSupportManifold = 1u << 9;
+        constexpr ::hkUint32 kJumping                     = 1u << 13;
         constexpr unsigned     kCharControllerLayer         = 30;
 
-        bool IsPlayer(const hk::bhkCharacterController* ctrl)
+        bool IsPlayer(const ::bhkCharacterController* ctrl)
         {
             auto*       player = RE::PlayerCharacter::GetSingleton();
             const auto* own    = player ? player->GetCharController() : nullptr;
@@ -47,14 +47,14 @@ namespace CB::feature {
         ///        one whose step it accepted (it rewrote the plane upward).
         /// @note Layers 4/5/6/10 keep Bethesda's verdict: on a dynamic body there it forces the normal up (standing on
         ///       clutter), which the plane does not show.
-        bool IsRealSupport(const hk::bhkCharacterController& ctrl, const hk::hkRootCdPoint& point, const hk::hkVector4& before,
-                           const hk::hkVector4& after)
+        bool IsRealSupport(const ::bhkCharacterController& ctrl, const ::hkpRootCdPoint& point, const ::hkVector4& before,
+                           const ::hkVector4& after)
         {
-            if (!hk::hkpGetRigidBody(point.m_rootCollidableB)) return false;
+            if (!::hkpGetRigidBody(point.m_rootCollidableB)) return false;
             const unsigned layer = point.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
             if (layer == kCharControllerLayer) return false;
             if (layer == 4 || layer == 5 || layer == 6 || layer == 10) return true;
-            const float nz = point.m_contact.m_separatingNormal(2);
+            const float nz = point.m_contact.getSeparatingNormal()(2);
             if (nz < 0.0f) return false;
             if (nz >= ctrl.m_zNormal) return true;
             const bool changed = before(0) != after(0) || before(1) != after(1) || before(2) != after(2) || before(3) != after(3);
@@ -67,15 +67,15 @@ namespace CB::feature {
         ///        onto counts as standing; this clears bit 9 when no real support set it.
         /// @note Bit 9 accumulates over a step's callbacks (UpdatePhysics clears it before CheckSupportImpl); one set
         ///       before this call was already judged here, so it stands.
-        void OnProcess(Process::Next next, hk::bhkCharProxyController* self, const hk::hkpCharacterProxy* proxy,
-                       const hk::hkArray<hk::hkRootCdPoint>& manifold, hk::hkSimplexSolverInput& input)
+        void OnProcess(Process::Next next, ::bhkCharProxyController* self, const ::hkpCharacterProxy* proxy,
+                       const ::hkArray<::hkpRootCdPoint>& manifold, ::hkpSimplexSolverInput& input)
         {
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             const int numPoints = (std::min)(input.m_numConstraints, manifold.getSize());
             constexpr int kMaxPoints = 64;
             if (numPoints > kMaxPoints) return next(self, proxy, manifold, input);
 
-            std::array<hk::hkVector4, kMaxPoints> before;
+            std::array<::hkVector4, kMaxPoints> before;
             for (int i = 0; i < numPoints; i++) before[i] = input.m_constraints[i].m_plane;
             const bool hadPotential = (ctrl.m_flags & kHasPotentialSupportManifold) != 0;
 
@@ -96,7 +96,7 @@ namespace CB::feature {
 
         /// @brief The gate's inputs and verdict for the player on an unsupported OnGround step, when they change.
         /// @note Diagnostics ride on the contact probe's flag; the player is one thread, so the last-line state is plain.
-        void LogGate(const hk::bhkCharacterController& ctrl, bool wasSupported, float vz, bool redirect)
+        void LogGate(const ::bhkCharacterController& ctrl, bool wasSupported, float vz, bool redirect)
         {
             static const bool on = core::debug::FlagOn("char_contact_probe");
             if (!on) return;
@@ -119,36 +119,36 @@ namespace CB::feature {
         ///        without the cast (a pending request skips it) and commits this step under normal gravity.
         /// @pre Runs just before UpdatePhysics turns the inputs into kSupport and simulates the state, so bit 8 still
         ///      holds the previous step's support on entry.
-        void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
+        void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             const bool wasSupported = (ctrl.m_flags & kSupport) != 0;
 
             next(self);
 
             const void* key       = static_cast<const void*>(&ctrl);
-            const bool  supported = (ctrl.m_surfaceInfo.m_supportedState == hk::hkpSurfaceInfo::SUPPORTED && !ctrl.m_onlyWallContacts)
+            const bool  supported = (ctrl.m_surfaceInfo.m_supportedState == ::hkpSurfaceInfo::SUPPORTED && !ctrl.m_onlyWallContacts)
                                  || (ctrl.m_flags & kHasPotentialSupportManifold);
-            const bool  candidate = ctrl.m_context.m_currentState == hk::HK_CHARACTER_ON_GROUND && !supported && !ctrl.m_fakeSupport
-                                 && !(ctrl.m_flags & kJumping) && ctrl.m_wantState == hk::HK_CHARACTER_MAX_STATE_ID;
+            const bool  candidate = ctrl.m_context.getState() == ::HK_CHARACTER_ON_GROUND && !supported && !ctrl.m_fakeSupport
+                                 && !(ctrl.m_flags & kJumping) && ctrl.m_wantState == ::HK_CHARACTER_MAX_STATE_ID;
 
-            const bool onGroundUnsupported = ctrl.m_context.m_currentState == hk::HK_CHARACTER_ON_GROUND && !supported;
+            const bool onGroundUnsupported = ctrl.m_context.getState() == ::HK_CHARACTER_ON_GROUND && !supported;
             std::scoped_lock lock(g_stickLock);
             bool         redirect = false;
             float        vz       = 0.0f;
             if (!candidate) {
-                if (supported || ctrl.m_context.m_currentState != hk::HK_CHARACTER_ON_GROUND) g_sticking.erase(key);
+                if (supported || ctrl.m_context.getState() != ::HK_CHARACTER_ON_GROUND) g_sticking.erase(key);
             } else {
                 bool& sticking = g_sticking[key];
                 if (wasSupported) {
-                    hk::hkVector4 velocity;
+                    ::hkVector4 velocity;
                     self->GetLinearVelocityImpl(velocity);
                     vz       = velocity(2);
                     sticking = vz <= 1.0e-3f;
                 }
                 redirect = !sticking;
                 if (redirect) {
-                    ctrl.m_wantState = hk::HK_CHARACTER_IN_AIR;
+                    ctrl.m_wantState = ::HK_CHARACTER_IN_AIR;
                     g_sticking.erase(key);
                 }
             }

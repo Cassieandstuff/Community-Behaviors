@@ -2,3 +2,6 @@
 	path = lib/commonlibsse-ng
 	url = https://github.com/alandtse/CommonLibSSE-NG.git
 	branch = ng
+[submodule "lib/cb-sdk"]
+	path = lib/cb-sdk
+	url = https://github.com/Cassieandstuff/CB-SDK-Export.git

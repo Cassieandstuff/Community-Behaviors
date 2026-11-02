@@ -6,6 +6,7 @@
 #include "features/Advanced Controller/CharSweep.h"
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
+#include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
 #include <Physics/Collide/Shape/hkpShape.h>
 #include <core/debug/Settings.h>
 #include <platform/game/Camera.h>
@@ -196,7 +197,6 @@ namespace CB::feature::camera {
             bool  thin  = false; ///< the hit is a thin object
         };
 
-        namespace hk = CB::havok;
 
         constexpr std::uint64_t LayerBit(RE::COL_LAYER layer) { return 1ull << static_cast<unsigned>(layer); }
 
@@ -211,15 +211,15 @@ namespace CB::feature::camera {
         /// @note The trees layer, or bounds whose second-largest extent is small: a pole or a railing qualifies, a wall
         ///       (long and tall) does not however thin it is. World AABBs overestimate a tilted object, which then stays
         ///       solid: the safe side. The shape's getAabb is vtable slot 7 (see CharGround.cpp).
-        bool IsThin(const hk::hkpCollidable* body, float widthHavok)
+        bool IsThin(const ::hkpCollidable* body, float widthHavok)
         {
             const unsigned layer = body->getCollisionFilterInfo() & 0x7f;
             if (layer == static_cast<unsigned>(RE::COL_LAYER::kTrees)) return true;
             if (layer == static_cast<unsigned>(RE::COL_LAYER::kTerrain) || layer == static_cast<unsigned>(RE::COL_LAYER::kGround)) return false;
-            const hk::hkpShape* shape = body->getShape();
+            const ::hkpShape* shape = body->getShape();
             if (!shape || !body->m_motion) return false;
-            hk::hkAabb aabb;
-            using Fn      = void (*)(const hk::hkpShape*, const hk::hkTransform&, float, hk::hkAabb&);
+            ::hkAabb aabb;
+            using Fn      = void (*)(const ::hkpShape*, const ::hkTransform&, float, ::hkAabb&);
             const auto fn = reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(shape))[7]);
             fn(shape, body->getTransform(), 0.0f, aabb);
             float e[3] = { aabb.m_max(0) - aabb.m_min(0), aabb.m_max(1) - aabb.m_min(1), aabb.m_max(2) - aabb.m_min(2) };
@@ -235,7 +235,7 @@ namespace CB::feature::camera {
         };
 
         /// @note A thin hit counts only where the eye would sit in it.
-        bool AcceptHit(void* user, const hk::hkpCollidable* body, float fraction)
+        bool AcceptHit(void* user, const ::hkpCollidable* body, float fraction)
         {
             auto&      f    = *static_cast<ThinFilter*>(user);
             const bool thin = body && IsThin(body, f.widthHavok);
@@ -261,7 +261,7 @@ namespace CB::feature::camera {
             const float s      = RE::bhkWorld::GetWorldScale();
             const float length = rig::Length(to - from);
             if (length <= 1.0e-3f) return {};
-            const auto* collidable = reinterpret_cast<const hk::hkpCollidable*>(reinterpret_cast<const std::uint8_t*>(object) + 0x20);
+            const auto* collidable = reinterpret_cast<const ::hkpCollidable*>(reinterpret_cast<const std::uint8_t*>(object) + 0x20);
             const auto* wrapper    = reinterpret_cast<const std::uint8_t*>(collidable->getShape());
             const auto* child      = wrapper ? *reinterpret_cast<const std::uint8_t* const*>(wrapper + 0x10) : nullptr;
             auto*       sphere     = child ? *reinterpret_cast<std::uint8_t* const*>(child + 0x10) : nullptr;
@@ -270,10 +270,10 @@ namespace CB::feature::camera {
 
             ThinFilter filter{ p.thinWidth * s, thinFrom, thinTo };
             const controller::HitFilter hitFilter{ &AcceptHit, &filter };
-            hk::hkVector4 start, end;
+            ::hkVector4 start, end;
             start.set(from.x * s, from.y * s, from.z * s, 0.0f);
             end.set(to.x * s, to.y * s, to.z * s, 0.0f);
-            const controller::SweepHit hit = controller::SweepFrom(reinterpret_cast<hk::bhkWorld*>(world), collidable, start, end, 0.0f, 2.0f,
+            const controller::SweepHit hit = controller::SweepFrom(reinterpret_cast<::bhkWorld*>(world), collidable, start, end, 0.0f, 2.0f,
                                                                    kPassLayers, p.passThin ? &hitFilter : nullptr);
             if (!hit.hit) return {};
             return { std::clamp(hit.fraction, 0.0f, 1.0f), hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1,

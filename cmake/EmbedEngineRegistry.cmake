@@ -24,6 +24,36 @@ string(ASCII 1 _escBs)
 string(ASCII 2 _escSc)
 string(ASCII 3 _escLb)
 string(ASCII 4 _escRb)
+string(ASCII 5 _sdkMark)
+# SDK_ROOT (the CB SDK submodule): its registry rows (Tools/cbmatch/registry.yaml, generated/ExeClasses.yaml) follow
+# engine.yaml's, each line marked. They own every SDK declaration: an engine.yaml row still spelled in CB::havok is
+# skipped, and an SDK row whose name engine.yaml already has yields to it. Their `header` paths are matched to the
+# SDK tree by file name (the converted rows keep the old havok/ paths).
+set(_shipped "")
+if(DEFINED SDK_ROOT)
+    # The bodies the SDK ships, the only functions the takeover jumps: the plugin also holds inline copies of other
+    # functions, built by another compiler and never compared with the exe.
+    file(STRINGS "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" _definedRows REGEX "mangled:")
+    foreach(_row IN LISTS _definedRows)
+        if(_row MATCHES "mangled: \"([^\"]*)\"")
+            string(APPEND _shipped "    \"${CMAKE_MATCH_1}\",\n")
+        endif()
+    endforeach()
+    foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Referenced.yaml")
+        file(READ "${_sdkFile}" _sdkText)
+        string(REGEX REPLACE "(^|\n)([ ]*-[ ]*{)" "\\1${_sdkMark}\\2" _sdkText "${_sdkText}")
+        string(APPEND _text "\n${_sdkText}")
+    endforeach()
+    foreach(_root Source Bethesda)
+        file(GLOB_RECURSE _sdkHeaders RELATIVE "${SDK_ROOT}/${_root}" "${SDK_ROOT}/${_root}/*.h")
+        foreach(_h IN LISTS _sdkHeaders)
+            get_filename_component(_hn "${_h}" NAME)
+            if(NOT DEFINED _sdkHeader_${_hn})
+                set(_sdkHeader_${_hn} "${_h}")
+            endif()
+        endforeach()
+    endforeach()
+endif()
 string(REPLACE "\r" "" _text "${_text}")
 string(REPLACE "\\" "${_escBs}" _text "${_text}")
 string(REPLACE ";" "${_escSc}" _text "${_text}")
@@ -32,7 +62,7 @@ string(REPLACE "]" "${_escRb}" _text "${_text}")
 string(REPLACE "\n" ";" _lines "${_text}")
 
 # Every entry line, counted on the raw text independently of the loop below; the two must agree.
-string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
+string(REGEX MATCHALL "(^|\n)${_sdkMark}?[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
@@ -54,9 +84,18 @@ set(_shimAlt "")
 set(_shimFuncs "")
 set(_shimData "")
 set(_shimDataDefs "")
+set(_implExterns "")
+set(_shimMangled "")
+set(_implTable "")
+set(_stubTable "")
+set(_refDefs "")
+set(_refData "")
+set(_nr 0)
 set(_identityHeaders "")
 set(_dataHeaders "")
 set(_identity "")
+set(_keys "")
+set(_nk 0)
 set(_globals "")
 set(_nf 0)
 set(_nd 0)
@@ -70,8 +109,8 @@ function(_cb_pin _text _kind _name _rt _out)
     set(_off "${CMAKE_MATCH_2}")
     if(_off)
         string(SUBSTRING "${_off}" 1 -1 _off)   # drop the '+'
-        if(NOT _kind STREQUAL "call" AND NOT _kind STREQUAL "code" AND NOT _kind STREQUAL "tls")
-            message(FATAL_ERROR "engine.yaml: ${_name}.${_rt} has an offset but kind is '${_kind}' (offsets are for call sites, patched instructions and thread_locals)")
+        if(NOT _kind STREQUAL "call" AND NOT _kind STREQUAL "code" AND NOT _kind STREQUAL "tls" AND NOT _kind STREQUAL "data")
+            message(FATAL_ERROR "engine.yaml: ${_name}.${_rt} has an offset but kind is '${_kind}' (offsets are for call sites, patched instructions, thread_locals and data inside a table)")
         endif()
     else()
         if((_kind STREQUAL "call" OR _kind STREQUAL "code" OR _kind STREQUAL "tls") AND NOT _id STREQUAL "0")
@@ -82,9 +121,23 @@ function(_cb_pin _text _kind _name _rt _out)
     set(${_out} "{ ${_id}, ${_off} }" PARENT_SCOPE)
 endfunction()
 
+set(_skipped 0)
+set(_seenMangled "")
 foreach(_l IN LISTS _lines)
+    set(_fromSdk OFF)
+    if(_l MATCHES "^${_sdkMark}")
+        set(_fromSdk ON)
+        string(SUBSTRING "${_l}" 1 -1 _l)
+    endif()
     if(NOT _l MATCHES "^[ ]*-[ ]*{")
         continue()
+    endif()
+    if(DEFINED SDK_ROOT AND NOT _fromSdk AND (_l MATCHES "@havok@CB@@" OR _l MATCHES "CB::havok"))
+        math(EXPR _skipped "${_skipped}+1")
+        continue()
+    endif()
+    if(_fromSdk)
+        string(REPLACE "CB::havok::" "" _l "${_l}")
     endif()
     string(REPLACE "${_escBs}" "\\" _l "${_l}")
     string(REPLACE "${_escSc}" ";" _l "${_l}")
@@ -98,7 +151,20 @@ foreach(_l IN LISTS _lines)
     set(_se "${CMAKE_MATCH_3}")
     set(_ae "${CMAKE_MATCH_4}")
     set(_vr "${CMAKE_MATCH_5}")
+    if(_fromSdk AND _l MATCHES "mangled:[ ]*\"([^\"]*)\"")
+        if("${CMAKE_MATCH_1}" IN_LIST _seenMangled)
+            math(EXPR _skipped "${_skipped}+1")
+            continue()
+        endif()
+    endif()
+    if(_l MATCHES "mangled:[ ]*\"([^\"]*)\"")
+        list(APPEND _seenMangled "${CMAKE_MATCH_1}")
+    endif()
     if(_name IN_LIST _names)
+        if(_fromSdk)
+            math(EXPR _skipped "${_skipped}+1")
+            continue()
+        endif()
         message(FATAL_ERROR "engine.yaml: duplicate symbol '${_name}'")
     endif()
     list(APPEND _names "${_name}")
@@ -133,6 +199,34 @@ foreach(_l IN LISTS _lines)
     if(NOT _mangled)
         continue()
     endif()
+    # A compiler-internal function (__global_delete, ...) is the plugin's own CRT's: binding it to the exe's collides
+    # with the compiler's weak default.
+    if(_mangled MATCHES "^\\?__")
+        continue()
+    endif()
+    # An SDK row binds the call and the takeover only: its converted `sig` predates the SDK's declarations, so an
+    # Identity for Override comes from an engine.yaml row naming the declaration a feature overrides. A data row keeps
+    # its header (the GlobalIdentity / const copy need the type).
+    if(_fromSdk AND _kind STREQUAL "func")
+        set(_header "")
+    endif()
+    set(_globalIdentity ON)
+    if(_fromSdk)
+        set(_globalIdentity OFF)
+    endif()
+    if(_fromSdk AND _header)
+        string(REPLACE "|" ";" _hs "${_header}")
+        set(_header "")
+        foreach(_h IN LISTS _hs)
+            get_filename_component(_hn "${_h}" NAME)
+            if(NOT DEFINED _sdkHeader_${_hn})
+                set(_header "")
+                break()
+            endif()
+            list(APPEND _header "${_sdkHeader_${_hn}}")
+        endforeach()
+        list(JOIN _header "|" _header)
+    endif()
     if(_kind STREQUAL "func")
         math(EXPR _off "${_nf}*8")
         string(APPEND _shimStubs "cb_shim_${_nf} PROC PUBLIC\n    jmp QWORD PTR [cb_shim_slots + ${_off}]\ncb_shim_${_nf} ENDP\n")
@@ -144,6 +238,17 @@ foreach(_l IN LISTS _lines)
         endif()
         string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_shim_${_nf}\")\n")
         string(APPEND _shimFuncs "    &engine::${_name},\n")
+        string(APPEND _shimMangled "    \"${_mangled}\",\n")
+        # The function's own decorated name: the SDK's compiled definition when the plugin has one, else (through
+        # the alternatename above) this stub. The takeover's `dll` source jumps vanilla to the former.
+        string(LENGTH "${_mangled}" _ml)
+        if(_ml LESS 240)
+            string(APPEND _implExterns "EXTERN ${_mangled}:PROC\n")
+            string(APPEND _implTable "    QWORD ${_mangled}\n")
+        else()
+            string(APPEND _implTable "    QWORD 0\n")
+        endif()
+        string(APPEND _stubTable "    QWORD cb_shim_${_nf}\n")
         math(EXPR _nf "${_nf}+1")
         # Identity<&fn> (Override's) for a declaration a feature can name: `header` declares it, `sig` is its exact
         # member-pointer type (so an overloaded name resolves), `this` the base subobject the image passes when a
@@ -163,15 +268,18 @@ foreach(_l IN LISTS _lines)
             list(REVERSE _parts)
             list(JOIN _parts "::" _cpp)
         endif()
-        if(NOT "${_header}" IN_LIST _identityHeaders)
-            list(APPEND _identityHeaders "${_header}")
-        endif()
+        string(REPLACE "|" ";" _fheaders "${_header}")
+        foreach(_h IN LISTS _fheaders)
+            if(NOT "${_h}" IN_LIST _identityHeaders)
+                list(APPEND _identityHeaders "${_h}")
+            endif()
+        endforeach()
         set(_owner "")
         if(_sig MATCHES "\\(([^()]*)::\\*\\)")
             set(_owner "${CMAKE_MATCH_1}")
         elseif(NOT _sig)
             string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _owner "${_cpp}")
-            if(_owner STREQUAL "CB::havok" OR _owner MATCHES "^CB::platform::")   # a namespace: a free function
+            if(_owner STREQUAL _cpp OR _owner MATCHES "^CB::platform::")   # unscoped, or a namespace: a free function
                 set(_owner "")
             endif()
         endif()
@@ -187,8 +295,33 @@ foreach(_l IN LISTS _lines)
         else()
             set(_key "&::${_cpp}")
         endif()
+        # A protected or private member (its decorated name's access code after the scope: A-F, I-M) is named from
+        # the SDK's extension-access specialization below; any other directly, since MSVC loses a member pointer's
+        # identity through a variable when its class has several bases.
+        if(_mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[A-FI-M]")
+            string(APPEND _keys "    static constexpr auto k${_nk} = ${_key};\n")
+            set(_key "kKeys::k${_nk}")
+            math(EXPR _nk "${_nk}+1")
+        endif()
         string(APPEND _identity "template <>\nstruct Identity<${_key}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    static constexpr const engine::Symbol& symbol = engine::${_name};\n    using This                           = ${_thisType};\n};\n\n")
     elseif(_kind STREQUAL "data")
+        # HK_EXE_GLOBAL (the SDK built HK_EXE_GLOBALS_BY_REFERENCE) declares the global as a reference: the row's
+        # decorated name with its type wrapped in an lvalue reference (AE<cv> <type> E<cv>). Its storage is a slot the
+        # shim fills with the exe's address at load. An array (P[AB] without E) or a vtable (??_7) is not one.
+        if(NOT _mangled MATCHES "^\\?.*@@[0-3]P[AB][^E]" AND _mangled MATCHES "^(\\?[^?].*@@[0-3])(.*)$")
+            set(_refHead "${CMAKE_MATCH_1}")
+            set(_refRest "${CMAKE_MATCH_2}")
+            string(REGEX MATCH ".$" _cv "${_refRest}")
+            if(_refRest MATCHES "^[PQRS]E")
+                string(REGEX REPLACE "E.$" "" _refType "${_refRest}")
+            else()
+                string(REGEX REPLACE ".$" "" _refType "${_refRest}")
+            endif()
+            string(APPEND _refDefs "void* cb_ref_${_nr} = nullptr;\n")
+            string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_refHead}AE${_cv}${_refType}E${_cv}=cb_ref_${_nr}\")\n")
+            string(APPEND _refData "    { &engine::${_name}, &cb_ref_${_nr} },\n")
+            math(EXPR _nr "${_nr}+1")
+        endif()
         # A const global is copied at load. A mutable one stays unbound (a direct use fails to link) and gets
         # GlobalIdentity<&global> instead, for Live<&global>() to read the exe's variable through its pin.
         if(NOT _header OR NOT _cpp)
@@ -196,14 +329,29 @@ foreach(_l IN LISTS _lines)
         endif()
         # `header` may name several, `|`-separated: the declaring header, then whatever completes the type.
         string(REPLACE "|" ";" _headers "${_header}")
-        if(NOT _mangled MATCHES "B$")
+        if(NOT _mangled MATCHES "B$" AND _mangled MATCHES "^\\?")
+            # A global the SDK declares is an HK_EXE_GLOBAL reference, bound above: code reads it by name, with no
+            # Live<&global> (a reference's address is no constant).
+            list(GET _headers 0 _h0)
+            if(EXISTS "${SDK_ROOT}/Source/${_h0}" OR EXISTS "${SDK_ROOT}/Bethesda/${_h0}")
+                set(_globalIdentity OFF)
+            endif()
+            if(NOT _globalIdentity)
+                continue()
+            endif()
             foreach(_h IN LISTS _headers)
                 if(NOT "${_h}" IN_LIST _identityHeaders)
                     list(APPEND _identityHeaders "${_h}")
                 endif()
             endforeach()
+            set(_gkey "&::${_cpp}")
+            if(_mangled MATCHES "^\\?[^?][^@]*(@[^@]+)*@@[01]")
+                string(APPEND _keys "    static constexpr auto k${_nk} = &::${_cpp};\n")
+                set(_gkey "kKeys::k${_nk}")
+                math(EXPR _nk "${_nk}+1")
+            endif()
             string(APPEND _globals "template <>
-struct GlobalIdentity<&::${_cpp}> {
+struct GlobalIdentity<${_gkey}> {
     static constexpr const engine::Symbol& symbol = engine::${_name};
 };
 
@@ -219,16 +367,19 @@ struct GlobalIdentity<&::${_cpp}> {
         string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_data_${_nd}\")\n")
         string(APPEND _shimData "    { &engine::${_name}, cb_data_${_nd}, sizeof(::${_cpp}) },\n")
         math(EXPR _nd "${_nd}+1")
+    elseif(_kind STREQUAL "tls")
+        # A thread_local can't be aliased across modules: the plugin's own copy stands (MemoryContextScope's tag).
     else()
-        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but kind '${_kind}' (only func and data are shimmed)")
+        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but kind '${_kind}' (only func, data and tls are)")
     endif()
 endforeach()
 
 if(_n EQUAL 0)
     message(FATAL_ERROR "engine.yaml: no symbols parsed from ${REGISTRY_YAML}")
 endif()
-if(NOT _n EQUAL _expected)
-    message(FATAL_ERROR "engine.yaml: parsed ${_n} symbols but the file has ${_expected} '- {' entry lines")
+math(EXPR _counted "${_n}+${_skipped}")
+if(NOT _counted EQUAL _expected)
+    message(FATAL_ERROR "engine.yaml: parsed ${_counted} symbols but the files have ${_expected} '- {' entry lines")
 endif()
 
 # _cb_write(<file> <text>): write only on change, so an untouched registry rebuilds nothing.
@@ -275,6 +426,10 @@ foreach(_h IN LISTS _identityHeaders)
     string(APPEND _identityIncludes "#include <${_h}>\n")
 endforeach()
 set(_dataIncludes "")
+if(_dataHeaders)
+    set(_dataIncludes "#include <Common/Base/hkBase.h>
+")
+endif()
 foreach(_h IN LISTS _dataHeaders)
     string(APPEND _dataIncludes "#include <${_h}>\n")
 endforeach()
@@ -285,6 +440,18 @@ endif()
 set(_nfa ${_nf})
 if(_nfa EQUAL 0)
     set(_nfa 1)
+endif()
+set(_nra ${_nr})
+if(_nra EQUAL 0)
+    set(_nra 1)
+    set(_refData "    { nullptr, nullptr },
+")
+endif()
+if(_nf EQUAL 0)
+    set(_implTable "    QWORD 0
+")
+    set(_stubTable "    QWORD 0
+")
 endif()
 set(_nda ${_nd})
 if(_nda EQUAL 0)
@@ -298,10 +465,19 @@ _cb_write("${OUT_SHIM_ASM}"
 ; The schema link shim: one jump stub per shimmed function. A slot starts at its miss stub, which resolves the
 ; address once (cb_shim_resolve) and jumps on with the caller's arguments untouched.
 EXTERN cb_shim_resolve:PROC
+${_implExterns}
 .data
 ALIGN 8
 PUBLIC cb_shim_slots
 ${_shimSlots}
+; Per function slot: its decorated name as the link resolved it (the plugin's compiled definition, or the stub).
+ALIGN 8
+PUBLIC cb_impl_table
+cb_impl_table LABEL QWORD
+${_implTable}
+PUBLIC cb_stub_table
+cb_stub_table LABEL QWORD
+${_stubTable}
 .code
 ${_shimStubs}
 ${_shimMiss}
@@ -352,7 +528,7 @@ ${_dataIncludes}
 ${_shimAlt}
 extern \"C\" {
 extern std::uintptr_t cb_shim_slots[${_nfa}];
-${_shimDataDefs}}
+${_shimDataDefs}${_refDefs}}
 
 namespace CB::platform::hooks::detail {
 
@@ -364,6 +540,21 @@ const ShimData kData[${_nda}] = {
 ${_shimData}};
 inline constexpr std::size_t kDataCount = ${_nd};
 
+const ShimRef kRefs[${_nra}] = {
+${_refData}};
+inline constexpr std::size_t kRefCount = ${_nr};
+
+const char* const kFuncMangled[${_nfa}] = {
+${_shimMangled}};
+
+const engine::Symbol* const* ShimFunctions() { return kFuncs; }
+const char* const*           ShimFunctionMangled() { return kFuncMangled; }
+const char* const kShipped[] = {
+${_shipped}    nullptr,
+};
+const char* const*           ShimShipped() { return kShipped; }
+std::size_t                 ShimFunctionCount() { return kFuncCount; }
+
 } // namespace CB::platform::hooks::detail
 
 extern \"C\" std::uintptr_t cb_shim_resolve(unsigned slot)
@@ -374,6 +565,7 @@ extern \"C\" std::uintptr_t cb_shim_resolve(unsigned slot)
 void CB::platform::hooks::InstallSchemaShim()
 {
     detail::CopyShimData(detail::kData, detail::kDataCount);
+    detail::BindShimRefs(detail::kRefs, detail::kRefCount);
 }
 ")
 
@@ -386,8 +578,20 @@ _cb_write("${OUT_IDENTITY_H}"
 
 #include <platform/hooks/registry/EngineRegistry.gen.h>
 
+#include <Common/Base/Config/hkExtensionAccess.h>
 ${_identityIncludes}
+namespace CB::platform::hooks { struct IdentityKeys; }
+
+/// @brief Every key below, named from a specialization of the SDK's extension-access family: a hooked member may be
+///        protected or private (MSVC access-checks even an explicit specialization's template arguments).
+template <>
+struct hkExtensionAccess<CB::platform::hooks::IdentityKeys> {
+    static constexpr int kNone = 0;
+${_keys}};
+
 namespace CB::platform::hooks {
+
+using kKeys = ::hkExtensionAccess<IdentityKeys>;
 
 template <auto F>
 struct Identity;

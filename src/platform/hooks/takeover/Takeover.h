@@ -8,10 +8,9 @@
 /// @file
 /// @brief The runtime takeover: every vanilla Havok function CB reimplements gets a jump at its entry to CB's code, so
 ///        every route into it — vtable, direct call, another plugin's call — runs CB's implementation.
-/// @note Which code runs is chosen per class from a code source. `image` is the VS2015 build tools/cbmatch verified
-///       against the exe (codec/image/RuntimeImage.h), relocated next to the exe at load; a plugin-compiled source
-///       slots in beside it. settings.ini `[HavokRuntime]`: `bEnable` (the havok_runtime flag), `sOnly` (a comma list
-///       of classes, empty = every class), `<Class>=image|off` (absent = image). Class names are compared exactly.
+/// @note Which code runs is chosen per class from a code source. `dll` is the CB SDK compiled into this plugin
+///       (DllSource.h). settings.ini `[HavokRuntime]`: `bEnable` (the havok_runtime flag), `sOnly` (a comma list of
+///       classes, empty = every class), `<Class>=dll|off` (absent = dll). Class names are compared exactly.
 
 namespace CB::platform::hooks {
 

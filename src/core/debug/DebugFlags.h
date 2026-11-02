@@ -64,7 +64,7 @@ namespace CB::core::debug {
         { "havok_runtime", FlagKind::IniBool, "HavokRuntime", "bEnable", true, true,
           "Havok runtime takeover",
           "Run CB's reimplemented Havok behavior runtime in place of vanilla's (per class: [HavokRuntime] "
-          "<Class>=off, or sOnly=<Class>,...). Inert without community_behaviors/runtime/havok-runtime.cbimg." },
+          "<Class>=off, or sOnly=<Class>,...): the CB SDK compiled into the plugin." },
         { "havok_type_registry", FlagKind::IniBool, "HavokRuntime", "bTypeRegistry", true, true,
           "Havok type registries",
           "Put CB's type-info, vtable-class and class-name registries in place of Havok's before the game starts it. "
@@ -146,6 +146,11 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "adv_input", FlagKind::IniBool, "Input", "bAdvancedInput", false, false,
+          "Advanced Input",
+          "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
+          "each button's press/release times and the sticks and mouse over the last frames, for CB's controller to "
+          "query. Passes every event on to the game unchanged. AE only. Unproven in game." },
         { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
           "Camera: thin objects block",
           "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "

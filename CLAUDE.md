@@ -50,13 +50,14 @@ src/                         CB's code. src/ is the plugin's private include roo
     debug/                   opt-in diagnostics (DebugFlags — the flag registry the converter's Debug tab
                              renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
                              RuntimeTrace — the per-frame graph-variable watch)
-  platform/                  THE RUNTIME SDK (CB::platform::), plugin-only: what makes havok/ and the game usable
+  platform/                  THE RUNTIME SDK (CB::platform::), plugin-only: what makes the SDK and the game usable
                              from a feature. hooks/ = the hook library (<platform/hooks/hookslib.h>): Override<&fn>
-                             on any declared function (the takeover's cell when the image runs it, else an entry
+                             on any declared function (the takeover's cell when the export defines it, else an entry
                              detour), CallSite<engine::X, Sig> on one call instruction, Live<&global>(); one
                              subscriber chain, attached once by InstallAll. hooks/registry = engine.yaml (per-runtime
-                             Address Library pins + identity fields); hooks/takeover = the runtime image relocated at
-                             load, every replaced function behind a cell, and the schema link shim. game/ = the game
+                             Address Library pins + identity fields); hooks/takeover = entry jumps for the functions
+                             the export defines, each behind a cell, plugin vtables adopted from the exe at load, and
+                             the schema link shim. game/ = the game
                              functions CB calls or hooks, declared as free functions over CommonLib types, each with
                              an engine.yaml row (its decorated name comes from the first link error). Flags,
                              settings, the overlay host and startup phases move here next; until then it still
@@ -73,9 +74,9 @@ src/                         CB's code. src/ is the plugin's private include roo
                              platform/ = native dialogs, known folders, zip
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::).
-                             Havok needs no SDK copy: features include havok/'s headers and call them as declared;
+                             Features include lib/cb-sdk's headers and call them as declared;
                              Override<&fn> and Live<&global>() (platform/hooks) reach the takeover's cells and the
-                             exe's mutable globals. havok/ stays pristine; changes are overrides.
+                             exe's mutable globals. The SDK stays pristine; changes are overrides.
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
                              modifiers/, …; vanilla hk*, Bethesda BS*, CB* custom classes told apart by prefix);
@@ -86,7 +87,12 @@ havok/                       the reimplemented Havok runtime (CB::havok::), laid
                              (Common/Base, Animation, Behavior, Physics; below them the exe's __FILE__ paths). FROZEN:
                              matching moved to OPEN-HAVOK (see Correctness gates). Its headers also compile into the
                              plugin, where the schema link shim (engine.yaml `mangled` rows) binds every out-of-line
-                             function and const global to the exe. Never deployed.
+                             function and const global to the exe. Never deployed. The plugin no longer compiles this:
+                             it compiles lib/cb-sdk. Kept until removed.
+lib/cb-sdk/                  the private CB-SDK-Export submodule: the SDK generated from the private CB-SDK repo by
+                             Tools/Reconstruction/export.py. Never edit it here. RE and matching happen in CB-SDK;
+                             re-export, publish to CB-SDK-Export, and bump the pin. Decompiled output never enters this
+                             repo.
 tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
 features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
                              folder per feature, assembled at build time into the shipped <Name>.hky
@@ -120,6 +126,8 @@ another root renames its namespace; a stray top-level namespace is a bug.
   config scanner · `CB::havok::` = the reimplemented Havok runtime (havok/; Havok's class names directly under
   the root, opened as `namespace CB { namespace havok {` since VS2015 builds it). Nothing else at the top — no
   bare `havok::` outside CB, no `sct::` / `bconv::`.
+  The SDK's Havok classes sit at global scope (`::hkbGenerator`), as the exe's names require; `CB::havok::` remains
+  only for `havok/`.
 - **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
@@ -162,6 +170,7 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - `-DCB_BUILD_CONVERTER=OFF` → lean plugin-only configure (skips the glfw/imgui FetchContent + converter).
 - Build one target (`CommunityBehaviors`, `behavior-converter`, `hky-tool`) rather than `ALL` to
   avoid triggering the multi-minute `generate-base-master` regen.
+- Building needs access to `CB-SDK-Export`; contributors are invited. `CB_SDK_DIR` overrides the SDK location.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
 - **Tracy profiler** — the Tracy 0.13.1 client is built into the plugin (FetchContent → `tracy_client`) and stays
@@ -229,11 +238,9 @@ still belongs in the session scratchpad dir.)
   on vanilla's stored `floatBlockOffsets` for every vanilla clip (5937/5937), and every clip recompiled by CB must
   store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
-- **Runtime byte matching lives in OPEN-HAVOK** (github.com/Cassieandstuff/libs-OPEN-HAVOK, private; `Tools/cbmatch`,
-  whose README is the contract: manifests, `--diff`, mutants, inventory). CB will consume it as a submodule. Until
-  then CB's `havok/`, the cbmatch-emitted rows of `src/platform/hooks/registry/engine.yaml` (mangled, header, sig,
-  this) and the takeover image (`Data/community_behaviors/runtime/havok-runtime.cbimg`) are FROZEN at what CB matched
-  (537abe87): never match into havok/ or regenerate them here. engine.yaml's hand rows (game/ functions) still grow.
+- **Runtime byte matching lives in CB-SDK.** The export ships a body only if it is byte-exact on v140, everything it
+  reaches is defined or pinned, and the data it points at equals the exe's. Everything else is pinned to the exe.
+  engine.yaml's hand rows (game/ functions) still grow here.
 - Skeletons ARE reflective units (animation + ragdoll skeletons, physics and mappers as in the source), served by
   merge + serialize and covered by the served-bytes gate; bone tables come from `decompile::ReadSkeletonBones`. The
   last complete unit of a path replaces what's below it; patch units above it merge PER BONE (a bone file states only
