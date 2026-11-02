@@ -1,0 +1,16 @@
+name:      CBPoseSearchChild
+parent:    null
+size:      32
+view:      { kind: clipchild, clip: generator, group: database, start: rangeStart, end: rangeEnd }
+# One child of a CBPoseSearchGenerator: the clip it plays and how the search treats it, so a mod edits or adds one child
+# by its key. The row names its database, so membership does not depend on the row's position.
+# rangeStart / rangeEnd: seconds the search may cut into; a rangeEnd <= 0 is the clip's end, so a row stating neither is
+# the whole clip.
+fields:
+  - { name: generator,          type: ptr, ref: hkbGenerator }
+  - { name: database,           type: string }
+  - { name: rangeStart,         type: float }
+  - { name: rangeEnd,           type: float }
+  - { name: disableReselection, type: bool }   # while it plays, no other frame of it is a candidate
+  - { name: looping,            type: bool }
+  - { pad: 8 }

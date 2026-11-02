@@ -46,8 +46,9 @@
 ///        a brute-force nearest-frame search over those; and the winner played through the add-on's graph.
 /// @note  THE ADD-ON CONTRACT (Motion Matching.hky, shipped apart from CB): the behavior `kGraphKey` whose root is a
 ///        CBPoseSearchGenerator over clip generators (MM_Clip = the child index; a clip listed in several databases is
-///        one child per database), its `databases` contiguous child ranges with Unreal's cost biases (condition
-///        expressions), `childFlags` per child and `chooser` rows each holding a `when` condition expression; the
+///        one child per database), each child a row naming its database and carrying its flags and searched range,
+///        `databases` with Unreal's cost biases (condition expressions), and `chooser` rows each holding a `when`
+///        condition expression; the
 ///        selected child bound to `kClipVar` and every child's
 ///        user-controlled time to `kTimeVar`; `kEnableVar`, declared in 0_master and mt_behavior, switches
 ///        mt_behavior's LocomotionDefault to that graph; and the chooser's inputs (kInputNames) declared on it, which CB
@@ -179,7 +180,7 @@ namespace CB::feature {
         /// @brief GASP's future velocity spans the trajectory's 0.4 -> 0.5 s; the model is stepped at kFutureStep.
         constexpr float kFutureFrom = 0.4f, kFutureTo = 0.5f, kFutureStep = 1.0f / 60.0f;
 
-        constexpr std::uint8_t kFlagDisableReselection = 1, kFlagLooping = 2;   ///< CBPoseSearchGenerator childFlags bits
+        constexpr std::uint8_t kFlagDisableReselection = 1, kFlagLooping = 2;   ///< Clip::flags bits
 
         /// @brief One child of the add-on's selector (MM_Clip indexes these).
         struct Clip {
@@ -190,8 +191,8 @@ namespace CB::feature {
             double       duration = 0;    ///< what the user-controlled time fraction spans
             int          database = -1;   ///< its PoseDatabase, -1 = in none (never searched)
             std::uint8_t flags    = 0;    ///< kFlag* bits
-            float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd] (childRanges)
-            float        rangeEnd   = -1; ///< < 0 = the clip's end
+            float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd]
+            float        rangeEnd   = 0;  ///< <= 0 = the clip's end
         };
 
         /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
@@ -495,16 +496,15 @@ namespace CB::feature {
             return e;
         }
 
-        /// @brief Read the selector's databases into `db` and each child's into `clips` (sized to the children).
-        /// @note  A graph without `databases` (bundles from before them) is one implicit database over every child,
-        ///        unbiased. A child two ranges claim stays in the first.
+        /// @brief Read the selector's databases into `db` and each row's columns into `clips` (sized to the rows).
+        /// @note  A graph without `databases` is one implicit database over every child, unbiased. A row naming a
+        ///        database the graph lacks is in none, so never searched.
         void ReadDatabases(const SchemaObject& sel, Database& db)
         {
-            const int   count = static_cast<int>(db.clips.size());
-            const auto* field = sel.HasField("databases") ? sel.FindField("databases") : nullptr;
-            if (!field || field->objs.empty()) {
+            const auto* field   = sel.HasField("databases") ? sel.FindField("databases") : nullptr;
+            const bool  implied = !field || field->objs.empty();
+            if (implied) {
                 db.databases.push_back({ "(every child)" });
-                for (Clip& c : db.clips) c.database = 0;
             } else {
                 for (const auto& o : field->objs) {
                     const auto* d = dynamic_cast<const SchemaObject*>(o.get());
@@ -520,42 +520,27 @@ namespace CB::feature {
                                                      "no row is a moving candidate");
                     if (const auto* tags = d->FindField("tags"))
                         p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
-                    const auto first = d->GetInt("firstChild"), n = d->GetInt("numChildren");
-                    if (first < 0 || n < 0 || first + n > count)
-                        LOG_WARN("motion matching: database '{}' spans children {}..{} of {} - clamped", p.name, first, first + n - 1, count);
-                    const int index = static_cast<int>(db.databases.size());
-                    int       overlap = 0;
-                    for (auto i = (std::max)(first, std::int64_t{ 0 }); i < (std::min)(first + n, std::int64_t{ count }); ++i) {
-                        if (db.clips[i].database >= 0) ++overlap;
-                        else db.clips[i].database = index;
-                    }
-                    if (overlap)
-                        LOG_WARN("motion matching: database '{}' claims {} child(ren) an earlier database holds - left there", p.name, overlap);
                     db.databases.push_back(std::move(p));
                 }
             }
-            if (sel.HasField("childRanges")) {
-                std::vector<float> ranges;
-                try {
-                    ranges = sel.GetArray<float>("childRanges");
-                } catch (const std::exception& e) {
-                    LOG_WARN("motion matching: childRanges unreadable ({}) - every child whole", e.what());
+            const auto& rows = sel.Children("children");
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                const auto* row = dynamic_cast<const SchemaObject*>(rows[i].get());
+                if (!row) continue;
+                Clip& c      = db.clips[i];
+                c.flags      = static_cast<std::uint8_t>((row->GetBool("disableReselection") ? kFlagDisableReselection : 0) |
+                                                         (row->GetBool("looping") ? kFlagLooping : 0));
+                c.rangeStart = row->GetFloat("rangeStart");
+                c.rangeEnd   = row->GetFloat("rangeEnd");
+                if (implied) {
+                    c.database = 0;
+                    continue;
                 }
-                if (!ranges.empty() && ranges.size() != 2 * db.clips.size())
-                    LOG_WARN("motion matching: {} childRanges values for {} children - the rest whole", ranges.size(), db.clips.size());
-                for (std::size_t i = 0; 2 * i + 1 < ranges.size() && i < db.clips.size(); ++i)
-                    db.clips[i].rangeStart = ranges[2 * i], db.clips[i].rangeEnd = ranges[2 * i + 1];
+                const std::string& name = row->Str("database");
+                const auto         it   = std::find_if(db.databases.begin(), db.databases.end(), [&](const PoseDatabase& d) { return d.name == name; });
+                if (it == db.databases.end()) LOG_WARN("motion matching: child {} names database '{}', which the graph lacks - never searched", i, name);
+                else c.database = static_cast<int>(it - db.databases.begin());
             }
-            if (!sel.HasField("childFlags")) return;
-            std::vector<std::uint8_t> flags;
-            try {
-                flags = sel.GetArray<std::uint8_t>("childFlags");
-            } catch (const std::exception& e) {
-                LOG_WARN("motion matching: childFlags unreadable ({}) - every child unflagged", e.what());
-            }
-            if (!flags.empty() && flags.size() != db.clips.size())
-                LOG_WARN("motion matching: {} childFlags for {} children - the rest unflagged", flags.size(), db.clips.size());
-            for (std::size_t i = 0; i < flags.size() && i < db.clips.size(); ++i) db.clips[i].flags = flags[i];
         }
 
         /// @brief The databases named `names` (byte-exact), warning of any the graph lacks.
@@ -609,7 +594,7 @@ namespace CB::feature {
             }
 
             auto        db       = std::make_unique<Database>();
-            const auto& children = selector->Children("generators");
+            const auto& children = selector->Children("children");
             db->clips.resize(children.size());
             ReadDatabases(*selector, *db);
             ReadChooser(*selector, *db);
@@ -624,7 +609,8 @@ namespace CB::feature {
             std::size_t                   cacheHits  = 0;
             bool                          cacheDirty = false;
             for (std::size_t i = 0; i < children.size(); ++i) {
-                const auto* gen = dynamic_cast<const SchemaObject*>(children[i].get());
+                const auto* row = dynamic_cast<const SchemaObject*>(children[i].get());
+                const auto* gen = row ? row->Child("generator") : nullptr;
                 if (!gen || std::string_view(gen->ClassName()) != "hkbClipGenerator") {
                     LOG_WARN("motion matching: selector child {} is not a clip generator - never chosen", i);
                     continue;
@@ -729,7 +715,7 @@ namespace CB::feature {
                 /// @note The range cuts per CHILD: children sharing a clip share its Measured, not its range.
                 for (int f = 0; f < m->frames; ++f) {
                     const double t = f * m->dt;
-                    if (t < c.rangeStart || (c.rangeEnd >= 0 && t > c.rangeEnd)) db->searchable[c.first + f] = 0;
+                    if (t < c.rangeStart || (c.rangeEnd > 0 && t > c.rangeEnd)) db->searchable[c.first + f] = 0;
                 }
                 db->rowGait.insert(db->rowGait.end(), m->gait.begin(), m->gait.end());
                 const PoseDatabase* pd = c.database >= 0 ? &db->databases[c.database] : nullptr;

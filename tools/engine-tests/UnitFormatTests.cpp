@@ -286,6 +286,33 @@ void ConditionKeyChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) 
     MergesTo(base, { { "p.yaml", chooser(condition("0001x0000", "B")) } }, whole, reg, tmp, "a condition patched in by key");
 }
 
+/// @brief CBPoseSearchGenerator's rows merge by key: a column of one row, or a new row naming its database anywhere.
+void PoseSearchRowChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto row = [](const std::string& key, const std::string& clip, const std::string& db, const std::string& start) {
+        return "  '" + key + "':\n    generator: " + clip + "\n    database: '" + db + "'\n    rangeStart: " + start + "\n    rangeEnd: 0\n"
+               "    disableReselection: false\n    looping: false\n";
+    };
+    const auto selector = [](const std::string& rows) {
+        return "id: 0000x0002\nclass: CBPoseSearchGenerator\nuserData: 0\nname: 'MM'\nchildren:\n" + rows + "selectedIndex: 0\ndatabases:\n"
+               "  'One': {baseCostBias: '', continuingPoseCostBias: '', loopingCostBias: '', tags: [], standingCandidate: '', movingCandidate: ''}\n"
+               "  'Two': {baseCostBias: '', continuingPoseCostBias: '', loopingCostBias: '', tags: [], standingCandidate: '', movingCandidate: ''}\n";
+    };
+    const auto unit = [&](const std::string& rows) {
+        return Files{ { "graph.yaml", kGraph }, { "s.yaml", selector(rows) }, { "a.yaml", Clip("0000x0003", "A") }, { "b.yaml", Clip("0000x0004", "B") } };
+    };
+    const Files base = unit(row("0000x0000", "0000x0003", "One", "0") + row("0000x0001", "0000x0003", "Two", "0"));
+    MergesTo(base, { { "p.yaml", "id: 0000x0002\nclass: CBPoseSearchGenerator\nchildren:\n  '0000x0001':\n    rangeStart: 0.25\n" } },
+             unit(row("0000x0000", "0000x0003", "One", "0") + row("0000x0001", "0000x0003", "Two", "0.25")), reg, tmp, "a row's column patched by key");
+    MergesTo(base, { { "p.yaml", "id: 0000x0002\nclass: CBPoseSearchGenerator\nchildren:\n" + row("0001x0000", "0000x0004", "One", "0") } },
+             unit(row("0000x0000", "0000x0003", "One", "0") + row("0000x0001", "0000x0003", "Two", "0") + row("0000x0002", "0000x0004", "One", "0")), reg, tmp,
+             "a new row joins any database by name");
+    std::vector<std::uint8_t> got;
+    std::string err;
+    Check(!Merged(base, { { "p.yaml", "id: 0000x0002\nclass: CBPoseSearchGenerator\nchildren:\n  '0000x0000': {deleted: true}\n" } }, reg, tmp, got, err) &&
+              err.find("can't be deleted") != std::string::npos,
+          "a row is referenced by position and can't be deleted: " + err);
+}
+
 /// @brief The loader refuses a list that doesn't state how it merges, or a key its element can't give.
 void DeclarationChecks(const fs::path& tmp) {
     const auto refuses = [&](const std::string& field, const std::string& why, const std::string& what) {
@@ -352,6 +379,7 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg) {
     SkeletonPatchChecks(reg, tmp);
     ValueListChecks(reg, tmp);
     ConditionKeyChecks(reg, tmp);
+    PoseSearchRowChecks(reg, tmp);
     DeclarationChecks(tmp);
     std::error_code ec;
     fs::remove_all(tmp, ec);
