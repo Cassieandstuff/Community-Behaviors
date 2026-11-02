@@ -247,10 +247,13 @@ inline constexpr const char* kUngroupedFolder = "ungrouped";
 /// @param base the load order's merged graph, WITHOUT `self`'s layer
 /// @param baseMasters what `base`'s own FormIDs resolve against, owner first
 /// @param self the bundle the patch ships in
-/// @param[out] masters the bundles the patch depends on: the owners of the nodes it states, by stem, without `self` or the base game
+/// @param[in,out] masters the bundle's declared masters, by stem. A bundle has one master table, so these keep their order and places, and a master the
+///        patch newly needs is appended.
+/// @param[out] used what this patch alone depends on: the owners of the nodes it states, without `self` or the base game
 bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
                        bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
-                       std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+                       std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr,
+                       std::vector<std::string>* used = nullptr);
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
 ///        only the fields it names.

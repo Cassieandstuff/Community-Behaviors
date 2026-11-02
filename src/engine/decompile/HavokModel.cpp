@@ -3758,7 +3758,7 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
 
 bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
                        bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
-                       std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
+                       std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats, std::vector<std::string>* used) {
     namespace fs = std::filesystem;
     if (baseMasters.empty()) { err = "DeriveEditedPatch: the base has no master table"; return false; }
     try {
@@ -3789,16 +3789,18 @@ bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& ba
                 const std::string c = canonical(id);
                 if (const auto colon = c.rfind(':'); colon != std::string::npos) stems.insert(c.substr(0, colon));
             }
-        const std::vector<std::string> named(stems.begin(), stems.end());
+        std::vector<std::string> named = masters;
+        for (const std::string& stem : stems)
+            if (std::find(named.begin(), named.end(), stem) == named.end()) named.push_back(stem);
         const auto wide = codec::formid::BuildMasterTable(self, named, haveSkyrim);
         if (!run(wide, nullptr)) return false;
 
         static const std::regex kFormId(R"(\b([0-9a-f]{4})x[0-9a-f]{4}\b)");
-        std::set<std::string> used;
+        std::set<std::string> stated;
         const auto scan = [&](const std::string& text) {
             for (std::sregex_iterator m(text.begin(), text.end(), kFormId), end; m != end; ++m) {
                 const auto at = std::stoul((*m)[1].str(), nullptr, 16);
-                if (at < wide.size()) used.insert(wide[at]);
+                if (at < wide.size()) stated.insert(wide[at]);
             }
         };
         std::error_code ec;
@@ -3808,9 +3810,12 @@ bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& ba
                 scan(e.path().filename().string());
                 if (const auto text = disk::ReadFile(e.path())) scan(*text);
             }
-        masters.clear();
-        for (const std::string& stem : named)
-            if (used.count(stem) && stem != self && stem != codec::formid::BASE_GAME_STEM) masters.push_back(stem);
+        if (used) used->clear();
+        for (const std::string& stem : named) {
+            if (!stated.count(stem) || stem == self || stem == codec::formid::BASE_GAME_STEM) continue;
+            if (used) used->push_back(stem);
+            if (std::find(masters.begin(), masters.end(), stem) == masters.end()) masters.push_back(stem);
+        }
         return run(codec::formid::BuildMasterTable(self, masters, haveSkyrim), stats);
     } catch (const std::exception& e) {
         err = std::string("DeriveEditedPatch: ") + e.what();

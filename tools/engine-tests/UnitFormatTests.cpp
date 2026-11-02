@@ -302,16 +302,21 @@ void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         return out;
     };
     const fs::path out = tmp / "edited-patch";
-    std::vector<std::string> masters{ "stale" };
+    std::vector<std::string> masters;
     std::string err;
 
+    const auto derive = [&](const dec::ParsedHky& from, const std::vector<std::string>& fromTable, const dec::ParsedHky& to, const char* self, bool skyrim,
+                            const schema::SchemaRegistry& r, const std::string& dir, std::vector<std::string>& declared, std::string& e) {
+        declared.clear();
+        return dec::DeriveEditedPatch(from, fromTable, to, self, skyrim, r, dir, declared, e);
+    };
     const auto unchanged = parse("a graph nobody edited");
-    Check(dec::DeriveEditedPatch(*parse("base"), baseTable, *unchanged, "mymod", true, reg, out.string(), masters, err), "no edit: " + err);
+    Check(derive(*parse("base"), baseTable, *unchanged, "mymod", true, reg, out.string(), masters, err), "no edit: " + err);
     Check(files(out).empty() && masters.empty(), "no edit derives to nothing");
 
     const auto base = parse("base"), edited = parse("edited");
     rename(*named(*edited, "A"), "Renamed");
-    Check(dec::DeriveEditedPatch(*base, baseTable, *edited, "mymod", true, reg, out.string(), masters, err), "a rename: " + err);
+    Check(derive(*base, baseTable, *edited, "mymod", true, reg, out.string(), masters, err), "a rename: " + err);
     auto patch = files(out);
     Check(patch.size() == 1 && patch.contains("0001x0003.yaml"), "a rename is one file, on the node's own FormID");
     if (patch.contains("0001x0003.yaml")) {
@@ -326,7 +331,7 @@ void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 
     const auto movedBase = parse("base"), moved = parse("moved");
     moved->identity.folder[named(*moved, "B")] = "Locomotion/Walk";
-    Check(dec::DeriveEditedPatch(*movedBase, baseTable, *moved, "mymod", true, reg, out.string(), masters, err), "a move: " + err);
+    Check(derive(*movedBase, baseTable, *moved, "mymod", true, reg, out.string(), masters, err), "a move: " + err);
     patch = files(out);
     Check(patch.size() == 1 && patch.contains("Locomotion/Walk/0001x0004.yaml"), "a move is one file, in the new folder");
     const auto movedTarget = parse("merge target");
@@ -335,7 +340,7 @@ void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 
     const auto back = parse("moved back");
     back->identity.folder.erase(named(*back, "B"));
-    Check(dec::DeriveEditedPatch(*movedTarget, baseTable, *back, "mymod", true, reg, out.string(), masters, err), "a move out: " + err);
+    Check(derive(*movedTarget, baseTable, *back, "mymod", true, reg, out.string(), masters, err), "a move out: " + err);
     Check(files(out).contains(std::string(dec::kUngroupedFolder) + "/0001x0004.yaml"), "moving out of a lower layer's group names the reserved folder");
     Check(dec::MergeHkyPatch(*movedTarget, common::DiskUnitSource(out), reg, baseTable, table, err), "a move out merges: " + err);
     Check(!movedTarget->identity.folder.contains(named(*movedTarget, "B")), "the reserved folder puts the node back at the top");
@@ -352,13 +357,21 @@ void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     };
     const auto otherBase = withOther("other's base"), vanillaEdit = withOther("a vanilla edit");
     rename(*named(*vanillaEdit, "A"), "Renamed");
-    Check(dec::DeriveEditedPatch(*otherBase, baseTable, *vanillaEdit, "mymod", true, reg, out.string(), masters, err), "beside a mod: " + err);
+    Check(derive(*otherBase, baseTable, *vanillaEdit, "mymod", true, reg, out.string(), masters, err), "beside a mod: " + err);
     Check(masters.empty(), "an edit beside another mod doesn't depend on it");
     const auto otherEdit = withOther("an edit of the mod's node");
     rename(*named(*otherEdit, "FromOther"), "Renamed");
-    Check(dec::DeriveEditedPatch(*otherBase, baseTable, *otherEdit, "mymod", true, reg, out.string(), masters, err), "on a mod's node: " + err);
+    Check(derive(*otherBase, baseTable, *otherEdit, "mymod", true, reg, out.string(), masters, err), "on a mod's node: " + err);
     Check(masters == std::vector<std::string>{ "other" }, "an edit of another mod's node depends on it");
     Check(files(out).contains("0002x0100.yaml"), "and names it through its index in the header");
+    std::vector<std::string> declared{ "zeta" }, used;
+    const auto otherEdit2 = withOther("the same edit, in a bundle with masters already");
+    rename(*named(*otherEdit2, "FromOther"), "Renamed");
+    Check(dec::DeriveEditedPatch(*otherBase, baseTable, *otherEdit2, "mymod", true, reg, out.string(), declared, err, nullptr, nullptr, &used), "a declared table: " + err);
+    Check(declared == std::vector<std::string>{ "zeta", "other" }, "a bundle's masters keep their places, and a new one is appended");
+    Check(used == std::vector<std::string>{ "other" }, "and the patch says what it alone depends on");
+    Check(files(out).contains("0003x0100.yaml"), "and it names the node through that table");
+    Check(derive(*otherBase, baseTable, *otherEdit, "mymod", true, reg, out.string(), masters, err), "again: " + err);
     const auto otherTarget = withOther("merge target");
     Check(dec::MergeHkyPatch(*otherTarget, common::DiskUnitSource(out), reg, baseTable, { "mymod", "skyrim", "other" }, err), "it merges: " + err);
     Check(named(*otherTarget, "Renamed") && !named(*otherTarget, "FromOther"), "the edit lands on the mod's node, not a new one");
