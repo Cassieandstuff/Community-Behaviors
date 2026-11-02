@@ -14,4 +14,8 @@ namespace CB::platform::game {
     ///       vanilla's camera targets the horse and pivots at the horse's root plus this.
     float Actor_GetCameraHeight(RE::Actor* actor);
 
+    /// @brief Sweeps the camera's sphere from its target's eye to `position`, moves `position` in front of a hit (true),
+    ///        and fades the player or the actor the camera sits in when `fade`.
+    bool PlayerCamera_ApplyCameraCaster(RE::PlayerCamera* camera, RE::NiPoint3* position, bool fade);
+
 }  // namespace CB::platform::game

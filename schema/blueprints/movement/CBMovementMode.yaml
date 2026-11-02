@@ -18,5 +18,5 @@ fields:
   - { name: modeId,   type: int32 }
   - { pad: 8 }
   - { name: installs, type: string }
-  - { name: arbiters, type: structarray, ref: CBMovementArbiter }
+  - { name: arbiters, type: structarray, ref: CBMovementArbiter, roster: field:type }
   - { name: agents,   type: ptrarray, ref: CBMovementAgent, roster: ref }

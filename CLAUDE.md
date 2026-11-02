@@ -252,6 +252,9 @@ and which layer's folder wins is BK's call. CB only carries them (`Identity::fol
   extension is ignored.
 - Regen and derive write flat (`<id>.yaml`; bones default to `animation/bones/`, `ragdoll/bones/`). Organizing vanilla's
   folders is a regen rule's job, not the format's.
+- Every list declares how it merges (schema `roster:`; the loader refuses one that does not): a key (`ref`, `id`, `slot`,
+  `field:<f>`, `bone:<f>`; `value` = a string that is its own key) merges by element, `whole` means last writer wins. A
+  `value` list stays a plain list in a unit; a patch maps `'x': {}` to append and `'x': {deleted: true}` to remove.
 - A class-less map on a pointer field in a patch patches what the field holds now, a node included; stating `class:`
   replaces it unless the field holds an inline object of that class. Derive states `class:` on every whole inline value.
 

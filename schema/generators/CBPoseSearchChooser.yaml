@@ -6,4 +6,4 @@ size:      48
 # controller, never by the graph.
 fields:
   - { name: rows,     type: structarray, ref: CBPoseSearchChooserRow, roster: id }
-  - { name: fallback, type: stringarray }
+  - { name: fallback, type: stringarray, roster: value }

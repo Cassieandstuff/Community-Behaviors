@@ -69,7 +69,12 @@ struct Field {
                                          ///<        the child node's FormID), `field:<f>` (by an element's string field),
                                          ///<        `bone:<f>` (by the bone an element's index field names), `id` (minted
                                          ///<        sub-record FormIDs, owner-qualified, scoped to the parent), `slot` (as
-                                         ///<        `id`, but entries are referenced by position elsewhere: never deleted).
+                                         ///<        `id`, but entries are referenced by position elsewhere: never deleted),
+                                         ///<        `value` (a string list whose string is its own key: still a plain list in
+                                         ///<        a unit; a patch maps `'x': {}` to add and `'x': {deleted: true}` to remove).
+    bool        whole = false;           ///< @brief `roster: whole` — no element key: a patch states the list and the last writer
+                                         ///<        wins. Stored apart so `roster` stays empty for every unkeyed array.
+                                         ///< @invariant LoadDir refuses a list that declares neither (see LoadDir's note).
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
     std::string unitRef;                 ///< @brief `unitref: behavior|character|skeleton|animation` — the string (or each
@@ -160,9 +165,9 @@ struct ClassSchema {
     ///        signature effect.
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
-    ///        `clipset` (children, flags, ranges, groups) — a node over clips an editor opens as a database workspace:
-    ///        the child list, its per-child flag bytes and (start, end) range pairs, and the groups over it;
-    ///        `clipgroup` (label, first, count) — one group, a contiguous child range.
+    ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and
+    ///        its groups; `clipchild` (clip, group, start, end) — one row: the clip, the name of its group, and the
+    ///        seconds searched; `clipgroup` (label) — one group, named by its rows.
     struct View {
         std::string                        kind;
         std::map<std::string, std::string> roles;   ///< role -> field name

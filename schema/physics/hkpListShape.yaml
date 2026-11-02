@@ -8,7 +8,7 @@ size:      144
 # (childInfo cap flag @60, AABB @80, enabledChildren 0xff.. @112). Contents inline after (208..400).
 fields:
   - { skip: 8 }                                             # pad collection(40) -> 48 (16-align childInfo hkArray)
-  - { name: childInfo,           type: structarray, ref: hkpListShapeChildInfo } # @48 (16)
+  - { name: childInfo,           type: structarray, ref: hkpListShapeChildInfo, roster: whole } # @48 (16)
   - { name: flags,               type: uint16 }             # @64
   - { name: numDisabledChildren, type: uint16 }             # @66
   - { skip: 12 }                                            # pad @68 -> 80 (16-align AABB)

@@ -11,6 +11,6 @@ fields:
   - { name: frameDuration, type: float }
   - { name: duration,      type: float }
   - { pad: 8 }
-  - { name: features,      type: scalararray, scalar: float }
-  - { name: rootPositions, type: scalararray, scalar: float }
+  - { name: features,      type: scalararray, scalar: float, roster: whole }
+  - { name: rootPositions, type: scalararray, scalar: float, roster: whole }
   - { name: curves,        type: structarray, ref: CBAnimationCurve, roster: field:name }

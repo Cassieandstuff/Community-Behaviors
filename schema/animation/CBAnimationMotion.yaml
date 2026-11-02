@@ -5,5 +5,5 @@ size:      40
 # the translation / rotation samples. Empty duration = no record.
 fields:
   - { name: duration,    type: string }
-  - { name: translation, type: stringarray }
-  - { name: rotation,    type: stringarray }
+  - { name: translation, type: stringarray, roster: whole }
+  - { name: rotation,    type: stringarray, roster: whole }

@@ -143,17 +143,12 @@ namespace CB::engine::compile {
             selector->Str("name")                     = spec.selectorName;
             selector->FieldRef("variableBindingSet").obj = Binding(edit, "selectedIndex", clipIndex);
 
-            auto& children = selector->FieldRef("generators").objs;
+            auto& children = selector->FieldRef("children").objs;
             auto& dbs      = selector->FieldRef("databases").objs;
-            std::vector<std::uint8_t> flags;
-            std::vector<float>        ranges;
-            bool                      ranged = false;
             const long userControlled = EnumValue("PlaybackMode", "MODE_USER_CONTROLLED");
             for (const auto& db : spec.databases) {
                 auto d = Make(edit, "CBPoseSearchDatabase");
                 d->Str("name") = db.name;
-                d->SetInt("firstChild", static_cast<std::int64_t>(children.size()));
-                d->SetInt("numChildren", static_cast<std::int64_t>(db.clips.size()));
                 d->Str("baseCostBias")           = db.baseCostBias;
                 d->Str("continuingPoseCostBias") = db.continuingPoseCostBias;
                 d->Str("loopingCostBias")        = db.loopingCostBias;
@@ -170,16 +165,16 @@ namespace CB::engine::compile {
                     clip->SetInt("animationBindingIndex", -1);
                     clip->SetInt("mode", userControlled);
                     clip->FieldRef("variableBindingSet").obj = Binding(edit, "userControlledTimeFraction", timeIndex);
-                    children.push_back(clip);
-                    flags.push_back(c.flags);
-                    ranges.push_back(c.rangeStart);
-                    ranges.push_back(c.rangeEnd);
-                    ranged = ranged || c.rangeStart > 0 || c.rangeEnd >= 0;
+                    auto row = Make(edit, "CBPoseSearchChild");
+                    row->FieldRef("generator").obj = clip;
+                    row->Str("database")           = db.name;
+                    row->SetFloat("rangeStart", c.rangeStart);
+                    row->SetFloat("rangeEnd", (std::max)(c.rangeEnd, 0.0f));
+                    row->SetBool("disableReselection", (c.flags & kMmDisableReselection) != 0);
+                    row->SetBool("looping", (c.flags & kMmLooping) != 0);
+                    children.push_back(row);
                 }
             }
-            selector->SetArray<std::uint8_t>("childFlags", flags);
-            /// @note Written only when some clip is ranged: an unranged bundle's unit stays as it was.
-            if (ranged) selector->SetArray<float>("childRanges", ranges);
 
             auto chooser = Make(edit, "CBPoseSearchChooser");
             for (const auto& r : spec.rows) {

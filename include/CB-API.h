@@ -203,7 +203,7 @@ namespace mm {
     using BundleSpec   = CB::engine::compile::MmBundleSpec;    ///< the whole bundle's input
     using Files        = CB::engine::compile::MmFiles;         ///< bundle path → file text
 
-    using CB::engine::compile::kMmDisableReselection;          ///< childFlags bits
+    using CB::engine::compile::kMmDisableReselection;          ///< MmClip::flags bits
     using CB::engine::compile::kMmLooping;
     using CB::engine::compile::kMmChooserVariables;            ///< the chooser inputs every graph declares, by name
 

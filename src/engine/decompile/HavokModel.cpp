@@ -2593,7 +2593,7 @@ bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
 
 /// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value WHOLE):
 ///        a keyed roster merges by key (rosterPatch); a map onto an existing inline object of the same class merges
-///        field-wise (recursively); a `union` name roster only ADDS the names it lacks. Every other value — any list
+///        field-wise (recursively); a `union` name roster only ADDS the names it lacks; a `value` list takes a map of additions and removals. Every other value — any list
 ///        without a roster — is replaced whole: the last mod to change it wins.
 bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps, bool& handled) {
     handled = false;
@@ -2686,6 +2686,17 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
                 b.resize(w);
                 v.raw.insert(v.raw.end(), b.begin(), b.end());
             }
+        }
+        return true;
+    }
+    /// @note A string that is its own key: a map adds or removes by value, in order, and only a list replaces the whole.
+    if (f.kind == FieldKind::StringArray && n.is_map() && f.roster == "value") {
+        handled = true;
+        for (auto e : n) {
+            const std::string s = ykey(e);
+            const auto at = std::find(v.strs.begin(), v.strs.end(), s);
+            if (e.is_map() && yhas(e, "deleted")) { if (at != v.strs.end()) v.strs.erase(at); }
+            else if (at == v.strs.end()) v.strs.push_back(s);
         }
         return true;
     }
@@ -3285,6 +3296,27 @@ std::optional<std::string> pointerRecordPatch(const io::SchemaObject& b, const i
     return sub.empty() ? y : y + "value:\n" + indentLines(sub, "  ", "  ");
 }
 
+/// @brief A `value` list's patch: `{deleted: true}` for each base string the mod dropped, `{}` for each it appends; empty when
+///        nothing changed.
+/// @return nullopt when a map can't state the mod's list (a reorder, a mid-list insert, a duplicate): the caller writes the list.
+std::optional<std::string> valueDiff(const std::vector<std::string>& b, const std::vector<std::string>& m) {
+    if (std::set<std::string>(b.begin(), b.end()).size() != b.size() || std::set<std::string>(m.begin(), m.end()).size() != m.size())
+        return std::nullopt;
+    const std::set<std::string> inB(b.begin(), b.end()), inM(m.begin(), m.end());
+    std::vector<std::string> kept;
+    std::string y;
+    for (const auto& s : b) {
+        if (inM.count(s)) kept.push_back(s);
+        else y += text::Quote(s) + ": {deleted: true}\n";
+    }
+    if (!std::equal(kept.begin(), kept.end(), m.begin(), m.begin() + static_cast<std::ptrdiff_t>(kept.size()))) return std::nullopt;
+    for (std::size_t k = kept.size(); k < m.size(); ++k) {
+        if (inB.count(m[k])) return std::nullopt;
+        y += text::Quote(m[k]) + ": {}\n";
+    }
+    return y;
+}
+
 /// @brief A roster field's KEYED patch: changed entries (field-level for an inline record), new entries (whole, keyed
 ///        as the mod's own), and `{deleted: true}` for base entries the mod dropped. Returns the entry lines (indented
 ///        two), empty when nothing changed; nullopt when either side can't be keyed (the caller patches positionally).
@@ -3473,6 +3505,11 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
             if (const auto r = rosterDiff(b, m, i, cb, cm)) {
                 if (r->empty()) continue;
                 y += f.name + ":\n" + indentLines(*r, "  ", "  ");
+                continue;
+            }
+        if (f.kind == FieldKind::StringArray && f.roster == "value")
+            if (const auto r = valueDiff(vb.strs, vm.strs)) {
+                if (!r->empty()) y += f.name + ":\n" + indentLines(*r, "  ", "  ");
                 continue;
             }
         /// @note A `union` name roster only ever ADDS the names it lacks (names are identity; a mod never replaces or

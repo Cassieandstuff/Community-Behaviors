@@ -12,6 +12,6 @@ size:      104
 #   modes     the chooser that picks this pool's CBMovementMode while the pool is active
 fields:
   - { name: installs, type: string }
-  - { name: arbiters, type: stringarray }
-  - { name: agents,   type: stringarray }
+  - { name: arbiters, type: stringarray, roster: value }
+  - { name: agents,   type: stringarray, roster: value }
   - { name: modes,    type: ptr, ref: CBBlueprintNode }

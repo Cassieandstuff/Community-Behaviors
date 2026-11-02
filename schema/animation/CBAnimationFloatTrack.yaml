@@ -3,4 +3,4 @@ parent:    null
 size:      24
 fields:
   - { name: name,      type: string }
-  - { name: keyframes, type: structarray, ref: CBFloatKey }
+  - { name: keyframes, type: structarray, ref: CBFloatKey, roster: whole }

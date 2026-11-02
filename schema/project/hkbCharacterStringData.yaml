@@ -3,15 +3,15 @@ parent:    hkReferencedObject
 signature: 0x655b42bc
 size:      192
 fields:
-  - { name: deformableSkinNames, type: stringarray }
-  - { name: rigidSkinNames,      type: stringarray }
+  - { name: deformableSkinNames, type: stringarray, roster: whole }
+  - { name: rigidSkinNames,      type: stringarray, roster: whole }
   - { name: animationNames,      type: stringarray }
-  - { name: animationFilenames,  type: stringarray, unitref: animation }
-  - { name: characterPropertyNames, type: stringarray }
-  - { name: retargetingSkeletonMapperFilenames, type: stringarray }
-  - { name: lodNames,            type: stringarray }
-  - { name: mirroredSyncPointSubstringsA, type: stringarray }
-  - { name: mirroredSyncPointSubstringsB, type: stringarray }
+  - { name: animationFilenames,  type: stringarray, unitref: animation, roster: value }
+  - { name: characterPropertyNames, type: stringarray, roster: whole }
+  - { name: retargetingSkeletonMapperFilenames, type: stringarray, roster: whole }
+  - { name: lodNames,            type: stringarray, roster: whole }
+  - { name: mirroredSyncPointSubstringsA, type: stringarray, roster: whole }
+  - { name: mirroredSyncPointSubstringsB, type: stringarray, roster: whole }
   - { name: name,             type: string }
   - { name: rigName,          type: string, unitref: skeleton }
   - { name: ragdollName,      type: string, unitref: skeleton }

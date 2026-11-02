@@ -390,7 +390,7 @@ std::vector<mm::MmDatabase> DatabasesByFolder(const Json& list, const std::vecto
     return dbs;
 }
 
-/// @brief Each clip's searched range from a `ranges` object {"<clip path>": [startSeconds, endSeconds]} (end < 0 = the
+/// @brief Each clip's searched range from a `ranges` object {"<clip path>": [startSeconds, endSeconds]} (end <= 0 = the
 ///        clip's end), the clip named by path identity; a clip not named stays whole.
 /// @throws std::runtime_error on a malformed entry or a path no database holds.
 void ApplyRanges(const Json& ranges, std::vector<mm::MmDatabase>& dbs) {

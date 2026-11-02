@@ -6,5 +6,5 @@ size:      64
 fields:
   - { name: name,            type: string }
   - { empty: ptr }                              # m_parent — SERIALIZE_IGNORED (rebuilt at load)
-  - { name: resourceHandles, type: ptrarray, ref: hkMemoryResourceHandle }
-  - { name: children,        type: ptrarray, ref: hkMemoryResourceContainer }
+  - { name: resourceHandles, type: ptrarray, ref: hkMemoryResourceHandle, roster: whole }
+  - { name: children,        type: ptrarray, ref: hkMemoryResourceContainer, roster: whole }
