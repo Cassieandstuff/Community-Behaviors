@@ -8,13 +8,12 @@
 // Identifier atoms/args that aren't numbers resolve via the ArgResolver (forms/keywords/AVs by name)
 // or as a registered nullary function. Full arg-literal resolution across the load order is an Inc 3 item.
 #include "Detail.h"
-#include <PluginLogger.h>
 
 #include <cctype>
 #include <cmath>
 #include <format>
 
-namespace CB::platform::relay {
+namespace CB::engine::relay {
 
     // ── operator codes ──────────────────────────────────────────────────────────────────────────
     enum Op : std::uint16_t {
@@ -210,4 +209,4 @@ namespace CB::platform::relay {
         return st.empty() ? Value::Bool(false) : st.back();
     }
 
-}  // namespace CB::platform::relay
+}  // namespace CB::engine::relay

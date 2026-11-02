@@ -59,7 +59,7 @@ namespace CB::platform::relay {
         };
 
         // ── Small shared helpers over memoized primitives (functions call these, never game state) ──
-        bool KeywordArrayHas(const EvalContext& c, PrimId arrayPrim, RE::BGSKeyword* kw) {
+        bool KeywordArrayHas(const EvalContext& c, PrimId arrayPrim, const void* kw) {
             if (!kw || arrayPrim == PrimId::Invalid) return false;
             const Value v = c.Primitive(arrayPrim);
             for (const Value& e : v.arr)
@@ -67,7 +67,7 @@ namespace CB::platform::relay {
             return false;
         }
 
-        bool FormArrayHas(const EvalContext& c, PrimId arrayPrim, RE::TESForm* form) {
+        bool FormArrayHas(const EvalContext& c, PrimId arrayPrim, const void* form) {
             if (!form || arrayPrim == PrimId::Invalid) return false;
             const Value v = c.Primitive(arrayPrim);
             for (const Value& e : v.arr)
@@ -87,17 +87,17 @@ namespace CB::platform::relay {
         // Keywords -> Keyword[]  (the actor's base/template keywords)
         Value Prim_Keywords(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* npc = actor->GetActorBase())
                     for (RE::BGSKeyword* kw : npc->GetKeywords())
-                        if (kw) block.push_back(Value::Keyword(kw));
+                        if (kw) block.push_back(KeywordValue(kw));
             return Value::Array(VType::KeywordArray, block);
         }
 
         // WornKeywords -> Keyword[]  (union of keywords across all worn armor pieces)
         Value Prim_WornKeywords(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 constexpr std::size_t kMaxSeen = 16;
                 RE::TESObjectARMO* seenArmo[kMaxSeen] = {};   // dedup: multi-slot armor repeats across bits
                 std::size_t seenN = 0;
@@ -111,7 +111,7 @@ namespace CB::platform::relay {
                     if (seen) continue;
                     if (seenN < kMaxSeen) seenArmo[seenN++] = armo;
                     for (RE::BGSKeyword* kw : armo->GetKeywords())
-                        if (kw) block.push_back(Value::Keyword(kw));
+                        if (kw) block.push_back(KeywordValue(kw));
                 }
             }
             return Value::Array(VType::KeywordArray, block);
@@ -119,14 +119,14 @@ namespace CB::platform::relay {
 
         // EquippedForm(hand) -> Form
         Value Prim_EquippedForm(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty()) return Value::Form(nullptr);
-            return Value::Form(c.actor->GetEquippedObject(IsLeftHand(a[0].AsInt())));
+            if (!ActorOf(c) || a.empty()) return FormValue(nullptr);
+            return FormValue(ActorOf(c)->GetEquippedObject(IsLeftHand(a[0].AsInt())));
         }
 
         // EquippedType(hand) -> Int   (RE::WEAPON_TYPE: 0 = hand-to-hand/unarmed … 9 = crossbow; -1 = non-weapon)
         Value Prim_EquippedType(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty()) return Value::Int(0);
-            RE::TESForm* form = c.actor->GetEquippedObject(IsLeftHand(a[0].AsInt()));
+            if (!ActorOf(c) || a.empty()) return Value::Int(0);
+            RE::TESForm* form = ActorOf(c)->GetEquippedObject(IsLeftHand(a[0].AsInt()));
             if (!form) return Value::Int(0);   // empty hand = unarmed hand-to-hand
             if (auto* weap = form->As<RE::TESObjectWEAP>())
                 return Value::Int(static_cast<std::int32_t>(weap->GetWeaponType()));
@@ -135,29 +135,29 @@ namespace CB::platform::relay {
 
         // ActorValue(av) -> Float
         Value Prim_ActorValue(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty()) return Value::Float(0.0f);
-            if (auto* avo = c.actor->AsActorValueOwner())
+            if (!ActorOf(c) || a.empty()) return Value::Float(0.0f);
+            if (auto* avo = ActorOf(c)->AsActorValueOwner())
                 return Value::Float(avo->GetActorValue(static_cast<RE::ActorValue>(a[0].AsInt())));
             return Value::Float(0.0f);
         }
 
         // ActorBase -> Form
         Value Prim_ActorBase(const EvalContext& c, std::span<const Value>) {
-            return Value::Form(c.actor ? c.actor->GetActorBase() : nullptr);
+            return FormValue(ActorOf(c) ? ActorOf(c)->GetActorBase() : nullptr);
         }
 
         // Race -> Form
         Value Prim_Race(const EvalContext& c, std::span<const Value>) {
-            return Value::Form(c.actor ? c.actor->GetRace() : nullptr);
+            return FormValue(ActorOf(c) ? ActorOf(c)->GetRace() : nullptr);
         }
 
         // Factions -> Form[]   (factions the actor is a member of, rank >= 0)
         Value Prim_Factions(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 std::vector<Value>* out = &block;
                 actor->VisitFactions([out](RE::TESFaction* faction, std::int8_t rank) -> bool {
-                    if (faction && rank >= 0) out->push_back(Value::Form(faction));
+                    if (faction && rank >= 0) out->push_back(FormValue(faction));
                     return false;   // false = keep visiting
                 });
             }
@@ -168,12 +168,12 @@ namespace CB::platform::relay {
         // here — HasPerk() is authoritative via the Actor::HasPerk read below).
         Value Prim_Perks(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 if (auto* base = actor->GetActorBase()) {
                     const RE::BGSPerkRankArray* pra = base;   // TESNPC -> TESActorBase -> BGSPerkRankArray
                     if (pra->perks)
                         for (std::uint32_t i = 0; i < pra->perkCount; ++i)
-                            if (pra->perks[i].perk) block.push_back(Value::Form(pra->perks[i].perk));
+                            if (pra->perks[i].perk) block.push_back(FormValue(pra->perks[i].perk));
                 }
             }
             return Value::Array(VType::FormArray, block);
@@ -181,19 +181,19 @@ namespace CB::platform::relay {
 
         // HasPerk(form) -> Int   (supporting predicate-primitive: authoritative incl. runtime-added perks)
         Value Prim_HasPerk(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty()) return Value::Int(0);
-            auto* perk = a[0].form ? a[0].form->As<RE::BGSPerk>() : nullptr;
-            return Value::Int(perk && c.actor->HasPerk(perk) ? 1 : 0);
+            if (!ActorOf(c) || a.empty()) return Value::Int(0);
+            auto* perk = FormOf(a[0]) ? FormOf(a[0])->As<RE::BGSPerk>() : nullptr;
+            return Value::Int(perk && ActorOf(c)->HasPerk(perk) ? 1 : 0);
         }
 
         // Spells -> Form[]   (all spells the actor knows — base + added, via the engine visitor)
         Value Prim_Spells(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 struct Collector : RE::Actor::ForEachSpellVisitor {
                     std::vector<Value>* out = nullptr;
                     RE::BSContainer::ForEachResult Visit(RE::SpellItem* spell) override {
-                        if (spell) out->push_back(Value::Form(spell));
+                        if (spell) out->push_back(FormValue(spell));
                         return RE::BSContainer::ForEachResult::kContinue;
                     }
                 };
@@ -207,38 +207,38 @@ namespace CB::platform::relay {
         // MagicEffects -> Form[]   (base EffectSetting of every active effect)
         Value Prim_MagicEffects(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* mt = actor->AsMagicTarget())
                     if (auto* list = mt->GetActiveEffectList())
                         for (RE::ActiveEffect* ae : *list)
                             if (ae)
                                 if (auto* base = ae->GetBaseObject())
-                                    block.push_back(Value::Form(base));
+                                    block.push_back(FormValue(base));
             return Value::Array(VType::FormArray, block);
         }
 
         // MagicEffectKeywords -> Keyword[]   (union of keywords across active-effect base settings)
         Value Prim_MagicEffectKeywords(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* mt = actor->AsMagicTarget())
                     if (auto* list = mt->GetActiveEffectList())
                         for (RE::ActiveEffect* ae : *list)
                             if (ae)
                                 if (auto* base = ae->GetBaseObject())
                                     for (RE::BGSKeyword* kw : base->GetKeywords())
-                                        if (kw) block.push_back(Value::Keyword(kw));
+                                        if (kw) block.push_back(KeywordValue(kw));
             return Value::Array(VType::KeywordArray, block);
         }
 
         // Level -> Int
         Value Prim_Level(const EvalContext& c, std::span<const Value>) {
-            return Value::Int(c.actor ? static_cast<std::int32_t>(c.actor->GetLevel()) : 0);
+            return Value::Int(ActorOf(c) ? static_cast<std::int32_t>(ActorOf(c)->GetLevel()) : 0);
         }
 
         // Sex -> Int   (0 male, 1 female; -1 none)
         Value Prim_Sex(const EvalContext& c, std::span<const Value>) {
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* npc = actor->GetActorBase())
                     return Value::Int(static_cast<std::int32_t>(npc->GetSex()));
             return Value::Int(-1);
@@ -247,7 +247,7 @@ namespace CB::platform::relay {
         // MoveFlags -> Int   (see MoveBit above)
         Value Prim_MoveFlags(const EvalContext& c, std::span<const Value>) {
             std::int32_t flags = 0;
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 if (auto* st = actor->AsActorState()) {
                     if (st->IsSneaking())    flags |= kMB_Sneaking;
                     if (st->IsRunning())     flags |= kMB_Running;
@@ -269,7 +269,7 @@ namespace CB::platform::relay {
         // Weather -> Form
         Value Prim_Weather(const EvalContext&, std::span<const Value>) {
             auto* sky = RE::Sky::GetSingleton();
-            return Value::Form(sky ? sky->currentWeather : nullptr);
+            return FormValue(sky ? sky->currentWeather : nullptr);
         }
 
         // GameTime -> Float   (current hour, 0..24)
@@ -280,17 +280,17 @@ namespace CB::platform::relay {
 
         // Mount -> Form
         Value Prim_Mount(const EvalContext& c, std::span<const Value>) {
-            if (auto* actor = c.actor) {
+            if (auto* actor = ActorOf(c)) {
                 RE::NiPointer<RE::Actor> mount;
                 if (actor->GetMount(mount) && mount)
-                    return Value::Form(mount.get());
+                    return FormValue(mount.get());
             }
-            return Value::Form(nullptr);
+            return FormValue(nullptr);
         }
 
         // CombatState -> Int   (RE::ACTOR_COMBAT_STATE: 0 = none, 1 = in-combat)
         Value Prim_CombatState(const EvalContext& c, std::span<const Value>) {
-            return Value::Int(c.actor && c.actor->IsInCombat() ? 1 : 0);
+            return Value::Int(ActorOf(c) && ActorOf(c)->IsInCombat() ? 1 : 0);
         }
 
         /// @return `name`'s declared hkbVariableInfo type in the actor's active root behavior graph, or
@@ -338,11 +338,11 @@ namespace CB::platform::relay {
             if (a.empty() || a[0].type != VType::String || !a[0].str) return Value::Float(0.0f);
             const char* name = a[0].str;
             if (Value v; c.variables && c.variables->Read(name, v)) return v;
-            if (!c.actor) return Value::Float(0.0f);
+            if (!ActorOf(c)) return Value::Float(0.0f);
 
             std::int32_t word = 0;
-            if (!c.actor->GetGraphVariableInt(RE::BSFixedString(name), word)) return Value::Float(0.0f);
-            switch (RootVariableType(c.actor, name)) {
+            if (!ActorOf(c)->GetGraphVariableInt(RE::BSFixedString(name), word)) return Value::Float(0.0f);
+            switch (RootVariableType(ActorOf(c), name)) {
                 case hk::hkbVariableInfo::VARIABLE_TYPE_BOOL:  return Value::Bool(word != 0);
                 case hk::hkbVariableInfo::VARIABLE_TYPE_INT8:
                 case hk::hkbVariableInfo::VARIABLE_TYPE_INT16:
@@ -366,38 +366,38 @@ namespace CB::platform::relay {
         // Global(form) -> Float
         Value Prim_Global(const EvalContext&, std::span<const Value> a) {
             if (!a.empty() && a[0].form)
-                if (auto* g = a[0].form->As<RE::TESGlobal>())
+                if (auto* g = FormOf(a[0])->As<RE::TESGlobal>())
                     return Value::Float(g->value);
             return Value::Float(0.0f);
         }
 
         // FactionRank(faction) -> Int   (supporting primitive for the FactionRank() value-function; -2 = not in)
         Value Prim_FactionRank(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty()) return Value::Int(-2);
-            auto* faction = a[0].form ? a[0].form->As<RE::TESFaction>() : nullptr;
+            if (!ActorOf(c) || a.empty()) return Value::Int(-2);
+            auto* faction = FormOf(a[0]) ? FormOf(a[0])->As<RE::TESFaction>() : nullptr;
             if (!faction) return Value::Int(-2);
-            const bool isPlayer = c.actor->GetFormID() == 0x14;
-            return Value::Int(c.actor->GetFactionRank(faction, isPlayer));
+            const bool isPlayer = ActorOf(c)->GetFormID() == 0x14;
+            return Value::Int(ActorOf(c)->GetFactionRank(faction, isPlayer));
         }
 
         // Location -> Form
         Value Prim_Location(const EvalContext& c, std::span<const Value>) {
-            return Value::Form(c.actor ? c.actor->GetCurrentLocation() : nullptr);
+            return FormValue(ActorOf(c) ? ActorOf(c)->GetCurrentLocation() : nullptr);
         }
 
         // LocationKeywords -> Keyword[]
         Value Prim_LocationKeywords(const EvalContext& c, std::span<const Value>) {
             auto& block = c.ArenaBlock();
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* loc = actor->GetCurrentLocation())
                     for (RE::BGSKeyword* kw : loc->GetKeywords())
-                        if (kw) block.push_back(Value::Keyword(kw));
+                        if (kw) block.push_back(KeywordValue(kw));
             return Value::Array(VType::KeywordArray, block);
         }
 
         // Interior -> Int   (supporting primitive for IsInInterior(); 1 = interior cell)
         Value Prim_Interior(const EvalContext& c, std::span<const Value>) {
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* cell = actor->GetParentCell())
                     return Value::Int(cell->IsInteriorCell() ? 1 : 0);
             return Value::Int(0);
@@ -405,12 +405,12 @@ namespace CB::platform::relay {
 
         // Child -> Int   (supporting primitive for IsChild())
         Value Prim_Child(const EvalContext& c, std::span<const Value>) {
-            return Value::Int(c.actor && c.actor->IsChild() ? 1 : 0);
+            return Value::Int(ActorOf(c) && ActorOf(c)->IsChild() ? 1 : 0);
         }
 
         // Unique -> Int   (supporting primitive for IsUnique(); base-flag)
         Value Prim_Unique(const EvalContext& c, std::span<const Value>) {
-            if (auto* actor = c.actor)
+            if (auto* actor = ActorOf(c))
                 if (auto* npc = actor->GetActorBase())
                     return Value::Int(npc->IsUnique() ? 1 : 0);
             return Value::Int(0);
@@ -418,7 +418,7 @@ namespace CB::platform::relay {
 
         // PlayerTeammate -> Int   (supporting primitive for IsPlayerTeammate())
         Value Prim_PlayerTeammate(const EvalContext& c, std::span<const Value>) {
-            return Value::Int(c.actor && c.actor->IsPlayerTeammate() ? 1 : 0);
+            return Value::Int(ActorOf(c) && ActorOf(c)->IsPlayerTeammate() ? 1 : 0);
         }
 
         // ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -469,7 +469,7 @@ namespace CB::platform::relay {
         // config id in once the eval context/instance carries it (Inc 2/3), so two configs on one actor
         // roll independently (matches OAR's per-(actor, submod) roll).
         Value Fn_Random(const EvalContext& c, std::span<const Value>) {
-            std::uint64_t seed = c.actor ? c.actor->GetFormID() : 0u;
+            std::uint64_t seed = ActorOf(c) ? ActorOf(c)->GetFormID() : 0u;
             // splitmix64 finalizer — good avalanche for a small integer seed.
             seed += 0x9E3779B97F4A7C15ull;
             seed = (seed ^ (seed >> 30)) * 0xBF58476D1CE4E5B9ull;
@@ -511,10 +511,10 @@ namespace CB::platform::relay {
             static const PrimId p = LookupPrimitive("EquippedForm");
             if (a.size() < 2 || a[0].type != VType::Keyword || !a[0].kw) return Value::Bool(false);
             const std::array<Value, 1> args{ a[1] };
-            RE::TESForm* form = c.Primitive(p, args).form;   // actor-state read via the memoized primitive
+            RE::TESForm* form = FormOf(c.Primitive(p, args));   // actor-state read via the memoized primitive
             if (!form) return Value::Bool(false);
             auto* kwf = form->As<RE::BGSKeywordForm>();       // pure form-data inspection
-            return Value::Bool(kwf && kwf->HasKeyword(a[0].kw));
+            return Value::Bool(kwf && kwf->HasKeyword(KeywordOf(a[0])));
         }
 
         Value Fn_IsActorBase(const EvalContext& c, std::span<const Value> a) {
@@ -613,8 +613,8 @@ namespace CB::platform::relay {
         Value Fn_IsInLocation(const EvalContext& c, std::span<const Value> a) {
             static const PrimId p = LookupPrimitive("Location");
             if (a.empty() || !a[0].form) return Value::Bool(false);
-            RE::TESForm* curForm = c.Primitive(p).form;      // actor-state read via the memoized primitive
-            auto* target = a[0].form->As<RE::BGSLocation>();
+            RE::TESForm* curForm = FormOf(c.Primitive(p));      // actor-state read via the memoized primitive
+            auto* target = FormOf(a[0])->As<RE::BGSLocation>();
             auto* cur = curForm ? curForm->As<RE::BGSLocation>() : nullptr;
             for (; cur; cur = cur->parentLoc)                // walk the static parent chain (pure form data)
                 if (cur == target) return Value::Bool(true);
@@ -632,6 +632,7 @@ namespace CB::platform::relay {
         using V = VType;
         static bool registered = false;
         if (std::exchange(registered, true)) return;
+        SetWarnSink([](std::string_view message) { LOG_WARN("{}", message); });
 
         // ── Param type descriptors (static: the registry borrows the span) ──────────────────────────
         static constexpr std::array kP_Int      { V::Int };

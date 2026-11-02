@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-namespace CB::platform::relay {
+namespace CB::engine::relay {
 
     namespace {
         // Hash a primitive call site (id + raw arg bits) for the memo key.
@@ -19,7 +19,7 @@ namespace CB::platform::relay {
         }
     }
 
-    void EvalContext::Reset(RE::Actor* a) {
+    void EvalContext::Reset(void* a) {
         actor = a;
         seed = 0;
         variables = nullptr;
@@ -44,4 +44,4 @@ namespace CB::platform::relay {
         return v;
     }
 
-}  // namespace CB::platform::relay
+}  // namespace CB::engine::relay

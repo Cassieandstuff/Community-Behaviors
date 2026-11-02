@@ -4,7 +4,7 @@
 #include "Relay.h"
 #include <span>
 
-namespace CB::platform::relay::detail {
+namespace CB::engine::relay::detail {
     PrimitiveFn            PrimFn(PrimId);
     FunctionFn             FnFn(FnId);
     std::span<const VType> FnParams(FnId);

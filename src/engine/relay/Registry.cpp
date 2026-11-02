@@ -1,12 +1,12 @@
 // Registry.cpp — the primitive/function registry + Value coercions.
 #include "Detail.h"
-#include <PluginLogger.h>
 
+#include <format>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
-namespace CB::platform::relay {
+namespace CB::engine::relay {
 
     // ── Value coercions ─────────────────────────────────────────────────────────────────────────
     bool Value::AsBool() const {
@@ -47,6 +47,9 @@ namespace CB::platform::relay {
 
     // ── Registry storage ────────────────────────────────────────────────────────────────────────
     namespace {
+        WarnSink g_warnSink = nullptr;
+        void     Warn(const std::string& message) { if (g_warnSink) g_warnSink(message); }
+
         struct PrimRec { std::string name; VType returns; std::vector<VType> params; PrimitiveFn fn; };
         struct FnRec   { std::string name; VType returns; std::vector<VType> params; FunctionFn  fn; };
 
@@ -58,11 +61,13 @@ namespace CB::platform::relay {
             static std::unordered_map<std::string, std::uint32_t> m; return m; }
     }
 
+    void SetWarnSink(WarnSink sink) { g_warnSink = sink; }
+
     PrimId RegisterPrimitive(std::string_view name, VType returns,
                              std::span<const VType> params, PrimitiveFn fn) {
         auto& idx = PrimIndex();
         if (auto it = idx.find(std::string(name)); it != idx.end()) {
-            LOG_WARN("[relay] primitive '{}' already registered — keeping first.", name);
+            Warn(std::format("[relay] primitive '{}' already registered — keeping first.", name));
             return static_cast<PrimId>(it->second);
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Prims().size());
@@ -75,7 +80,7 @@ namespace CB::platform::relay {
                           std::span<const VType> params, FunctionFn fn) {
         auto& idx = FnIndex();
         if (idx.contains(std::string(name))) {
-            LOG_WARN("[relay] function '{}' already registered — keeping first.", name);
+            Warn(std::format("[relay] function '{}' already registered — keeping first.", name));
             return;
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Fns().size());
@@ -110,4 +115,4 @@ namespace CB::platform::relay {
         }
     }
 
-}  // namespace CB::platform::relay
+}  // namespace CB::engine::relay
