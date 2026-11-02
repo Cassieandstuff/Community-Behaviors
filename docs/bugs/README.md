@@ -33,6 +33,9 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   paired idle with an unprefixed role (the horse mount jitter).
 - [CB-17](CB-17-new-native-anims-unregistered.md) — OPEN: a native animation compiled for the first time A-poses
   until the next launch; the game's loose-file ID index is built once at startup, before CB writes the file.
+- [CB-18](CB-18-animation64-slot-mismatch.md) — OPEN: Animation 64's 64-bit slot sometimes disagrees with the
+  16-bit index with a non-zero value on the SDK build; cause unknown.
+- [CB-19](CB-19-sdk-unmatched-traps.md) — OPEN: six SDK functions have no body or exe binding and trap if called.
 
 ## Per-bug file template
 
