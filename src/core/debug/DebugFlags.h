@@ -150,6 +150,10 @@ namespace CB::core::debug {
           "Camera: thin objects block",
           "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "
           "reacts when it would end up inside one. Needs bCamera. Unproven in game." },
+        { "camera_no_probes", FlagKind::IniBool, "Camera", "bNoProbes", false, false,
+          "Camera: no soft probes",
+          "Turns off the four probes that push the camera away from nearby surfaces and slow the boom before contact, "
+          "leaving only the hard sweep. Needs bCamera. Unproven in game." },
         { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
           "CB camera",
           "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "

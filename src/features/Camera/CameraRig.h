@@ -7,7 +7,7 @@
 ///        parameters, its own state, typed inputs and an output), so a stage can later become a CB blueprint node
 ///        unchanged. Plain math: no game types.
 /// @note Order per frame: Orientation → Anchor → (components' framing, eased: Mounted) → Boom → (the game casts the boom
-///       against the world) → Collision.
+///       against the world) → Collision → Probes → (a last sweep clamps the shift).
 /// @note Units are game units and seconds; a halflife of 0 means "no smoothing".
 
 namespace CB::feature::camera::rig {
@@ -102,6 +102,7 @@ namespace CB::feature::camera::rig {
         bool  passThin        = true;   ///< thin objects leave the boom alone; off = they block like walls
         float thinWidth       = 40.0f;  ///< thin = the second-largest extent of its bounds is below this
         float thinInHalflife  = 0.05f;
+        float softInHalflife  = 0.12f;  ///< how the boom gives way to a surface just behind the eye
     };
     struct CollisionState {
         bool  init     = false;
@@ -113,9 +114,38 @@ namespace CB::feature::camera::rig {
         Vec3  eye;
         float hitFraction = 1.0f;  ///< along pivot → eye; 1 = clear
         bool  thin        = false;  ///< what it hit is a thin object
+        float softPull    = 0.0f;   ///< clear, but this much shorter for a surface just beyond the eye
         float dt          = 0.0f;
     };
     Vec3 StepCollision(const CollisionParams& p, CollisionState& s, const CollisionIn& in);
+
+    /// @brief Four short probes around the camera: surfaces near it push it away on a critically damped spring (a PD
+    ///        controller, no integral term to wind up against a wall), so it slows and slides before it touches.
+    /// @note The push is squared closeness, so it fades to nothing at the probe's reach and a far hit cannot flicker.
+    ///       Opposite probes subtract, which centres the camera in a corridor. The Collision sweep still has the last
+    ///       word: a spring can be outrun.
+    struct ProbeParams {
+        bool  enabled  = true;
+        float reach    = 60.0f;
+        float radius   = 5.0f;
+        float maxShift = 30.0f;  ///< caps how far the player drifts in frame
+        float boomPull = 30.0f;  ///< how much the boom shortens for a surface right behind the eye
+        EaseParams spring{ 0.25f };
+    };
+    struct ProbeState {
+        EaseState x;
+        EaseState z;
+    };
+    /// @note Fractions along each probe; 1 = clear.
+    struct ProbeIn {
+        float left = 1.0f, right = 1.0f, down = 1.0f, up = 1.0f;
+        float dt   = 0.0f;
+    };
+    /// @return The shift in the camera's frame (x right, z up).
+    Vec3 StepProbes(const ProbeParams& p, ProbeState& s, const ProbeIn& in);
+
+    /// @brief The share of the boom pull for a surface `beyond` units past the eye.
+    float SoftPull(const ProbeParams& p, float beyond);
 
     /// @brief A 0..1 weight eased toward its target on a critically damped spring: how far the camera has moved into
     ///        a component's framing.
@@ -148,6 +178,7 @@ namespace CB::feature::camera::rig {
         AnchorParams      anchor;
         BoomParams        boom;
         CollisionParams   collision;
+        ProbeParams       probes;
         MountedParams     mounted;
     };
 
@@ -156,6 +187,7 @@ namespace CB::feature::camera::rig {
         AnchorState    anchor;
         CollisionState shoulder;   ///< the anchor → pivot leg
         CollisionState collision;  ///< the pivot → eye leg
+        ProbeState     probes;
     };
 
     /// @brief `current` moved toward `target` by the share a halflife leaves after `dt`.
