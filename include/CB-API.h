@@ -17,7 +17,9 @@
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 //   cb::skeleton — read skeletons (schema-native; anim + ragdoll physics summary) from a .hkx or a bundle unit
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
-//   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches)
+//   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches), and
+//                  the same database and scoring the game runs (measure clips, build the database, search, top candidates)
+//   cb::relay    — the condition language: compile and evaluate an expression over caller-supplied variables
 //   cb::locomotion — a character's movement step (GASP's CMC model + the facing spring), the horse ladder, slope math,
 //                  the dead blend between poses
 //
@@ -68,6 +70,12 @@
 
 // mm — the motion-matching bundle generator (the one hky-tool's generators run)
 #include "compile/MotionMatchingBundle.h"
+#include "compile/MotionMatchingCache.h"
+#include "compile/MotionFeatures.h"
+#include "locomotion/PoseSearch.h"
+
+// relay — the condition language's game-free core
+#include "relay/Relay.h"
 
 // locomotion — the pure movement step the plugin's Advanced Controller runs, game-free
 #include "locomotion/Movement.h"
@@ -211,7 +219,64 @@ namespace mm {
     using CB::engine::compile::BuildMotionMatchingBehavior;    ///< spec → the behavior unit's files
     using CB::engine::compile::BuildMotionMatchingRosters;     ///< spec → one roster patch per character
     using CB::engine::compile::BuildMotionMatchingBundle;      ///< both
+
+    // The database and scoring the game runs. The bundle generator holds the plain names (Clip, Database, ChooserRow),
+    // so the search's namesakes take Search*.
+    using CachedClip       = CB::engine::anim::MmCachedClip;       ///< one clip's measurement, as the cache stores it
+    using SearchClip       = CB::engine::locomotion::Clip;         ///< one child of the selector, as the database holds it
+    using SearchDatabase   = CB::engine::locomotion::Database;     ///< the searched rows, chooser and databases
+    using SearchChooserRow = CB::engine::locomotion::ChooserRow;
+    using PoseDatabase     = CB::engine::locomotion::PoseDatabase; ///< one of its databases: biases and gates
+    using Expression       = CB::engine::locomotion::Expression;   ///< a condition expression read from the graph
+    using Biases           = CB::engine::locomotion::Biases;       ///< one database's biases, for one frame
+    using CurveVariables   = CB::engine::locomotion::CurveVariables; ///< a clip's curves as relay variables
+    using Query            = CB::engine::locomotion::Query;        ///< one search's question
+    using SearchResult     = CB::engine::locomotion::SearchResult; ///< one search's answer
+    using Candidate        = CB::engine::locomotion::Candidate;    ///< one row as TopCandidates scored it
+    using BuildReport      = CB::engine::locomotion::BuildReport;
+    using ClipSource       = CB::engine::locomotion::ClipSource;   ///< animationName → its measurement
+    using WarnFn           = CB::engine::locomotion::WarnFn;
+
+    using CB::engine::anim::MeasureMmClip;                     ///< an animation unit's text → its CachedClip
+    using CB::engine::anim::MmFingerprint;                     ///< a unit's text → CachedClip::fingerprint
+    using CB::engine::anim::WriteMmCache;                      ///< CachedClips → the cache packfile
+    using CB::engine::anim::ReadMmCache;                       ///< the cache packfile → CachedClips
+
+    using CB::engine::locomotion::RootSelector;                ///< a graph → its CBPoseSearchGenerator, or null
+    using CB::engine::locomotion::BuildDatabase;               ///< selector + clips → the SearchDatabase
+    using CB::engine::locomotion::Choose;                      ///< the chooser's pick, per database
+    using CB::engine::locomotion::EvaluateBiases;              ///< every database's biases for a pass
+    using CB::engine::locomotion::IsActive;                    ///< whether a database is in a pick
+    using CB::engine::locomotion::FrameOf;                     ///< a clip's frame nearest a time
+    using CB::engine::locomotion::Search;                      ///< the search the game runs
+    using CB::engine::locomotion::TopCandidates;               ///< the n best rows, with their costs per feature group
+    using CB::engine::locomotion::GroupOf;                     ///< a feature dimension → its group
+    using CB::engine::locomotion::kGroups;                     ///< how many groups Candidate::groupCost holds
+    using CB::engine::locomotion::kIgnoreSurrounding;          ///< frames around the playing row that are the playing row
+    using CB::engine::locomotion::kForceMoving;                ///< below this request the search gates on standing
+    using CB::engine::locomotion::kRowStanding;                ///< SearchDatabase::rowGates bits
+    using CB::engine::locomotion::kRowMoving;
+    using CB::engine::locomotion::kFlagDisableReselection;     ///< SearchClip::flags bits (kMmDisableReselection's values)
+    using CB::engine::locomotion::kFlagLooping;
+    inline constexpr int kFeatureDims = CB::engine::anim::features::kDims;   ///< floats per SearchDatabase row
 }  // namespace mm
+
+// ── cb::relay ────────────────────────────────────────────────────────────────
+/// Animation Relay's game-free core: an expression compiled once and evaluated per pass over caller-supplied variables.
+/// RegisterCoreBuiltins gives GraphVar alone, so an expression calling a game-state function does not compile here.
+namespace relay {
+    using Value          = CB::engine::relay::Value;           ///< Bool, Int or Float; read with AsBool / AsFloat / AsInt
+    using VType          = CB::engine::relay::VType;
+    using EvalContext    = CB::engine::relay::EvalContext;     ///< one pass: Reset(nullptr), set `variables`, evaluate
+    using CompiledExpr   = CB::engine::relay::CompiledExpr;
+    using VariableSource = CB::engine::relay::VariableSource;  ///< what GraphVar reads, by exact name
+    using WarnSink       = CB::engine::relay::WarnSink;
+
+    using CB::engine::relay::Compile;                          ///< expression text → CompiledExpr
+    using CB::engine::relay::RegisterCoreBuiltins;             ///< register GraphVar; before the first Compile
+    using CB::engine::relay::Intern;                           ///< the process-lifetime copy of a string, byte-exact
+    using CB::engine::relay::SetWarnSink;                      ///< where the registry's warnings go
+}  // namespace relay
 
 // ── cb::trace ──────────────────────────────────────────────────────────────────
 /// One actor's behavior-graph path per update, as data (a runtime's collector fills it, a debugger draws it), and where
