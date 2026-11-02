@@ -109,6 +109,10 @@ namespace resolve {
     using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
     using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
+    using CB::engine::decompile::MergeLayersSkippingBroken;    ///< a load order in use: a mod that can't apply is skipped for that graph
+    using CB::engine::decompile::MergeBreak;                   ///< a place the edited layer names a node that's gone
+    using CB::engine::decompile::SkippedLayer;                 ///< a mod that couldn't apply to a graph
+    using CB::engine::decompile::StatedField;                  ///< a field one layer states for a node
     using CB::engine::decompile::DeriveEditedPatch;            ///< (base, edited) graphs → a patch by FormID, and its masters
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
 

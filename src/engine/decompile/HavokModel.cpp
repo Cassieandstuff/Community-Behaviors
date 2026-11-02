@@ -1967,6 +1967,9 @@ struct HkyParse {
     std::vector<std::shared_ptr<io::SchemaObject>>                         all;      ///< every object (owns them)
     struct Symbol { io::SchemaObject* obj; std::size_t field; bool isEvent; std::string name; std::string where; };
     std::vector<Symbol>                                                    symbols;  ///< name companions, resolved last
+    /// @brief Set by an editor's merge: a reference to a node that's gone is left empty and listed here instead of failing.
+    std::vector<MergeBreak>*                                               breaks = nullptr;
+    std::string                                                            node;     ///< the graph id of the node being filled, for `breaks`
     std::string                                                            err;
     std::string                                                            where;    ///< "<file>" for messages
     bool                                                                   patch = false;   ///< fill as a FIELD PATCH
@@ -2108,6 +2111,16 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
 bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
 bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps);
 
+/// @brief A reference names a node that isn't there: an error, unless an editor's merge asked for these to be listed instead.
+bool missingNode(HkyParse& ps, const std::string& field, const std::string& id) {
+    if (!ps.breaks) {
+        ps.err = ps.where + ": " + field + ": no node with id '" + id + "'";
+        return false;
+    }
+    ps.breaks->push_back({ {}, ps.node, field, ps.canon ? ps.canon(id) : id });
+    return true;
+}
+
 /// @brief One pointer / struct value: a file-node id, an inline map (optionally `class:`-tagged), or the `unwrap:`
 ///        collapsed form of the declared class.
 bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::shared_ptr<IHavokObject>& out, HkyParse& ps,
@@ -2116,7 +2129,10 @@ bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::s
         const std::string r = ystr(n);
         if (r == "null") { out = nullptr; return true; }
         auto it = ps.byId.find(ps.canon ? ps.canon(r) : r);
-        if (it == ps.byId.end()) { ps.err = ps.where + ": " + field + ": no node with id '" + r + "'"; return false; }
+        if (it == ps.byId.end()) {
+            out = nullptr;
+            return missingNode(ps, field, r);
+        }
         out = it->second;
         return true;
     }
@@ -2153,7 +2169,10 @@ bool rosterElement(const yml::ConstNodeRef& e, const Field& f, const std::string
                    const std::string& key, std::shared_ptr<IHavokObject>& out, HkyParse& ps) {
     if (kind == "ref") {
         const auto it = ps.byId.find(ps.canon ? ps.canon(key) : key);
-        if (it == ps.byId.end()) { ps.err = ps.where + ": " + f.name + ": no node with id '" + key + "'"; return false; }
+        if (it == ps.byId.end()) {
+            out = nullptr;
+            return missingNode(ps, f.name, key);
+        }
         out = it->second;
         return true;
     }
@@ -3801,8 +3820,9 @@ bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& ba
 
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
-                   std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
+                   std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats, std::vector<MergeBreak>* breaks) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    ps.breaks = breaks;
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
     ps.baseCanon = baseCanon;
@@ -3832,6 +3852,15 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         if (d->bone) { boneFiles[d->owner].push_back(d.get()); continue; }
         nodeDocs.push_back(d.get());
         const auto r = d->tree.crootref();
+        /// @note A FormID another bundle owns names a node to edit, never a new one: built from the patched fields alone, it would be a node of
+        ///       defaults nothing asked for. Its owner dropped it, so this patch can't apply.
+        if (const auto owned = CB::engine::codec::formid::parse(d->id);
+            owned && owned->masterIndex != CB::engine::codec::formid::SELF_INDEX && !ps.byId.contains(ps.canon(d->id))) {
+            if (!breaks) { err = d->file + ": edits node '" + ps.canon(d->id) + "', which its owner no longer has"; return false; }
+            breaks->push_back({ {}, {}, {}, ps.canon(d->id) });
+            nodeDocs.pop_back();
+            continue;
+        }
         if (auto it = ps.byId.find(ps.canon(d->id)); it != ps.byId.end()) {
             /// @note Only re-emit and an editor read this, so the highest layer stating a folder wins, and a file at the unit's top states none.
             if (d->folder == kUngroupedFolder) base.identity.folder.erase(it->second.get());
@@ -3857,6 +3886,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         const auto r = nodeDocs[k]->tree.crootref();
         ps.where = nodeDocs[k]->file;
         ps.patch = targets[k].second;
+        const auto holder = base.identity.ids.find(targets[k].first.get());
+        ps.node = holder == base.identity.ids.end() ? nodeDocs[k]->id : holder->second;
         if (!fillHky(*targets[k].first, r, ps)) { err = ps.err; return false; }
         if (yhas(r, "extraBones")) for (auto e : yget(r, "extraBones")) extraBones[nodeDocs[k]->id].push_back(ystr(e));
     }
@@ -4200,6 +4231,105 @@ bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& l
         err = std::string("MergeLayersReflective: ") + e.what();
         return false;
     }
+}
+
+bool MergeLayersSkippingBroken(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                               const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                               std::vector<std::pair<std::string, std::size_t>>* nullMarkers, const std::string& unitPath, const std::string& editedStem) {
+    if (layers.empty() || !layers.front().source) { err = "MergeLayersReflective: no base layer"; return false; }
+    std::vector<CB::engine::common::LayerSource> live = layers;
+    std::vector<SkippedLayer> skipped;
+    /// @note A failed patch leaves the graph half-merged, so a mod is skipped by starting again without it. That takes a mod failing, which is rare.
+    for (;;) {
+        graph = ParsedHky{};
+        std::vector<std::pair<std::string, std::size_t>> counts;
+        std::size_t counted = 0;
+        const auto note = [&](const std::string& stem) {
+            if (graph.nullMarkers > counted) counts.emplace_back(stem, graph.nullMarkers - counted);
+            counted = graph.nullMarkers;
+        };
+        try {
+            if (!ParseHkyReflective(*live.front().source, reg, graph, err, bones, unitPath)) { err = live.front().stem + ": " + err; return false; }
+        } catch (const std::exception& e) {
+            err = std::string("MergeLayersReflective: ") + e.what();
+            return false;
+        }
+        note(live.front().stem);
+        bool again = false;
+        for (std::size_t k = 1; k < live.size() && !again; ++k) {
+            if (!live[k].source) continue;
+            const bool  edited = !editedStem.empty() && live[k].stem == editedStem;
+            const auto  before = graph.breaks.size();
+            std::string why;
+            bool        merged = false;
+            try {
+                merged = MergeHkyPatch(graph, *live[k].source, reg, live.front().masterTable, live[k].masterTable, why, bones, nullptr, edited ? &graph.breaks : nullptr);
+            } catch (const std::exception& e) {
+                why = e.what();
+            }
+            if (!merged) {
+                skipped.push_back({ live[k].stem, why });
+                live.erase(live.begin() + static_cast<std::ptrdiff_t>(k));
+                again = true;
+                break;
+            }
+            for (std::size_t b = before; b < graph.breaks.size(); ++b) graph.breaks[b].layer = live[k].stem;
+            note(live[k].stem);
+        }
+        if (again) continue;
+        graph.skippedLayers = std::move(skipped);
+        if (nullMarkers) nullMarkers->insert(nullMarkers->end(), counts.begin(), counts.end());
+        return true;
+    }
+}
+
+namespace {
+/// @brief A field's value as one line for a person to read: a scalar as it stands, a map or list spelled out.
+std::string statedText(const yml::ConstNodeRef& n) {
+    if (n.has_val() && !n.is_map() && !n.is_seq()) return ystr(n);
+    std::string out;
+    for (auto c : n) {
+        if (!out.empty()) out += ", ";
+        if (n.is_map()) out += ykey(c) + ": ";
+        out += statedText(c);
+    }
+    return (n.is_map() ? "{" : "[") + out + (n.is_map() ? "}" : "]");
+}
+} // namespace
+
+std::vector<StatedField> ReadStatedFields(const std::vector<CB::engine::common::LayerSource>& layers, const std::string& graphId, std::string& err) {
+    std::vector<StatedField> out;
+    if (layers.empty()) return out;
+    const std::string canonical = graphId.find(':') != std::string::npos ? graphId : canonFor(layers.front().masterTable)(graphId);
+    const std::string stem      = canonical.substr(0, canonical.rfind(':'));
+    for (const CB::engine::common::LayerSource& layer : layers) {
+        if (!layer.source || std::find(layer.masterTable.begin(), layer.masterTable.end(), stem) == layer.masterTable.end()) continue;
+        const std::string id   = relFormId(canonical, layer.masterTable);
+        const std::string name = fsId(id) + ".yaml";
+        std::vector<std::string> paths = layer.source->listYaml("", true);
+        /// @note A file's name means nothing, but regen and derive name files for their nodes: look there before reading the rest of a layer.
+        std::stable_partition(paths.begin(), paths.end(), [&](const std::string& rel) { return rel == name || rel.ends_with("/" + name); });
+        const bool named = !paths.empty() && (paths.front() == name || paths.front().ends_with("/" + name));
+        for (const std::string& rel : paths) {
+            /// @note The base layer states every node it has and is the big one, so it doesn't get read file by file for a node it names nowhere.
+            if (!named && &layer == &layers.front()) break;
+            auto text = layer.source->read(rel);
+            if (!text) continue;
+            yml::Tree tree;
+            try {
+                tree = yml::parse_in_place(c4::to_csubstr(rel), c4::to_substr(*text));
+            } catch (const std::exception& e) {
+                err = rel + ": " + e.what();
+                continue;
+            }
+            const yml::ConstNodeRef r = tree.crootref();
+            if (!r.is_map() || !yhas(r, "id") || ystr(yget(r, "id")) != id) continue;
+            for (auto c : r)
+                if (const std::string field = ykey(c); field != "id" && field != "class") out.push_back({ layer.stem, field, statedText(c) });
+            break;
+        }
+    }
+    return out;
 }
 
 bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err) {

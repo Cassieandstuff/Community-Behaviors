@@ -260,7 +260,7 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
         return fail("'" + u->key + "' is a project unit: its winner replaces it whole, nothing merges");
     std::string why;
     if (u->kind == codec::HkyArchive::UnitKind::Skeleton) {
-        if (decompile::MergeLayersReflective(SkeletonLayers(*u), *m_reg, nullptr, out, why, nullptr, u->key)) return true;
+        if (decompile::MergeLayersSkippingBroken(SkeletonLayers(*u), *m_reg, nullptr, out, why, nullptr, u->key)) return true;
         return fail(why);
     }
     std::vector<common::LayerSource> layers;
@@ -271,8 +271,27 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
         layers.push_back({ b->archive->source(u->key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
     }
     const auto  bones = RigBones(u->key);
-    if (decompile::MergeLayersReflective(layers, *m_reg, bones ? &*bones : nullptr, out, why)) return true;
+    std::string edited;
+    for (const Bundle& b : m_bundles)
+        if (b.provider == "project") edited = b.stem;
+    if (decompile::MergeLayersSkippingBroken(layers, *m_reg, bones ? &*bones : nullptr, out, why, nullptr, {}, edited)) return true;
     return fail(why);
+}
+
+std::vector<decompile::StatedField> LoadOrderDocument::StatedFields(std::string_view key, const std::string& graphId, std::string* err) const {
+    const auto u = UnitAt(key);
+    if (!u) return {};
+    std::vector<common::LayerSource> layers;
+    for (const auto& stem : u->layers) {
+        const Bundle* b = BundleNamed(stem);
+        if (!b) continue;
+        const auto mt = m_masterTable.find(stem);
+        layers.push_back({ b->archive->source(u->key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
+    }
+    std::string why;
+    auto        out = decompile::ReadStatedFields(layers, graphId, why);
+    if (err && !why.empty()) *err = why;
+    return out;
 }
 
 bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::string* err) const {

@@ -81,6 +81,19 @@ bool CharPropNeutral(const schema::Field& f, const io::FieldValue& v);
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (ids, file nodes and
 ///        their folders; inline objects join with an id of their own).
+/// @brief A mod whose patch couldn't apply to a graph. It is skipped whole for that graph: half a patch is a half-wired graph, and the mods
+///        around it still merge.
+struct SkippedLayer {
+    std::string stem, why;
+};
+/// @brief A place a layer names a node that's gone.
+struct MergeBreak {
+    std::string layer;     ///< the layer's stem
+    std::string node;      ///< the graph id of the node holding the reference; empty when the edited node itself is gone
+    std::string field;     ///< the field holding it; empty when the edited node itself is gone
+    std::string missing;   ///< the node that's gone, canonically: "stem:local"
+};
+
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
@@ -89,6 +102,10 @@ struct ParsedHky {
     ///        CB-15): read as '' in a whole object, skipped in a field patch. ParseHkyReflective sets it,
     ///        MergeHkyPatch adds to it.
     std::size_t                                    nullMarkers = 0;
+    /// @brief The mods MergeLayersReflective skipped for this graph.
+    std::vector<SkippedLayer>                      skippedLayers;
+    /// @brief What the layer being edited names that's gone; only an editor's merge asks for these.
+    std::vector<MergeBreak>                        breaks;
 };
 /// @brief A packfile's graph as a ParsedHky: every object reachable from the root (inline ones included), its
 ///        encounter-order identity (AssignIdentity's numbering). SerializeGraph is its inverse.
@@ -242,7 +259,8 @@ bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& ba
 ///       a whole value, and the last mod to change it wins. There is no element-wise list merging.
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
-                   std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+                   std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr,
+                   std::vector<MergeBreak>* breaks = nullptr);
 /// @brief The RUNTIME merge through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
 ///        later layer a patch unit merged in load order — each layer's FormIds resolve through its own master table
 ///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
@@ -251,10 +269,24 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
 /// @param nullMarkers When set, receives (layer stem, count) for every layer whose units held Havok's null marker
 ///        (ParsedHky::nullMarkers), so the caller can name the bundles to reconvert.
 /// @param unitPath the unit's Data-relative path: a skeleton base takes the boneorder shim's order for it.
+/// @note  Fails on the first layer that can't apply, which is what an offline tool or a gate wants to hear.
 /// @note  Works per bone on a skeleton: a patch's bone files state only what they change (MergeHkyPatch).
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
                            std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr, const std::string& unitPath = {});
+/// @brief MergeLayersReflective for a load order someone is using: a layer that can't apply is skipped for this graph and named
+///        (ParsedHky::skippedLayers), so one stale mod doesn't cost the graph every other mod's edits. Fails only when the base layer does.
+/// @param editedStem the layer an editor has open: what it names that's gone is left empty and listed (ParsedHky::breaks), so its author can fix it.
+bool MergeLayersSkippingBroken(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                               const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                               std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr, const std::string& unitPath = {},
+                               const std::string& editedStem = {});
+/// @brief A field one layer states for one node: its top-level name, and its value as text.
+struct StatedField {
+    std::string stem, field, value;
+};
+/// @brief What each of `layers` states for the node `graphId` (an id of the merged graph), base first. A layer that doesn't state the node adds nothing.
+std::vector<StatedField> ReadStatedFields(const std::vector<CB::engine::common::LayerSource>& layers, const std::string& graphId, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
                     const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief SerializeGraph, also reporting where every written object came from: its offset in the packfile's data

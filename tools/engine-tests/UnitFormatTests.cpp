@@ -364,6 +364,62 @@ void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(named(*otherTarget, "Renamed") && !named(*otherTarget, "FromOther"), "the edit lands on the mod's node, not a new one");
 }
 
+/// @brief A patch whose target is gone costs that mod that graph, not the graph, and an editor's layer lists what broke instead.
+void BrokenLayerChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto layer = [&](const std::string& stem, const Files& files) {
+        common::LayerSource out;
+        out.source      = std::make_shared<common::DiskUnitSource>(WriteUnit(tmp, "broken-" + stem, files));
+        out.stem        = stem;
+        out.masterTable = stem == "skyrim" ? std::vector<std::string>{ "skyrim" } : std::vector<std::string>{ stem, "skyrim" };
+        return out;
+    };
+    const auto named = [](const dec::ParsedHky& g, const std::string& name) {
+        for (const auto& o : g.objects)
+            if (const auto* v = o->FindField("name"); v && v->str == name) return true;
+        return false;
+    };
+    const auto base = layer("skyrim", Behavior());
+    const auto good = layer("good", { { "a.yaml", "id: 0001x0003\nclass: hkbClipGenerator\nname: 'FromGood'\n" } });
+    const auto gone = layer("gone", { { "a.yaml", "id: 0001x0999\nclass: hkbClipGenerator\nname: 'FromGone'\n" } });
+    const auto dangling = layer("dangling", { { "a.yaml", "id: 0001x0002\nclass: hkbManualSelectorGenerator\ngenerators:\n  '0000x0000': 0001x0999\n" },
+                                              { "b.yaml", "id: 0001x0004\nclass: hkbClipGenerator\nname: 'FromDangling'\n" } });
+    std::string err;
+
+    dec::ParsedHky strict;
+    Check(!dec::MergeLayersReflective({ base, good, gone }, reg, nullptr, strict, err), "a tool's merge still refuses a mod that can't apply");
+    err.clear();
+
+    dec::ParsedHky merged;
+    Check(dec::MergeLayersSkippingBroken({ base, gone, good, dangling }, reg, nullptr, merged, err), "broken mods don't fail the graph: " + err);
+    Check(named(merged, "FromGood"), "the mod with nothing wrong still merges");
+    Check(!named(merged, "FromGone") && !named(merged, "FromDangling"), "a mod that can't apply is skipped whole, nothing half-merged");
+    Check(merged.skippedLayers.size() == 2 && merged.skippedLayers[0].stem == "gone" && merged.skippedLayers[1].stem == "dangling", "the skipped mods are named");
+    Check(merged.skippedLayers.size() == 2 && merged.skippedLayers[0].why.find("skyrim:2457") != std::string::npos, "and what they lost: " + (merged.skippedLayers.empty() ? "" : merged.skippedLayers[0].why));
+
+    dec::ParsedHky edited;
+    Check(dec::MergeLayersSkippingBroken({ base, good, dangling }, reg, nullptr, edited, err, nullptr, {}, "dangling"), "an edited layer's breaks don't fail it: " + err);
+    Check(edited.skippedLayers.empty() && named(edited, "FromDangling"), "the edited layer stays, so its author can fix it");
+    Check(edited.breaks.size() == 1, "its break is listed");
+    if (edited.breaks.size() == 1) {
+        Check(edited.breaks[0].layer == "dangling" && edited.breaks[0].field == "generators" && edited.breaks[0].missing == "skyrim:2457", "with where it is and what's gone");
+        Check(!edited.breaks[0].node.empty(), "and the node holding it");
+    }
+    dec::ParsedHky editedGone;
+    Check(dec::MergeLayersSkippingBroken({ base, gone }, reg, nullptr, editedGone, err, nullptr, {}, "gone"), "an edited node that's gone: " + err);
+    Check(editedGone.breaks.size() == 1 && editedGone.breaks[0].node.empty() && editedGone.breaks[0].missing == "skyrim:2457", "is listed, not made into a new node");
+    Check(!named(editedGone, "FromGone"), "and adds no node of defaults");
+
+    const auto stated = dec::ReadStatedFields({ base, good }, "0000x0003", err);
+    const auto say = [&](const std::string& stem, const std::string& field) {
+        for (const auto& s : stated)
+            if (s.stem == stem && s.field == field) return s.value;
+        return std::string("(not stated)");
+    };
+    Check(say("skyrim", "name") == "A" && say("good", "name") == "FromGood", "each layer's value of a field reads back");
+    Check(say("good", "animationName") == "(not stated)", "a patch states only what it changed");
+    Check(say("skyrim", "animationName") != "(not stated)", "the base states the rest");
+}
+
 /// @brief A blueprint chooser row's conditions merge by their minted keys.
 void ConditionKeyChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     const auto condition = [](const std::string& key, const std::string& variable) {
@@ -473,6 +529,7 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg) {
     ConditionKeyChecks(reg, tmp);
     PoseSearchRowChecks(reg, tmp);
     EditedPatchChecks(reg, tmp);
+    BrokenLayerChecks(reg, tmp);
     DeclarationChecks(tmp);
     std::error_code ec;
     fs::remove_all(tmp, ec);

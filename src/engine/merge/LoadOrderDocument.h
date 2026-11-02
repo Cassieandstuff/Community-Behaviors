@@ -73,9 +73,13 @@ public:
     std::optional<Unit> UnitAt(std::string_view key) const;
 
     /// @brief A behavior or character unit merged across its providers, its bone fields bound to the rig that plays it.
+    /// @note  A mod that can't apply is skipped for this unit, as the game does (ParsedHky::skippedLayers). The open project's layer is listed
+    ///        instead (ParsedHky::breaks), so its author can fix it.
     /// @note  A project unit is not merged: the load-order winner replaces it whole (Project*). A skeleton merges per bone:
     ///        its last complete unit, then the patches above it.
     bool MergedGraph(std::string_view key, decompile::ParsedHky& out, std::string* err = nullptr) const;
+    /// @brief What each layer states for the node `graphId` of unit `key` (an id of its merged graph), base first.
+    std::vector<decompile::StatedField> StatedFields(std::string_view key, const std::string& graphId, std::string* err = nullptr) const;
     /// @brief Unit `key` as a packfile: a behavior, character or skeleton merged (MergedGraph), a project from its
     ///        load-order winner, serialized as the Resolver serializes them.
     /// @note  Before the plugin's compile-time features run: what the load order states, not every byte the game is

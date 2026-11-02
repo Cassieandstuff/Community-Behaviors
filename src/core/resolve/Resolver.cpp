@@ -514,7 +514,7 @@ namespace CB {
                 CB::engine::decompile::ParsedHky graph;
                 std::vector<std::uint8_t> bytes;
                 std::string err = "no schema";
-                if (!schemaReg || !CB::engine::decompile::MergeLayersReflective(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
+                if (!schemaReg || !CB::engine::decompile::MergeLayersSkippingBroken(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
                     !CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
                     LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem, err);
                     return;
@@ -1381,7 +1381,7 @@ namespace CB {
         const RigBones rb = BonesFor(key);
         CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: clip read of '{}' failed: {}", key, err);
             return {};
         }
@@ -1423,7 +1423,7 @@ namespace CB {
         if (!reg || it == m_sources.end()) return false;
         const RigBones rb = BonesFor(it->first);
         std::string    err;
-        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
             LOG_WARN("Resolver: merged read of '{}' failed: {}", key, err);
             return false;
         }
@@ -1453,7 +1453,7 @@ namespace CB {
         const RigBones rb = BonesFor(it->first);
         CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
             return {};
         }
@@ -1693,13 +1693,15 @@ namespace CB {
             CB::engine::decompile::ParsedHky graph;
             std::string err;
             std::vector<std::pair<std::string, std::size_t>> nullMarkers;
-            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
+            if (!CB::engine::decompile::MergeLayersSkippingBroken(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
                 LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
                           key, err);
                 m_cache.emplace(key, nullptr);
                 return nullptr;
             }
             for (const auto& [stem, n] : nullMarkers) m_nullMarkers[stem] += n;   // m_mutex is held
+            for (const auto& skipped : graph.skippedLayers)
+                LOG_ERROR("Community Behaviors: skipping mod '{}' for '{}', the others still merge: {}", skipped.stem, key, skipped.why);
             CB::engine::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {
