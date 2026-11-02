@@ -6,10 +6,12 @@
 
 #include <interface/reflection/HavokSchema.h>
 
-#include <Behavior/Generator/hkbGenerator.h>
-#include <Common/Base/Memory/hkMemory.h>
-#include <Common/Base/Reflection/hkClass.h>
-#include <Common/Base/Reflection/hkClassMember.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/hkbGenerator.h>
+#include <Behavior/Behavior/Modifier/hkbModifier.h>
+#include <Common/Base/Container/hkContainerAllocators.h>
+#include <Common/Base/Reflection/hkClassAccess.h>
+#include <Common/Base/Reflection/hkClassMemberAccess.h>
 #include <Common/Serialize/Util/hkBuiltinTypeRegistry.h>
 
 #include <atomic>
@@ -20,30 +22,14 @@
 #include <string>
 #include <vector>
 
-/// @note Two Havok globals a CB class's INLINE Havok code reads: hkArray's storage allocator
-///       (hkContainerHeapAllocator::s_alloc, in hkArray growth and destructors, hkbBindable's implicit one included)
-///       and the memory router's TLS index (in hkReferencedObject's class new and delete, which every base vtable's
-///       deleting destructor uses). The link shim leaves mutable globals unbound because a copy goes stale; these two
-///       do not change once Havok is up: the allocator is 8 bytes of static .data, its vtable pointer only (a
-///       stateless forwarder to the thread's heap; AE 1.6.1170 0x142019838), and the TLS index is set once when Havok
-///       starts. So, as the shim does for const globals, each decorated name binds to a plugin buffer, filled from the
-///       exe by EnsureHavokGlobalsMirrored: before any CB class is registered (kDataLoaded), and earlier by any feature
-///       whose inline Havok code can run first.
-extern "C" {
-    alignas(8) unsigned char cb_mirror_containerHeapAllocator[8];
-    alignas(4) unsigned char cb_mirror_memoryRouterTlsIndex[4];
-}
-#pragma comment(linker, "/alternatename:?s_alloc@hkContainerHeapAllocator@havok@CB@@2UAllocator@123@A=cb_mirror_containerHeapAllocator")
-#pragma comment(linker, "/alternatename:?hkMemoryRouter_s_memoryRouter@havok@CB@@3KA=cb_mirror_memoryRouterTlsIndex")
-static_assert(sizeof(CB::havok::hkContainerHeapAllocator::Allocator) == sizeof(cb_mirror_containerHeapAllocator));
-static_assert(sizeof(CB::havok::hkMemoryRouter_s_memoryRouter) == sizeof(cb_mirror_memoryRouterTlsIndex));
-
 namespace CB::platform::classes {
 
     namespace {
 
-        namespace hk = CB::havok;
         namespace sc = CB::engine::schema;
+
+        using ClassAccess  = ::hkExtensionAccess<::hkClass>;
+        using MemberAccess = ::hkExtensionAccess<::hkClassMember>;
 
         /// @brief Havok's hkTypeInfo, laid out as the exe's static initializers fill it (BSSynchronizedClipGenerator's
         ///        at 0x1400dc310): finish runs the finish constructor, cleanup calls virtual slot 0 with flag 0.
@@ -65,8 +51,10 @@ namespace CB::platform::classes {
             ClassBehavior                 behavior{};
             std::string                   name, scopedName;
             std::vector<std::string>      memberNames;
-            std::vector<hk::hkClassMember> members;
-            hk::hkClass                   cls{};
+            std::vector<::hkClassMember> members;
+            /// @note Zeroed storage: every field is written before use, and hkClass's constructor is the exe's.
+            alignas(::hkClass) unsigned char clsStorage[sizeof(::hkClass)]{};
+            ::hkClass&                  cls = *reinterpret_cast<::hkClass*>(clsStorage);
             TypeInfo                      info{};
             bool                          declared   = false;   ///< a C++ type stands behind it (Declare)
             bool                          built      = false;
@@ -88,9 +76,10 @@ namespace CB::platform::classes {
         /// @brief The game's hkClass for a parent or a member's target class, by name; null for any other.
         /// @note The link shim binds these to the exe's own class objects, so names and parent chains read the same,
         ///       which is what the registries and the parent-chain class tests use.
-        const hk::hkClass* GameClass(const std::string& name)
+        const ::hkClass* GameClass(const std::string& name)
         {
-            if (name == "hkbGenerator") return &hk::hkbGeneratorClass;
+            if (name == "hkbGenerator") return &::hkbGeneratorClass;
+            if (name == "hkbModifier") return &::hkbModifierClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }
@@ -98,9 +87,9 @@ namespace CB::platform::classes {
         bool Build(Entry& e, const sc::SchemaRegistry& schema, std::string& why);
 
         /// @brief The hkClass for `name`: the game's, else a CB entry's (a struct class gets one, built now).
-        const hk::hkClass* ClassFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
+        const ::hkClass* ClassFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
         {
-            if (const hk::hkClass* gameClass = GameClass(name)) return gameClass;
+            if (const ::hkClass* gameClass = GameClass(name)) return gameClass;
             Entry* entry = nullptr;
             for (Entry& e : S().entries)
                 if (e.name == name) entry = &e;
@@ -124,9 +113,9 @@ namespace CB::platform::classes {
             return &entry->cls;
         }
 
-        bool ScalarType(sc::Scalar s, hk::hkClassMember::Type& out)
+        bool ScalarType(sc::Scalar s, ::hkClassMember::Type& out)
         {
-            using M = hk::hkClassMember;
+            using M = ::hkClassMember;
             switch (s) {
             case sc::Scalar::Int8:   out = M::TYPE_INT8; return true;
             case sc::Scalar::Byte:   out = M::TYPE_UINT8; return true;
@@ -144,38 +133,38 @@ namespace CB::platform::classes {
         }
 
         /// @brief `f` as a Havok member type; false with `why` set for a kind no CB class needs yet.
-        bool MemberType(const sc::Field& f, hk::hkClassMember& m, const sc::SchemaRegistry& schema, std::string& why)
+        bool MemberType(const sc::Field& f, ::hkClassMember& m, const sc::SchemaRegistry& schema, std::string& why)
         {
-            using M = hk::hkClassMember;
+            using M = ::hkClassMember;
             M::Type t{};
             switch (f.kind) {
             case sc::FieldKind::Scalar:
                 if (!ScalarType(f.scalar, t)) break;
-                m.m_type = t;
+                MemberAccess::type(m) = t;
                 return true;
-            case sc::FieldKind::String:      m.m_type = M::TYPE_STRINGPTR; return true;
-            case sc::FieldKind::EmptyPtr:    m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_VOID; return true;
-            case sc::FieldKind::EmptyArray:  m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_VOID; return true;
-            case sc::FieldKind::StringArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::String:      MemberAccess::type(m) = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::EmptyPtr:    MemberAccess::type(m) = M::TYPE_POINTER; MemberAccess::subtype(m) = M::TYPE_VOID; return true;
+            case sc::FieldKind::EmptyArray:  MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_VOID; return true;
+            case sc::FieldKind::StringArray: MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_STRINGPTR; return true;
             case sc::FieldKind::ScalarArray:
                 if (!ScalarType(f.scalar, t)) break;
-                m.m_type    = M::TYPE_ARRAY;
-                m.m_subtype = t;
+                MemberAccess::type(m)    = M::TYPE_ARRAY;
+                MemberAccess::subtype(m) = t;
                 return true;
-            case sc::FieldKind::Ptr:         m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_STRUCT;  break;
-            case sc::FieldKind::PtrArray:    m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_POINTER; break;
-            case sc::FieldKind::StructArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_STRUCT;  break;
-            case sc::FieldKind::Struct:      m.m_type = M::TYPE_STRUCT;  m.m_subtype = M::TYPE_VOID;    break;
+            case sc::FieldKind::Ptr:         MemberAccess::type(m) = M::TYPE_POINTER; MemberAccess::subtype(m) = M::TYPE_STRUCT;  break;
+            case sc::FieldKind::PtrArray:    MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_POINTER; break;
+            case sc::FieldKind::StructArray: MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_STRUCT;  break;
+            case sc::FieldKind::Struct:      MemberAccess::type(m) = M::TYPE_STRUCT;  MemberAccess::subtype(m) = M::TYPE_VOID;    break;
             default:
                 why = "no Havok member type for its field kind here";
                 return false;
             }
-            if (m.m_type == M::TYPE_VOID) {
+            if (MemberAccess::type(m) == M::TYPE_VOID) {
                 why = "no Havok member type for its scalar";
                 return false;
             }
-            m.m_class = const_cast<hk::hkClass*>(ClassFor(f.ref, schema, why));
-            return m.m_class != nullptr;
+            MemberAccess::klass(m) = const_cast<::hkClass*>(ClassFor(f.ref, schema, why));
+            return MemberAccess::klass(m) != nullptr;
         }
 
         /// @brief Whether a field is a member at all: padding is not, nor an unnamed void-typed ignored slot.
@@ -199,7 +188,7 @@ namespace CB::platform::classes {
         {
             const sc::ClassSchema* cs = schema.Find(e.name);
             if (!cs) { why = "no schema descriptor"; return false; }
-            const hk::hkClass* parent = nullptr;
+            const ::hkClass* parent = nullptr;
             if (!cs->parent.empty()) {
                 parent = ClassFor(cs->parent, schema, why);
                 if (!parent) { why = "its parent '" + cs->parent + "': " + why; return false; }
@@ -226,11 +215,11 @@ namespace CB::platform::classes {
             for (std::size_t i = 0; i < cs->fields.size(); ++i) {
                 const sc::Field& f = cs->fields[i];
                 if (!IsMember(f)) continue;
-                hk::hkClassMember m{};
-                m.m_name   = e.memberNames[named++].c_str();
-                m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
+                ::hkClassMember m{};
+                MemberAccess::name(m)   = e.memberNames[named++].c_str();
+                MemberAccess::offset(m) = static_cast<::hkUint16>(offsets[i]);
                 const bool empty = f.kind == sc::FieldKind::EmptyPtr || f.kind == sc::FieldKind::EmptyArray;
-                m.m_flags  = static_cast<hk::hkUint16>(f.ignored || empty ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                MemberAccess::flags(m)  = static_cast<::hkUint16>(f.ignored || empty ? ::hkClassMember::SERIALIZE_IGNORED : 0);
                 if (!MemberType(f, m, schema, why)) {
                     e.building = false;
                     why        = "member '" + f.name + "': " + why;
@@ -240,13 +229,13 @@ namespace CB::platform::classes {
             }
             e.building = false;
 
-            e.cls.m_name               = e.name.c_str();
-            e.cls.m_parent             = parent;
-            e.cls.m_objectSize         = size;
-            e.cls.m_declaredMembers    = e.members.data();
-            e.cls.m_numDeclaredMembers = static_cast<int>(e.members.size());
-            e.cls.m_describedVersion   = 1;
-            e.cls.m_numImplementedInterfaces = cs->interfaces;
+            ClassAccess::name(e.cls)               = e.name.c_str();
+            ClassAccess::parent(e.cls)             = parent;
+            ClassAccess::objectSize(e.cls)         = size;
+            ClassAccess::declaredMembers(e.cls)    = e.members.data();
+            ClassAccess::numDeclaredMembers(e.cls) = static_cast<int>(e.members.size());
+            ClassAccess::describedVersion(e.cls)   = 1;
+            ClassAccess::numImplementedInterfaces(e.cls) = cs->interfaces;
 
             /// @note A struct class has no C++ type behind it (no finish, cleanup or vtable): it is never registered, so
             ///       it needs no type info.
@@ -264,21 +253,21 @@ namespace CB::platform::classes {
 
         /// @brief The exe's class named `name`, from the class-name registry: the same object its getClassType and
         ///        staticClass return. Null when none is registered.
-        hk::hkClass* ExeClass(hk::hkBuiltinTypeRegistry* registry, const char* name)
+        ::hkClass* ExeClass(::hkBuiltinTypeRegistry* registry, const char* name)
         {
             void* names = registry->getClassNameRegistry();
             if (!names) return nullptr;
             /// @note getClassByName is the class-name registry's slot 4 (0x140b14930, AE 1.6.1170).
-            using GetClassByName = hk::hkClass* (*)(void*, const char*);
+            using GetClassByName = ::hkClass* (*)(void*, const char*);
             return (*reinterpret_cast<GetClassByName* const*>(names))[4](names, name);
         }
 
         /// @brief A vanilla class the schema extends: the member list CB gave the exe's hkClass, and what it replaced.
         struct Extension {
             std::string                    name;
-            hk::hkClass*                   cls = nullptr;
+            ::hkClass*                   cls = nullptr;
             std::deque<std::string>        memberNames;
-            std::vector<hk::hkClassMember> members;
+            std::vector<::hkClassMember> members;
         };
         std::deque<Extension>& Extensions()
         {
@@ -295,11 +284,11 @@ namespace CB::platform::classes {
         ///        whose stored signature differs. Each class is checked against the engine's own hash twice: before (the
         ///        exe's description is the one the schema's vanilla signature describes) and after (the engine now
         ///        computes the signature CB writes into every packfile). A failed check leaves the exe's description.
-        void ExtendVanillaClasses(hk::hkBuiltinTypeRegistry* registry, const sc::SchemaRegistry& schema)
+        void ExtendVanillaClasses(::hkBuiltinTypeRegistry* registry, const sc::SchemaRegistry& schema)
         {
             for (const auto& [name, cs] : schema.All()) {
                 if (!cs.vanillaSignature) continue;
-                hk::hkClass* cls = ExeClass(registry, name.c_str());
+                ::hkClass* cls = ExeClass(registry, name.c_str());
                 if (!cls) {
                     LOG_ERROR("classes: {} extends no class the exe registers - not extended", name);
                     continue;
@@ -319,15 +308,15 @@ namespace CB::platform::classes {
                 Extension& x = Extensions().emplace_back();
                 x.name       = name;
                 x.cls        = cls;
-                x.members.assign(cls->m_declaredMembers, cls->m_declaredMembers + cls->m_numDeclaredMembers);
+                x.members.assign(ClassAccess::declaredMembers(*cls), ClassAccess::declaredMembers(*cls) + ClassAccess::numDeclaredMembers(*cls));
                 bool ok = true;
                 for (std::size_t i = 0; i < cs.fields.size() && ok; ++i) {
                     const sc::Field& f = cs.fields[i];
                     if (!f.cbAdded) continue;
-                    hk::hkClassMember m{};
-                    m.m_name   = x.memberNames.emplace_back(f.name).c_str();
-                    m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
-                    m.m_flags  = static_cast<hk::hkUint16>(f.ignored ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                    ::hkClassMember m{};
+                    MemberAccess::name(m)   = x.memberNames.emplace_back(f.name).c_str();
+                    MemberAccess::offset(m) = static_cast<::hkUint16>(offsets[i]);
+                    MemberAccess::flags(m)  = static_cast<::hkUint16>(f.ignored ? ::hkClassMember::SERIALIZE_IGNORED : 0);
                     if (!MemberType(f, m, schema, why)) {
                         LOG_ERROR("classes: {}.{}: {} - not extended", name, f.name, why);
                         ok = false;
@@ -339,14 +328,14 @@ namespace CB::platform::classes {
                     Extensions().pop_back();
                     continue;
                 }
-                const hk::hkClassMember* oldMembers = cls->m_declaredMembers;
-                const int                oldCount   = cls->m_numDeclaredMembers;
-                cls->m_declaredMembers    = x.members.data();
-                cls->m_numDeclaredMembers = static_cast<int>(x.members.size());
+                const ::hkClassMember* oldMembers = ClassAccess::declaredMembers(*cls);
+                const int                oldCount   = ClassAccess::numDeclaredMembers(*cls);
+                ClassAccess::declaredMembers(*cls)    = x.members.data();
+                ClassAccess::numDeclaredMembers(*cls) = static_cast<int>(x.members.size());
                 const std::uint32_t after = game::hkClass_GetSignature(cls, 0);
                 if (after != cs.signature) {
-                    cls->m_declaredMembers    = oldMembers;
-                    cls->m_numDeclaredMembers = oldCount;
+                    ClassAccess::declaredMembers(*cls)    = oldMembers;
+                    ClassAccess::numDeclaredMembers(*cls) = oldCount;
                     Extensions().pop_back();
                     LOG_ERROR("classes: {}: extended, the engine computes {:#010x}, the schema writes {:#010x} - restored the exe's "
                               "description: every behavior holding it is refused at load",
@@ -360,18 +349,6 @@ namespace CB::platform::classes {
         }
 
     }  // namespace
-
-    void EnsureHavokGlobalsMirrored()
-    {
-        static std::once_flag mirrored;
-        std::call_once(mirrored, [] {
-            std::memcpy(cb_mirror_containerHeapAllocator, &hooks::Live<&hk::hkContainerHeapAllocator::s_alloc>(),
-                        sizeof(cb_mirror_containerHeapAllocator));
-            std::memcpy(cb_mirror_memoryRouterTlsIndex, &hooks::Live<&hk::hkMemoryRouter_s_memoryRouter>(),
-                        sizeof(cb_mirror_memoryRouterTlsIndex));
-            LOG_INFO("classes: Havok's container allocator and memory router index mirrored for CB's inline Havok code");
-        });
-    }
 
     bool Declare(const ClassBehavior& behavior)
     {
@@ -387,12 +364,11 @@ namespace CB::platform::classes {
     void RegisterAll(const sc::SchemaRegistry& schema)
     {
         std::scoped_lock lock(S().lock);
-        hk::hkBuiltinTypeRegistry* registry = hooks::Live<&hk::hkBuiltinTypeRegistry::s_instance>();
+        ::hkBuiltinTypeRegistry* registry = ::hkBuiltinTypeRegistry::s_instance;
         if (!registry) {
             LOG_ERROR("classes: Havok's type registry does not exist yet - {} CB class(es) not registered", S().entries.size());
             return;
         }
-        EnsureHavokGlobalsMirrored();
         ExtendVanillaClasses(registry, schema);
         /// @note Indexed, not ranged: building a class may append its struct classes' entries (a deque keeps every
         ///       entry in place, but a range-for's end iterator would go stale).
@@ -407,7 +383,7 @@ namespace CB::platform::classes {
             /// @note addType is the registry's virtual slot 6 (+0x30): 0x140b143d0 in the vtable at 0x141966200 (AE
             ///       1.6.1170, verified 2026-10-20). It files the class by name, the type info, and, since the parent
             ///       chain implements an interface, the vtable -> class map the graph's clone fixups read.
-            using AddType = void (*)(hk::hkBuiltinTypeRegistry*, TypeInfo*, const hk::hkClass&);
+            using AddType = void (*)(::hkBuiltinTypeRegistry*, TypeInfo*, const ::hkClass&);
             const auto addType = (*reinterpret_cast<AddType* const*>(registry))[6];
             addType(registry, &e.info, e.cls);
             e.registered = true;
@@ -419,7 +395,7 @@ namespace CB::platform::classes {
             if (engineSig != schemaSig)
                 LOG_ERROR("classes: {} signature mismatch - the engine computes {:#010x}, the schema writes {:#010x}: "
                           "every behavior holding it is refused at load", e.name, engineSig, schemaSig);
-            LOG_INFO("classes: registered {} ({} bytes, {} member(s), signature {:#010x})", e.name, e.cls.m_objectSize,
+            LOG_INFO("classes: registered {} ({} bytes, {} member(s), signature {:#010x})", e.name, ClassAccess::objectSize(e.cls),
                      e.members.size(), engineSig);
         }
     }
@@ -430,7 +406,7 @@ namespace CB::platform::classes {
         for (const Extension& x : Extensions()) {
             if (x.name != cls) continue;
             for (const auto& m : x.members)
-                if (m.m_name && std::strcmp(m.m_name, member) == 0) return m.m_offset;
+                if (m.getName() && std::strcmp(m.getName(), member) == 0) return m.getOffset();
         }
         return -1;
     }

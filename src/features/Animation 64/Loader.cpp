@@ -6,9 +6,13 @@
 #include <platform/game/AnimationLoad.h>
 #include <platform/hooks/hookslib.h>
 
-#include <Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.h>
-#include <Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
+#include <Behavior/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorAccess.h>
+#include <Behavior/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <intrin.h>
 
@@ -35,7 +39,6 @@ namespace CB::feature::widen {
 
     namespace {
 
-        namespace hk    = CB::havok;
         namespace game  = CB::platform::game;
         namespace hooks = CB::platform::hooks;
 
@@ -72,9 +75,9 @@ namespace CB::feature::widen {
         std::uint32_t TableCount(void* project) { return At<std::uint32_t>(project, 0x50); }
 
         /// @return the character data the context's behavior graph carries, or null without one.
-        void* CharacterDataOf(const hk::hkbContext& context)
+        void* CharacterDataOf(const ::hkbContext& context)
         {
-            const hk::hkbBehaviorGraph* graph = context.m_character->m_behaviorGraph;
+            const ::hkbBehaviorGraph* graph = context.m_character->m_behaviorGraph;
             return graph ? reinterpret_cast<void*>(graph->m_userData) : nullptr;
         }
 
@@ -111,7 +114,7 @@ namespace CB::feature::widen {
         ///        unbind the table's entry is released here.
         /// @note  The scene slot index (the synchronized clip's m_sAnimationBindingIndex) is still 16-bit; scene slots
         ///        sit after the roster, so with a roster past 32,767 that field must widen too (Animation64.h).
-        bool Bind(void* characterData, std::int64_t index, hk::BSSynchronizedClipGenerator* sync, void** entry)
+        bool Bind(void* characterData, std::int64_t index, ::BSSynchronizedClipGenerator* sync, void** entry)
         {
             void* project = ProjectData(characterData);
             if (index < 0 || index >= TableCount(project) || index > std::numeric_limits<std::int32_t>::max()) return false;
@@ -230,7 +233,7 @@ namespace CB::feature::widen {
         ///        0xC), or asks for it to stream in (state 4).
         /// @return false when there is no character data, or the stream request failed (no state then).
         /// @post  `*triple` holds the index's triple (empty outside the table: state 0xC, nothing to load).
-        bool Resolve(void* manager, const hk::hkbContext& context, std::int64_t index, hk::BSSynchronizedClipGenerator* sync, CrcTriple* triple,
+        bool Resolve(void* manager, const ::hkbContext& context, std::int64_t index, ::BSSynchronizedClipGenerator* sync, CrcTriple* triple,
                      std::int32_t* state)
         {
             void* characterData = CharacterDataOf(context);
@@ -261,20 +264,20 @@ namespace CB::feature::widen {
             return ok;
         }
 
-        hk::BSSynchronizedClipGenerator* SyncOf(void* sync) { return static_cast<hk::BSSynchronizedClipGenerator*>(sync); }
+        ::BSSynchronizedClipGenerator* SyncOf(void* sync) { return static_cast<::BSSynchronizedClipGenerator*>(sync); }
 
-        using Queue           = hooks::Override<&hk::IAnimationClipLoader::queue>;
-        using Load            = hooks::Override<&hk::IAnimationClipLoader::load>;
-        using Unload          = hooks::Override<&hk::IAnimationClipLoader::unload>;
-        using LoadAnimation16 = hooks::Override<&hk::IAnimationClipLoader::loadAnimation>;
-        using UnloadAnim16    = hooks::Override<&hk::IAnimationClipLoader::unloadAnimation>;
-        using OffsetActivate   = hooks::Override<&hk::BSOffsetAnimationGenerator::activate>;
-        using OffsetDeactivate = hooks::Override<&hk::BSOffsetAnimationGenerator::deactivate>;
-        using OffsetUpdate     = hooks::Override<&hk::BSOffsetAnimationGenerator::update>;
+        using Queue           = hooks::Override<&::IAnimationClipLoader::queue>;
+        using Load            = hooks::Override<&::IAnimationClipLoader::load>;
+        using Unload          = hooks::Override<&::IAnimationClipLoader::unload>;
+        using LoadAnimation16 = hooks::Override<&::IAnimationClipLoader::loadAnimation>;
+        using UnloadAnim16    = hooks::Override<&::IAnimationClipLoader::unloadAnimation>;
+        using OffsetActivate   = hooks::Override<&::BSOffsetAnimationGenerator::activate>;
+        using OffsetDeactivate = hooks::Override<&::BSOffsetAnimationGenerator::deactivate>;
+        using OffsetUpdate     = hooks::Override<&::BSOffsetAnimationGenerator::update>;
 
         /// @brief Slot 1 (onFileReady, 0x140bcbb90): binds the clip's animation if it is loaded, else queues it.
         /// @return 1 bound, 0 queued, -1 pending or nothing to load; the clip's load state goes to m_userData.
-        std::int32_t OnQueue(Queue::Next, hk::IAnimationClipLoader* manager, const hk::hkbContext& context, hk::hkbClipGenerator* clip, void* sync)
+        std::int32_t OnQueue(Queue::Next, ::IAnimationClipLoader* manager, const ::hkbContext& context, ::hkbClipGenerator* clip, void* sync)
         {
             LoaderTaskScope    task;
             std::int32_t       result = -1;
@@ -282,7 +285,7 @@ namespace CB::feature::widen {
             std::int32_t       state = 4;
             const std::int64_t index = BindingIndex(clip);
             if (Resolve(manager, context, index, SyncOf(sync), &triple, &state)) {
-                clip->m_userData = static_cast<hk::hkUlong>(static_cast<std::int64_t>(state));
+                clip->m_userData = static_cast<::hkUlong>(static_cast<std::int64_t>(state));
                 result           = 1;
             } else if (triple.Empty()) {
                 clip->m_userData = 4;
@@ -299,14 +302,14 @@ namespace CB::feature::widen {
                     loadState = queued == -1 ? 4 : 8;
                     result    = queued == -1 ? -1 : 0;
                 }
-                clip->m_userData = static_cast<hk::hkUlong>(loadState);
+                clip->m_userData = static_cast<::hkUlong>(loadState);
                 lock.Unlock();
             }
             return result;
         }
 
         /// @brief Slot 2 (0x140bcbd30): pumps the stream queue and binds the clip's animation once it is loaded.
-        bool OnLoad(Load::Next, hk::IAnimationClipLoader* manager, const hk::hkbContext& context, hk::hkbClipGenerator* clip, void* sync)
+        bool OnLoad(Load::Next, ::IAnimationClipLoader* manager, const ::hkbContext& context, ::hkbClipGenerator* clip, void* sync)
         {
             RE::BSSpinLock& lock = ManagerLock(manager);
             lock.Lock();
@@ -318,7 +321,7 @@ namespace CB::feature::widen {
                 std::int32_t state = 4;
                 if (Resolve(manager, context, BindingIndex(clip), SyncOf(sync), &triple, &state)) {
                     result           = true;
-                    clip->m_userData = static_cast<hk::hkUlong>(static_cast<std::int64_t>(state));
+                    clip->m_userData = static_cast<::hkUlong>(static_cast<std::int64_t>(state));
                     if (At<void*>(manager, 0x20) && triple.ext == At<std::uint32_t>(manager, 0x30) && std::memcmp(&triple, &At<std::byte>(manager, 0x28), 8) == 0)
                         game::AnimationFileManager_PumpQueue(manager);
                     game::AnimationFileManager_ReleaseCached(manager, &triple);
@@ -330,7 +333,7 @@ namespace CB::feature::widen {
 
         /// @brief Slot 3 (0x140bcbea0): unbinds the clip's animation (state 0xC) or withdraws its request (state 8).
         /// @note  Vanilla returns nothing; the interface's int is unused by every caller.
-        std::int32_t OnUnload(Unload::Next, hk::IAnimationClipLoader* manager, const hk::hkbContext& context, hk::hkbClipGenerator* clip, void* sync)
+        std::int32_t OnUnload(Unload::Next, ::IAnimationClipLoader* manager, const ::hkbContext& context, ::hkbClipGenerator* clip, void* sync)
         {
             LoaderTaskScope task;
             if (void* characterData = CharacterDataOf(context)) {
@@ -353,54 +356,56 @@ namespace CB::feature::widen {
             return 0;
         }
 
-        bool OnLoadAnimation16(LoadAnimation16::Next, hk::IAnimationClipLoader* manager, const hk::hkbContext& context, hk::hkInt16 index)
+        bool OnLoadAnimation16(LoadAnimation16::Next, ::IAnimationClipLoader* manager, const ::hkbContext& context, ::hkInt16 index)
         {
             return LoadAnimation(manager, context, index);
         }
 
-        void OnUnloadAnimation16(UnloadAnim16::Next, hk::IAnimationClipLoader* manager, const hk::hkbContext& context, hk::hkInt16 index)
+        void OnUnloadAnimation16(UnloadAnim16::Next, ::IAnimationClipLoader* manager, const ::hkbContext& context, ::hkInt16 index)
         {
             UnloadAnimation(manager, context, index);
         }
 
-        hk::IAnimationClipLoader* ClipLoader() { return hooks::Live<&hk::g_animationClipLoader>(); }
+        using OffsetAccess = ::hkExtensionAccess<::BSOffsetAnimationGenerator>;
+
+        ::IAnimationClipLoader* ClipLoader() { return ::g_animationClipLoader; }
 
         /// @return the offset clip's binding index, -1 without one (vanilla passes hkUint16(-1)).
-        std::int64_t OffsetIndex(hk::BSOffsetAnimationGenerator* gen)
+        std::int64_t OffsetIndex(::BSOffsetAnimationGenerator* gen)
         {
-            hk::hkbClipGenerator* clip = gen->getOffsetClipGenerator();
+            ::hkbClipGenerator* clip = OffsetAccess::offsetClipGenerator(*gen);
             return clip ? BindingIndex(clip) : -1;
         }
 
         /// @brief BSOffsetAnimationGenerator::activate as havok/ has it, the offset clip's index handed over at 64 bits.
-        void OnOffsetActivate(OffsetActivate::Next, hk::BSOffsetAnimationGenerator* gen, const hk::hkbContext& context)
+        void OnOffsetActivate(OffsetActivate::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
         {
-            if (hk::IAnimationClipLoader* loader = ClipLoader(); loader && !LoadAnimation(loader, context, OffsetIndex(gen))) {
+            if (::IAnimationClipLoader* loader = ClipLoader(); loader && !LoadAnimation(loader, context, OffsetIndex(gen))) {
                 gen->m_userData = 8;
                 return;
             }
-            gen->sampleOffset(context);
+            (gen->*OffsetAccess::sampleOffset)(context);
             gen->m_userData = 0xc;
         }
 
-        void OnOffsetDeactivate(OffsetDeactivate::Next, hk::BSOffsetAnimationGenerator* gen, const hk::hkbContext& context)
+        void OnOffsetDeactivate(OffsetDeactivate::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
         {
             if (gen->m_userData == 0xc)
-                if (hk::IAnimationClipLoader* loader = ClipLoader()) UnloadAnimation(loader, context, OffsetIndex(gen));
-            gen->m_BoneIndexA.clear();
-            gen->m_BoneOffsetA.clear();
-            gen->m_bOffsetValid = false;
+                if (::IAnimationClipLoader* loader = ClipLoader()) UnloadAnimation(loader, context, OffsetIndex(gen));
+            OffsetAccess::boneIndices(*gen).clear();
+            OffsetAccess::boneOffsets(*gen).clear();
+            OffsetAccess::offsetValid(*gen) = false;
         }
 
         /// @note Drops vanilla's HK_TIMER pair, as the clip readers do (Readers.cpp).
-        void OnOffsetUpdate(OffsetUpdate::Next, hk::BSOffsetAnimationGenerator* gen, const hk::hkbContext& context, hk::hkReal)
+        void OnOffsetUpdate(OffsetUpdate::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context, ::hkReal)
         {
             bool loaded = true;
             if (gen->m_userData == 8) {
-                if (hk::IAnimationClipLoader* loader = ClipLoader()) loaded = LoadAnimation(loader, context, OffsetIndex(gen));
+                if (::IAnimationClipLoader* loader = ClipLoader()) loaded = LoadAnimation(loader, context, OffsetIndex(gen));
                 if (loaded) gen->m_userData = 0xc;
             }
-            if (loaded) gen->sampleOffset(context);
+            if (loaded) (gen->*OffsetAccess::sampleOffset)(context);
         }
 
         /// @note Last: replacements, innermost, so observers still see every call.
@@ -416,7 +421,7 @@ namespace CB::feature::widen {
     }  // namespace
 
     /// @note Slot 4 (0x140bcc040): the resolver without a clip or sync.
-    bool LoadAnimation(hk::IAnimationClipLoader* loader, const hk::hkbContext& context, std::int64_t index)
+    bool LoadAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index)
     {
         CrcTriple    triple{};
         std::int32_t state = 0;
@@ -424,7 +429,7 @@ namespace CB::feature::widen {
     }
 
     /// @note Slot 5 (0x140bcc090).
-    void UnloadAnimation(hk::IAnimationClipLoader*, const hk::hkbContext& context, std::int64_t index)
+    void UnloadAnimation(::IAnimationClipLoader*, const ::hkbContext& context, std::int64_t index)
     {
         LoaderTaskScope task;
         if (void* characterData = CharacterDataOf(context)) {

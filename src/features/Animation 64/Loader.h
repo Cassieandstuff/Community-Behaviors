@@ -2,10 +2,8 @@
 
 #include <cstdint>
 
-namespace CB::havok {
-    struct IAnimationClipLoader;
-    struct hkbContext;
-}
+class IAnimationClipLoader;
+class hkbContext;
 
 /// @file
 /// @brief The clip loader at 64 bits ([Animation64] bLoader, AE only): AnimationFileManagerSingleton's five
@@ -16,9 +14,9 @@ namespace CB::feature::widen {
 
     /// @brief IAnimationClipLoader::loadAnimation with a 64-bit index: loads the animation at `index` (no clip involved).
     /// @return false while it is still loading.
-    bool LoadAnimation(havok::IAnimationClipLoader* loader, const havok::hkbContext& context, std::int64_t index);
+    bool LoadAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index);
 
     /// @brief IAnimationClipLoader::unloadAnimation with a 64-bit index: releases what LoadAnimation loaded.
-    void UnloadAnimation(havok::IAnimationClipLoader* loader, const havok::hkbContext& context, std::int64_t index);
+    void UnloadAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index);
 
 }  // namespace CB::feature::widen

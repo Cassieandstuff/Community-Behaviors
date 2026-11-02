@@ -4,7 +4,8 @@
 
 #include "core/debug/Settings.h"
 
-#include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Common/Base/hkBase.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <PluginLogger.h>
 
@@ -23,12 +24,11 @@ namespace CB::feature::widen {
 
     namespace {
 
-        namespace hk = CB::havok;
 
         constexpr int         kSlots      = 4;
         constexpr std::size_t kCandidates = 64;
         constexpr std::size_t kHits       = 1024;
-        constexpr std::size_t kField      = offsetof(hk::hkbClipGenerator, m_animationBindingIndex);
+        constexpr std::size_t kField      = offsetof(::hkbClipGenerator, m_animationBindingIndex);
 
         /// @brief One instruction seen touching a watched field.
         struct Hit {

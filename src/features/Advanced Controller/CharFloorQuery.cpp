@@ -3,12 +3,13 @@
 #include "CharSweep.h"
 
 #include <platform/hooks/Override.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Common/Base/hkBase.h>
+#include <BSHavok/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkPickData.h>
+#include <BSHavok/bhkPickData.h>
 
 #include <algorithm>
 #include <array>
@@ -28,11 +29,10 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::havok;
-        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
-        constexpr hk::hkUint32 kSupport                     = 1u << 8;
-        constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
+        constexpr ::hkUint32 kSupport                     = 1u << 8;
+        constexpr ::hkUint32 kHasPotentialSupportManifold = 1u << 9;
         constexpr unsigned     kCharControllerLayer         = 30;
         constexpr int          kRing                        = 8;
 
@@ -53,7 +53,7 @@ namespace CB::feature {
             float                dz  = 0;   ///< hit height above the feet
             float                nx = 0, ny = 0, nz = 0;
             unsigned             layer = 0;
-            const hk::hkpCollidable* body = nullptr;
+            const ::hkpCollidable* body = nullptr;
         };
 
         struct Verdict {
@@ -62,7 +62,7 @@ namespace CB::feature {
             int    supportHits = 0, walkableHits = 0;
         };
 
-        bool IsPlayer(const hk::bhkCharacterController* ctrl)
+        bool IsPlayer(const ::bhkCharacterController* ctrl)
         {
             auto*       player = RE::PlayerCharacter::GetSingleton();
             const auto* own    = player ? player->GetCharController() : nullptr;
@@ -70,7 +70,7 @@ namespace CB::feature {
         }
 
         /// @brief Whether `ctrl` is the bhkCharacterController base of a bhkCharProxyController.
-        bool IsProxy(const hk::bhkCharacterController& ctrl)
+        bool IsProxy(const ::bhkCharacterController& ctrl)
         {
             static const std::uintptr_t vtable = REL::Relocation<std::uintptr_t>(RE::VTABLE_bhkCharProxyController[1]).address();
             return *reinterpret_cast<const std::uintptr_t*>(&ctrl) == vtable;
@@ -79,17 +79,17 @@ namespace CB::feature {
         /// @brief hkpShape::getAabb, vtable slot 7 (the schema still calls it unk_07).
         /// @note Slot proven by the exe: bhkCharacterControllerCinfo (0x140e9cdf0) calls a shape's +0x38 with (identity
         ///       transform, tolerance 0, out AABB) and reads min/max back.
-        void GetAabb(const hk::hkpShape* shape, const hk::hkTransform& transform, hk::hkAabb& out)
+        void GetAabb(const ::hkpShape* shape, const ::hkTransform& transform, ::hkAabb& out)
         {
-            using Fn = void (*)(const hk::hkpShape*, const hk::hkTransform&, float, hk::hkAabb&);
+            using Fn = void (*)(const ::hkpShape*, const ::hkTransform&, float, ::hkAabb&);
             const auto fn = reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(shape))[7]);
             fn(shape, transform, 0.0f, out);
         }
 
-        Hit CastDown(hk::bhkWorld* world, hk::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
+        Hit CastDown(::bhkWorld* world, ::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
         {
             Hit             h;
-            hk::bhkPickData pick;
+            ::bhkPickData pick;
             pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
             pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
             pick.m_rayInput.m_filterInfo = filter;
@@ -112,24 +112,24 @@ namespace CB::feature {
         int             g_lastSweepKey = -1;
         std::uint32_t   g_sweepLogged  = 0;
 
-        void ObserveSweep(hk::bhkCharacterController* self, hk::bhkWorld* world, const hk::hkpCollidable* coll)
+        void ObserveSweep(::bhkCharacterController* self, ::bhkWorld* world, const ::hkpCollidable* coll)
         {
-            hk::hkVector4 v;
+            ::hkVector4 v;
             self->GetLinearVelocityImpl(v);
             const float vx = v(0) * kSweepSeconds, vy = v(1) * kSweepSeconds;
             if (vx * vx + vy * vy < 1.0e-4f) return;
-            const hk::hkVector4& from = coll->getTransform().getTranslation();
-            const hk::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
+            const ::hkVector4& from = coll->getTransform().getTranslation();
+            const ::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
             const controller::SweepHit s = controller::Sweep(world, coll, to, 0.0f, self->m_zNormal);
-            const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.m_separatingNormal(2) > 0.3f ? 2 : 0) : 0;
+            const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.getSeparatingNormal()(2) > 0.3f ? 2 : 0) : 0;
             if (key == g_lastSweepKey || g_sweepLogged >= 2000) return;
             g_lastSweepKey = key;
             ++g_sweepLogged;
             if (!s.hit) LOG_INFO("sweep #{}: {:.3f} ahead, clear", g_sweepLogged, std::sqrt(vx * vx + vy * vy));
             else
                 LOG_INFO("sweep #{}: {:.3f} ahead, hit at fraction {:.3f} n=({:.2f},{:.2f},{:.2f}) layer {}", g_sweepLogged,
-                         std::sqrt(vx * vx + vy * vy), s.fraction, s.contact.m_separatingNormal(0), s.contact.m_separatingNormal(1),
-                         s.contact.m_separatingNormal(2), s.body ? (s.body->getCollisionFilterInfo() & 0x7f) : 0u);
+                         std::sqrt(vx * vx + vy * vy), s.fraction, s.contact.getSeparatingNormal()(0), s.contact.getSeparatingNormal()(1),
+                         s.contact.getSeparatingNormal()(2), s.body ? (s.body->getCollisionFilterInfo() & 0x7f) : 0u);
         }
 
         std::mutex             g_lock;
@@ -138,21 +138,21 @@ namespace CB::feature {
         std::uint64_t          g_runs = 0, g_agree = 0;
         constexpr std::uint32_t kMaxLogged = 4000;
 
-        void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
+        void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
             next(self);
-            hk::bhkCharacterController& ctrl = *self;
+            ::bhkCharacterController& ctrl = *self;
             if (!IsPlayer(&ctrl) || !IsProxy(ctrl)) return;
-            auto&               proxyCtrl = static_cast<hk::bhkCharProxyController&>(ctrl);
-            hk::bhkWorld*       world     = ctrl.GetHavokWorld();
-            hk::bhkCachingShapePhantom* bp = proxyCtrl.m_shapePhantom.get();
-            hk::hkpCachingShapePhantom* phantom = bp ? bp->GetPhantom() : nullptr;
+            auto&               proxyCtrl = static_cast<::bhkCharProxyController&>(ctrl);
+            ::bhkWorld*       world     = ctrl.GetHavokWorld();
+            ::bhkCachingShapePhantom* bp = proxyCtrl.m_shapePhantom.get();
+            ::hkpCachingShapePhantom* phantom = bp ? bp->GetPhantom() : nullptr;
             if (!world || !phantom) return;
-            const hk::hkpCollidable* coll  = phantom->getCollidable();
-            const hk::hkpShape*      shape = coll->getShape();
+            const ::hkpCollidable* coll  = phantom->getCollidable();
+            const ::hkpShape*      shape = coll->getShape();
             if (!shape) return;
 
-            hk::hkAabb aabb;
+            ::hkAabb aabb;
             GetAabb(shape, coll->getTransform(), aabb);
             const float feetZ  = aabb.m_min(2);
             const float cx     = (aabb.m_min(0) + aabb.m_max(0)) * 0.5f;
@@ -160,7 +160,7 @@ namespace CB::feature {
             const float radius = (std::min)(aabb.m_max(0) - aabb.m_min(0), aabb.m_max(1) - aabb.m_min(1)) * 0.5f;
             const float perch  = radius * kPerchFraction;
             const float probe  = ctrl.m_stepHeight;
-            const hk::CFilter filter = ctrl.GetCollisionFilterInfo();
+            const ::CFilter filter = ctrl.GetCollisionFilterInfo();
 
             std::array<Hit, kRing + 1> hits;
             for (int i = 0; i <= kRing; i++) {
@@ -181,7 +181,7 @@ namespace CB::feature {
             }
             v.ground = v.walkableHits ? Ground::Grounded : v.supportHits ? Ground::Sliding : Ground::Airborne;
 
-            const bool vanilla = (ctrl.m_surfaceInfo.m_supportedState == hk::hkpSurfaceInfo::SUPPORTED && !ctrl.m_onlyWallContacts)
+            const bool vanilla = (ctrl.m_surfaceInfo.m_supportedState == ::hkpSurfaceInfo::SUPPORTED && !ctrl.m_onlyWallContacts)
                               || (ctrl.m_flags & kHasPotentialSupportManifold);
             const bool ours    = v.ground == Ground::Grounded;
 
@@ -199,7 +199,7 @@ namespace CB::feature {
             LOG_INFO("floor query #{}: ours {} (support hits {}, walkable {}, stickable {}) vanilla {} (surface {} onlyWalls {} bit9 {}) state {}{}",
                      g_logged, Name(v.ground), v.supportHits, v.walkableHits, v.stickable, vanilla ? "supported" : "unsupported",
                      static_cast<int>(ctrl.m_surfaceInfo.m_supportedState), ctrl.m_onlyWallContacts,
-                     (ctrl.m_flags & kHasPotentialSupportManifold) != 0, static_cast<int>(ctrl.m_context.m_currentState),
+                     (ctrl.m_flags & kHasPotentialSupportManifold) != 0, static_cast<int>(ctrl.m_context.getState()),
                      ours == vanilla ? "" : "  <- DISAGREE");
             if (ours != vanilla) {
                 for (int i = 0; i <= kRing; i++) {

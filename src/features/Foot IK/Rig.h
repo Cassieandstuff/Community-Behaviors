@@ -12,26 +12,24 @@
 ///        creature that has foot IK data carries it. A skeleton the rule gets wrong is fixed by patching that data in
 ///        a bundle (the character .hkx is CB-compiled), not by a chain file.
 
-namespace CB::havok {
-    struct hkaSkeleton;
-    class hkbFootIkDriverInfo;
-}
+class hkaSkeleton;
+class hkbFootIkDriverInfo;
 
 namespace CB::feature::footik {
 
     /// @brief One leg: the bones FABRIK moves, from just below its anchor down to the ankle.
     struct RigLeg {
-        std::vector<CB::havok::hkInt16> chain;    ///< parent first; back() is the data's ankle
-        CB::havok::hkInt16              anchor;   ///< the body bone the leg hangs from; -1 = none
+        std::vector<::hkInt16> chain;    ///< parent first; back() is the data's ankle
+        ::hkInt16              anchor;   ///< the body bone the leg hangs from; -1 = none
     };
 
     struct Rig {
         std::vector<RigLeg> legs;
         /// @brief The lowest bone above every anchor; the anchor itself when the legs share one (a biped's pelvis).
-        CB::havok::hkInt16  bodyRoot = -1;
+        ::hkInt16  bodyRoot = -1;
         /// @brief Per distinct anchor, the bones from just below bodyRoot down to it (empty for bodyRoot itself).
         /// @note  The horse: HorsePelvis's is [HorsePelvis], HorseRibcage's [HorseSpine1 .. HorseSpine4, HorseRibcage].
-        std::vector<std::vector<CB::havok::hkInt16>> spines;
+        std::vector<std::vector<::hkInt16>> spines;
         /// @brief Why the data could not be used; empty when it could.
         std::string         problem;
     };
@@ -42,9 +40,9 @@ namespace CB::feature::footik {
     ///        parent.
     /// @pre   `info`'s bone indices are indices into `skeleton` (vanilla validates the hip above the knee above the
     ///        ankle, 0x140adf340); an index out of range sets `problem`.
-    Rig DeriveRig(const CB::havok::hkaSkeleton& skeleton, const CB::havok::hkbFootIkDriverInfo& info);
+    Rig DeriveRig(const ::hkaSkeleton& skeleton, const ::hkbFootIkDriverInfo& info);
 
     /// @brief The rig as one log line per leg and spine, bones by name.
-    std::string Describe(const Rig& rig, const CB::havok::hkaSkeleton& skeleton);
+    std::string Describe(const Rig& rig, const ::hkaSkeleton& skeleton);
 
 }  // namespace CB::feature::footik

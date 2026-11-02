@@ -42,11 +42,11 @@ namespace CB::feature::controller {
         }
 
         /// @brief The ridden horse's controller while CB's ground layer manages it; null otherwise.
-        hk::bhkCharacterController* ManagedHorse(RE::NiPointer<RE::Actor>& horse)
+        ::bhkCharacterController* ManagedHorse(RE::NiPointer<RE::Actor>& horse)
         {
             auto* player = RE::PlayerCharacter::GetSingleton();
             if (!player || !player->IsOnMount() || !player->GetMount(horse) || !horse) return nullptr;
-            auto* ctrl = reinterpret_cast<hk::bhkCharacterController*>(horse->GetCharController());
+            auto* ctrl = reinterpret_cast<::bhkCharacterController*>(horse->GetCharController());
             return ctrl && IsManaged(*ctrl) && !IsPlayer(ctrl) ? ctrl : nullptr;
         }
 
@@ -58,12 +58,12 @@ namespace CB::feature::controller {
             const bool press = event && event->Value() != 0.0f && event->HeldDuration() == 0.0f;
             if (!press) return;
             RE::NiPointer<RE::Actor>    horse;
-            hk::bhkCharacterController* ctrl = ManagedHorse(horse);
+            ::bhkCharacterController* ctrl = ManagedHorse(horse);
             if (!ctrl || !(ctrl->m_flags & kCanJump) || *GraphMovesActor(horse.get())) return;
             static const float height = GmstFloat("fJumpHeightMin", 64.0f);
             constexpr float    kHavokPerGame = 1.0f / 69.99125f;
             ctrl->m_jumpHeight = height * horse->GetScale() * kHavokPerGame;
-            ctrl->m_wantState  = hk::HK_CHARACTER_JUMPING;
+            ctrl->m_wantState  = ::HK_CHARACTER_JUMPING;
             g_launchedAt.store(Now(), std::memory_order_relaxed);
             if (g_logs.fetch_add(1, std::memory_order_relaxed) < 10)
                 LOG_INFO("ridden jump: the horse jumps on the press ({:.0f} units high)", height * horse->GetScale());

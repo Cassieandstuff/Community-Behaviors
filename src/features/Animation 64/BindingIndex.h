@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace CB::havok { class hkbClipGenerator; }
+class hkbClipGenerator;
 
 /// @file
 /// @brief hkbClipGenerator's binding index at 64 bits: the schema's animationBindingIndex64 (the class's tail padding),
@@ -35,9 +35,9 @@ namespace CB::feature::widen {
     /// @return `clip`'s binding index. A mirror that no longer matches the slot (an unconverted writer changed it) is
     ///         logged and adopted, so the game keeps its value while writers remain unconverted.
     /// @note  Before the class is extended there is no slot: the 16-bit field, as vanilla.
-    std::int64_t BindingIndex(havok::hkbClipGenerator* clip);
+    std::int64_t BindingIndex(::hkbClipGenerator* clip);
 
     /// @brief Writes `index` to the slot and MirrorOf(index) to the 16-bit field.
-    void SetBindingIndex(havok::hkbClipGenerator* clip, std::int64_t index);
+    void SetBindingIndex(::hkbClipGenerator* clip, std::int64_t index);
 
 }  // namespace CB::feature::widen

@@ -1,7 +1,8 @@
 #pragma once
 
+#include <Common/Base/hkBase.h>
 #include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
-#include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>
+#include <BSHavok/bhkWorld.h>
 
 #include <cstdint>
 
@@ -16,14 +17,14 @@ namespace CB::feature::controller {
     struct SweepHit {
         bool                       hit      = false;
         float                      fraction = 1.0f;   ///< of the path, 0 to 1
-        CB::havok::hkContactPoint contact{};          ///< on the hit body; normal points away from it
-        const CB::havok::hkpCollidable* body = nullptr;   ///< the hit root collidable
+        ::hkContactPoint contact{};          ///< on the hit body; normal points away from it
+        const ::hkpCollidable* body = nullptr;   ///< the hit root collidable
     };
 
     /// @brief A caller's say over each hit: return false to pass through it.
     /// @note Runs inside the cast, under the world's read lock; a refused hit never hides one beyond it.
     struct HitFilter {
-        bool (*accept)(void* user, const CB::havok::hkpCollidable* body, float fraction) = nullptr;
+        bool (*accept)(void* user, const ::hkpCollidable* body, float fraction) = nullptr;
         void* user = nullptr;
     };
 
@@ -36,7 +37,7 @@ namespace CB::feature::controller {
     /// @note Hits the motion leaves (contact normal . displacement >= 0) are always skipped, as Jolt's
     ///       ContactCastCollector does: the first capture showed a horizontal hull sweep meeting the floor it slides over.
     /// @pre Called where vanilla may query the world (inside the character's update, outside the physics step).
-    SweepHit Sweep(CB::havok::bhkWorld* world, const CB::havok::hkpCollidable* collidable, const CB::havok::hkVector4& to,
+    SweepHit Sweep(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& to,
                    float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
 
     /// @brief Sweep with the shape starting at `from` instead of the collidable's current transform (the step query's
@@ -44,8 +45,8 @@ namespace CB::feature::controller {
     /// @param ignoreLayers bit n set = hits on collision layer n are skipped (e.g. 1 << 30, other characters).
     /// @param filter optional, see HitFilter.
     /// @note Implemented by the step query work (CharSweep.cpp); the rotation stays the collidable's.
-    SweepHit SweepFrom(CB::havok::bhkWorld* world, const CB::havok::hkpCollidable* collidable, const CB::havok::hkVector4& from,
-                       const CB::havok::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0,
+    SweepHit SweepFrom(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& from,
+                       const ::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0,
                        const HitFilter* filter = nullptr);
 
 }  // namespace CB::feature::controller
