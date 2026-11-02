@@ -60,7 +60,13 @@ namespace CB::engine::relay {
                     if (c == '0' && i + 1 < src.size() && (src[i+1] == 'x' || src[i+1] == 'X')) { hex = true; j = i + 2; while (j < src.size() && std::isxdigit((unsigned char)src[j])) ++j; }
                     else { while (j < src.size() && (std::isdigit((unsigned char)src[j]) || src[j] == '.')) ++j; }
                     Tok t{ Tok::Num, std::string(src.substr(i, j - i)) };
-                    t.num = hex ? static_cast<double>(std::stoull(t.s, nullptr, 16)) : std::stod(t.s);
+                    /// @note A lone '.', a bare 0x and a number past double's range all throw; a load must get an error from them, not an exception.
+                    try {
+                        t.num = hex ? static_cast<double>(std::stoull(t.s, nullptr, 16)) : std::stod(t.s);
+                    } catch (const std::logic_error&) {
+                        i = j;
+                        return { Tok::Bad, "bad number '" + t.s + "'" };
+                    }
                     i = j; return t;
                 }
                 if (identStart(c)) { size_t j = i; while (j < src.size() && identCont(src[j])) ++j; Tok t{ Tok::Ident, std::string(src.substr(i, j - i)) }; i = j; return t; }
@@ -98,6 +104,27 @@ namespace CB::engine::relay {
             void fail(std::string m) { if (ok && err) *err = std::move(m); ok = false; }
             std::uint32_t addConst(Value v) { consts->push_back(v); return static_cast<std::uint32_t>(consts->size() - 1); }
 
+            /// @brief The type an argument leaves on the stack: a literal's or a call's own, else an operator's number.
+            VType argType(std::size_t last) const {
+                const ExprNode& n = (*rpn)[last];
+                if (n.kind == ExprNode::Const) return (*consts)[n.index].type;
+                if (n.kind == ExprNode::CallFn) return detail::FnReturns(static_cast<FnId>(n.index));
+                return VType::Float;
+            }
+
+            /// @brief A primitive reads its argument as the type it declared, so `Global(1)` would read a number as a form pointer.
+            bool checkArgs(const std::string& name, FnId id, const std::vector<std::size_t>& starts) {
+                const auto numeric = [](VType t) { return t == VType::Bool || t == VType::Int || t == VType::Float; };
+                const auto params  = detail::FnParams(id);
+                for (std::size_t k = 0; k < params.size(); ++k) {
+                    const VType got = argType((k + 1 < starts.size() ? starts[k + 1] : rpn->size()) - 1);
+                    if (numeric(params[k]) ? numeric(got) : got == params[k]) continue;
+                    fail(std::format("'{}': argument {} has the wrong type", name, k + 1));
+                    return false;
+                }
+                return true;
+            }
+
             void parseAtom() {
                 if (cur.k == Tok::Num) { rpn->push_back({ ExprNode::Const, 0, 0, addConst(Value::Float((float)cur.num)) }); advance(); return; }
                 if (cur.k == Tok::Str) { rpn->push_back({ ExprNode::Const, 0, 0, addConst(Value::String(Intern(cur.s))) }); advance(); return; }
@@ -111,16 +138,18 @@ namespace CB::engine::relay {
                     std::string name = cur.s; advance();
                     if (cur.k == Tok::LParen) {                       // function call
                         advance(); std::uint16_t argc = 0;
+                        std::vector<std::size_t> starts;
                         if (cur.k != Tok::RParen) {
                             // Each arg is a full sub-expression; parseAtom() resolves bare-identifier
                             // literals (keyword/form/AV) via the ArgResolver, so no special-casing here.
-                            while (true) { parseExpr(0); ++argc; if (cur.k == Tok::Comma) { advance(); continue; } break; }
+                            while (true) { starts.push_back(rpn->size()); parseExpr(0); ++argc; if (cur.k == Tok::Comma) { advance(); continue; } break; }
                         }
                         if (cur.k != Tok::RParen) { fail("expected ')' in call to '" + name + "'"); return; }
                         advance();
                         FnId id = LookupFunction(name);
                         if (id == FnId::Invalid) { fail("unknown function '" + name + "'"); return; }
                         if (detail::FnParams(id).size() != argc) { fail(std::format("'{}' expects {} args, got {}", name, detail::FnParams(id).size(), argc)); return; }
+                        if (!ok || !checkArgs(name, id, starts)) return;
                         rpn->push_back({ ExprNode::CallFn, 0, argc, static_cast<std::uint32_t>(id) });
                         return;
                     }

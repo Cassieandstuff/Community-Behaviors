@@ -85,6 +85,12 @@ void RelayChecks() {
     Check(!relay::Compile("IsSneaking()", err).Valid() && err.find("IsSneaking") != std::string::npos, "a game-state function does not compile offline: " + err);
     err.clear();
     Check(!relay::Compile("1 +", err).Valid() && !err.empty(), "a broken expression reports why");
+    Check(!relay::Compile(".", err).Valid() && !err.empty(), "a lone '.' reports why instead of throwing");
+    Check(!relay::Compile("0x", err).Valid() && !err.empty(), "a bare 0x reports why instead of throwing");
+    Check(!relay::Compile(std::string(400, '9'), err).Valid() && !err.empty(), "a number past double's range reports why instead of throwing");
+    Check(!relay::Compile("GraphVar(1)", err).Valid() && err.find("GraphVar") != std::string::npos, "a number where a string belongs is refused");
+    Check(!relay::Compile("GraphVar(1 + 1)", err).Valid(), "an expression where a string belongs is refused");
+    Check(relay::Compile("GraphVar('Speed') + 1", err).Valid(), "the right type compiles");
 
     static std::vector<std::string> warned;
     relay::SetWarnSink([](std::string_view m) { warned.emplace_back(m); });

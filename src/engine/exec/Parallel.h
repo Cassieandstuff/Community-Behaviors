@@ -34,7 +34,6 @@ struct ParallelOptions {
 inline unsigned WorkerCount(std::size_t n, const ParallelOptions& opt = {})
 {
     unsigned t = opt.threads ? (std::min)(opt.threads, MaxWorkers()) : MaxWorkers();
-    if (t == 0) t = 1;
     if (n < t) t = static_cast<unsigned>(std::max<std::size_t>(n, 1));
     return t;
 }

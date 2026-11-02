@@ -109,6 +109,10 @@ namespace CB::engine::relay {
             const auto n = static_cast<std::uint32_t>(id);
             return n < Fns().size() ? Fns()[n].fn : nullptr;
         }
+        VType FnReturns(FnId id) {
+            const auto n = static_cast<std::uint32_t>(id);
+            return n < Fns().size() ? Fns()[n].returns : VType::None;
+        }
         std::span<const VType> FnParams(FnId id) {
             const auto n = static_cast<std::uint32_t>(id);
             return n < Fns().size() ? std::span<const VType>{ Fns()[n].params } : std::span<const VType>{};

@@ -8,4 +8,5 @@ namespace CB::engine::relay::detail {
     PrimitiveFn            PrimFn(PrimId);
     FunctionFn             FnFn(FnId);
     std::span<const VType> FnParams(FnId);
+    VType                  FnReturns(FnId);
 }
