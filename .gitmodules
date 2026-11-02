@@ -4,4 +4,4 @@
 	branch = ng
 [submodule "lib/cb-sdk"]
 	path = lib/cb-sdk
-	url = https://github.com/Cassieandstuff/CB-SDK.git
+	url = https://github.com/Cassieandstuff/CB-SDK-Export.git
