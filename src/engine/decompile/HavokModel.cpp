@@ -2117,7 +2117,7 @@ bool missingNode(HkyParse& ps, const std::string& field, const std::string& id) 
         ps.err = ps.where + ": " + field + ": no node with id '" + id + "'";
         return false;
     }
-    ps.breaks->push_back({ {}, ps.node, field, ps.canon ? ps.canon(id) : id });
+    ps.breaks->push_back({ {}, ps.node, field, ps.canon ? ps.canon(id) : id, ps.where });
     return true;
 }
 
@@ -3862,7 +3862,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         if (const auto owned = CB::engine::codec::formid::parse(d->id);
             owned && owned->masterIndex != CB::engine::codec::formid::SELF_INDEX && !ps.byId.contains(ps.canon(d->id))) {
             if (!breaks) { err = d->file + ": edits node '" + ps.canon(d->id) + "', which its owner no longer has"; return false; }
-            breaks->push_back({ {}, {}, {}, ps.canon(d->id) });
+            breaks->push_back({ {}, {}, {}, ps.canon(d->id), d->file });
             nodeDocs.pop_back();
             continue;
         }

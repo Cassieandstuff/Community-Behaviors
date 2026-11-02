@@ -78,7 +78,9 @@ public:
     /// @note  A project unit is not merged: the load-order winner replaces it whole (Project*). A skeleton merges per bone:
     ///        its last complete unit, then the patches above it.
     bool MergedGraph(std::string_view key, decompile::ParsedHky& out, std::string* err = nullptr) const;
-    /// @brief What each layer states for the node `graphId` of unit `key` (an id of its merged graph), base first.
+    /// @brief MergedGraph without the open project's layer: what the project's edits are edits of. False for a unit only the project has.
+    bool MergedBelowProject(std::string_view key, decompile::ParsedHky& out, std::string* err = nullptr) const;
+    /// @brief What each layer below the open project states for the node `graphId` of unit `key` (an id of its merged graph), base first.
     std::vector<decompile::StatedField> StatedFields(std::string_view key, const std::string& graphId, std::string* err = nullptr) const;
     /// @brief Unit `key` as a packfile: a behavior, character or skeleton merged (MergedGraph), a project from its
     ///        load-order winner, serialized as the Resolver serializes them.
@@ -109,6 +111,8 @@ private:
     /// @return A skeleton's layers: its last complete unit (which replaces everything below it), then the patches above it.
     std::vector<common::LayerSource> SkeletonLayers(const Unit& u) const;
     const Bundle* BundleNamed(std::string_view stem) const;
+    /// @return The unit's layers as merge sources, base first, the project's only if asked for.
+    std::vector<common::LayerSource> LayersOf(const Unit& u, bool withProject) const;
 
     const schema::SchemaRegistry*              m_reg = nullptr;
     std::vector<Bundle>                        m_bundles;    ///< base first; the project, when set, last

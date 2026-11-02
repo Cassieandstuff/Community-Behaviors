@@ -263,13 +263,7 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
         if (decompile::MergeLayersSkippingBroken(SkeletonLayers(*u), *m_reg, nullptr, out, why, nullptr, u->key)) return true;
         return fail(why);
     }
-    std::vector<common::LayerSource> layers;
-    for (const auto& stem : u->layers) {
-        const Bundle* b = BundleNamed(stem);
-        if (!b) continue;
-        const auto mt = m_masterTable.find(stem);
-        layers.push_back({ b->archive->source(u->key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
-    }
+    const std::vector<common::LayerSource> layers = LayersOf(*u, true);
     const auto  bones = RigBones(u->key);
     std::string edited;
     for (const Bundle& b : m_bundles)
@@ -278,18 +272,34 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
     return fail(why);
 }
 
+std::vector<common::LayerSource> LoadOrderDocument::LayersOf(const Unit& u, bool withProject) const {
+    std::vector<common::LayerSource> layers;
+    for (const auto& stem : u.layers) {
+        const Bundle* b = BundleNamed(stem);
+        if (!b || (!withProject && b->provider == "project")) continue;
+        const auto mt = m_masterTable.find(stem);
+        layers.push_back({ b->archive->source(u.key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
+    }
+    return layers;
+}
+
+bool LoadOrderDocument::MergedBelowProject(std::string_view key, decompile::ParsedHky& out, std::string* err) const {
+    const auto u = UnitAt(key);
+    if (!u || !m_reg) return false;
+    const std::vector<common::LayerSource> layers = LayersOf(*u, false);
+    if (layers.empty()) return false;
+    const auto  bones = RigBones(u->key);
+    std::string why;
+    if (decompile::MergeLayersSkippingBroken(layers, *m_reg, bones ? &*bones : nullptr, out, why)) return true;
+    if (err) *err = why;
+    return false;
+}
+
 std::vector<decompile::StatedField> LoadOrderDocument::StatedFields(std::string_view key, const std::string& graphId, std::string* err) const {
     const auto u = UnitAt(key);
     if (!u) return {};
-    std::vector<common::LayerSource> layers;
-    for (const auto& stem : u->layers) {
-        const Bundle* b = BundleNamed(stem);
-        if (!b) continue;
-        const auto mt = m_masterTable.find(stem);
-        layers.push_back({ b->archive->source(u->key), stem, mt == m_masterTable.end() ? std::vector<std::string>{} : mt->second });
-    }
     std::string why;
-    auto        out = decompile::ReadStatedFields(layers, graphId, why);
+    auto        out = decompile::ReadStatedFields(LayersOf(*u, false), graphId, why);
     if (err && !why.empty()) *err = why;
     return out;
 }

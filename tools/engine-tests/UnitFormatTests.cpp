@@ -415,6 +415,7 @@ void BrokenLayerChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(edited.breaks.size() == 1, "its break is listed");
     if (edited.breaks.size() == 1) {
         Check(edited.breaks[0].layer == "dangling" && edited.breaks[0].field == "generators" && edited.breaks[0].missing == "skyrim:2457", "with where it is and what's gone");
+        Check(edited.breaks[0].file == "a.yaml", "and the file stating it");
         Check(!edited.breaks[0].node.empty(), "and the node holding it");
     }
     dec::ParsedHky editedGone;

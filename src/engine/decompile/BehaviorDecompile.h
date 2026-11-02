@@ -92,6 +92,7 @@ struct MergeBreak {
     std::string node;      ///< the graph id of the node holding the reference; empty when the edited node itself is gone
     std::string field;     ///< the field holding it; empty when the edited node itself is gone
     std::string missing;   ///< the node that's gone, canonically: "stem:local"
+    std::string file;      ///< the layer's file stating it, relative to the unit
 };
 
 struct ParsedHky {
