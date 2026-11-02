@@ -3,6 +3,7 @@
 #include <platform/hooks/registry/Registry.h>
 
 #include "core/serve/AnimationDataServer.h"
+#include <exec/Parallel.h>
 #include "core/discover/BundleReader.h"
 #include "core/resolve/CacheKey.h"          // ReadCacheInput — OAR config.json is an input of the cached adsf
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
@@ -262,9 +263,9 @@ namespace CB::core::serve {
             std::atomic<std::size_t> next{ 0 };
             const auto drain = [&] { for (std::size_t i; (i = next.fetch_add(1)) < paths.size();) parsed[i] = load(paths[i]); };
             if (exec && paths.size() > 1) {
-                /// @note One draining task per hardware thread, not one per path: thousands of paths would each pay a
+                /// @note One draining task per worker, not one per path: thousands of paths would each pay a
                 ///       queue round-trip. Each result lands in its own slot, so the output matches a serial run.
-                const std::size_t nTasks = std::min<std::size_t>(paths.size(), std::max(1u, std::thread::hardware_concurrency()));
+                const std::size_t nTasks = std::min<std::size_t>(paths.size(), CB::engine::exec::MaxWorkers());
                 (*exec)(std::vector<std::function<void()>>(nTasks, drain));
             }
             drain();

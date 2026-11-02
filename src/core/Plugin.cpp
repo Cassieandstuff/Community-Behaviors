@@ -9,6 +9,7 @@
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
 #include "core/debug/Settings.h"
+#include <exec/Parallel.h>
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
@@ -99,6 +100,15 @@ namespace CB {
         return !CB::core::debug::FlagOn("sequencer_disable");
     }
 
+    /// @brief settings.ini `[Performance] iMaxThreads`: the most threads CB's warm-up uses. Absent or 0 = half the machine's.
+    static void ApplyThreadSetting()
+    {
+        const std::string text = CB::core::debug::Value("Performance", "iMaxThreads");
+        const long        n    = text.empty() ? 0 : std::strtol(text.c_str(), nullptr, 10);
+        if (n > 0) CB::engine::exec::SetMaxWorkers(static_cast<unsigned>(n));
+        LOG_INFO("Community Behaviors: warm-up uses at most {} thread(s) (settings.ini [Performance] iMaxThreads).", CB::engine::exec::MaxWorkers());
+    }
+
     // Holds the worker pool ALIVE for the duration of a parallel phase (the native-anim compile, the adsf
     // projection's animation parse) and hands out an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
     // 64MB reserved stack — the same guard WarmUpThread uses — so a native-anim compile can never overflow a
@@ -112,7 +122,7 @@ namespace CB {
         explicit AnimParallel(const char* what = "native animations compile")
         {
             if (!ParallelAnimCompileEnabled()) return;
-            // 0 => hardware_concurrency; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
+            // 0 => exec::MaxWorkers; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
             // never out-competes the game's render/main threads while the window is coming up (minimize).
             pool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
             exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
@@ -459,6 +469,7 @@ namespace CB {
     static unsigned __stdcall InitThread(void*)
     {
         CB_ZONE(zone, "warm-up: init (bundles, scan, skeletons)");
+        ApplyThreadSetting();           // before anything sizes a pool
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
         /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
         ///       as found now, before anything compiles).

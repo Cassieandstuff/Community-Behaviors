@@ -16,16 +16,24 @@
 
 namespace CB::engine::exec {
 
+/// @brief The most workers any loop or pool here runs: SetMaxWorkers' count, else the CB_MAX_THREADS environment variable,
+///        else half the hardware threads.
+/// @note  Half, because taking every core starves whatever else the machine is doing, the game's audio included, even at
+///        BELOW_NORMAL.
+[[nodiscard]] unsigned MaxWorkers();
+/// @param n The cap from a setting; 0 goes back to the default.
+void SetMaxWorkers(unsigned n);
+
 struct ParallelOptions {
-    unsigned                 threads = 0;         ///< worker count; 0 = hardware_concurrency
+    unsigned                 threads = 0;         ///< worker count, within MaxWorkers; 0 = MaxWorkers
     const std::atomic<bool>* cancel  = nullptr;   ///< once true, no further index is handed out
 };
 
-/// @brief The number of workers ParallelFor(n, …, opt) runs: opt.threads (0 = hardware_concurrency), at least 1, at
-///        most n. Size per-worker scratch with it.
+/// @brief The number of workers ParallelFor(n, …, opt) runs: opt.threads, within MaxWorkers, at least 1, at most n.
+///        Size per-worker scratch with it.
 inline unsigned WorkerCount(std::size_t n, const ParallelOptions& opt = {})
 {
-    unsigned t = opt.threads ? opt.threads : std::thread::hardware_concurrency();
+    unsigned t = opt.threads ? (std::min)(opt.threads, MaxWorkers()) : MaxWorkers();
     if (t == 0) t = 1;
     if (n < t) t = static_cast<unsigned>(std::max<std::size_t>(n, 1));
     return t;

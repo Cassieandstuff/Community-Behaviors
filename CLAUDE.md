@@ -166,6 +166,9 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   avoid triggering the multi-minute `generate-base-master` regen.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
+- **Core cap** — `Directory.Build.props` caps the compiler at half the machine's cores (`BUILD_CORES` overrides); don't pass
+  `-j`. At run time everything sizes from `exec::MaxWorkers`: half the machine's threads, or settings.ini `[Performance]
+  iMaxThreads` in game, or `CB_MAX_THREADS` for the offline tools.
 - **Tracy profiler** — the Tracy 0.13.1 client is built into the plugin (FetchContent → `tracy_client`) and stays
   inert unless settings.ini `[Debug] bTracy=true`; then it records while a Tracy **0.13.1** viewer on the same machine
   is connected (localhost only, on demand). Instrument only through `<platform/profile/Profile.h>`'s `CB_ZONE` /
