@@ -217,6 +217,94 @@ void PatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
           "a node stated twice in a patch is refused: " + err);
 }
 
+/// @brief A project unit whose characterFilenames holds `names`, already quoted and comma-separated.
+Files Project(const std::string& names) {
+    return { { "graph.yaml", "id: 0000x0007\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbProjectData':\n    className: 'hkbProjectData'\n"
+                             "    variant:\n      class: hkbProjectData\n      worldUpWS: '(0 0 1 0)'\n      stringData:\n"
+                             "        characterFilenames: [" + names + "]\n        animationPath: ''\n        behaviorPath: ''\n"
+                             "        characterPath: ''\n        fullPathToSource: ''\n      defaultEventMode: 2\n" } };
+}
+/// @brief A patch of that unit's characterFilenames, `body` being its value in flow form.
+Files ProjectPatch(const std::string& body) {
+    return { { "graph.yaml", "id: 0000x0007\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbProjectData':\n    variant:\n      stringData:\n"
+                             "        characterFilenames: " + body + "\n" } };
+}
+
+void ValueListChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const Files base = Project("'A.hkx', 'B.hkx'");
+    MergesTo(base, ProjectPatch("{'C.hkx': {}}"), Project("'A.hkx', 'B.hkx', 'C.hkx'"), reg, tmp, "a value list appends by value");
+    MergesTo(base, ProjectPatch("{'A.hkx': {deleted: true}}"), Project("'B.hkx'"), reg, tmp, "a value list removes by value");
+    MergesTo(base, ProjectPatch("{'B.hkx': {}}"), base, reg, tmp, "adding a string already there changes nothing");
+    MergesTo(base, ProjectPatch("{'x.hkx': {deleted: true}}"), base, reg, tmp, "removing a string not there changes nothing");
+    MergesTo(base, ProjectPatch("{'a.hkx': {}}"), Project("'A.hkx', 'B.hkx', 'a.hkx'"), reg, tmp, "a value list compares case exactly");
+    MergesTo(base, ProjectPatch("['B.hkx', 'A.hkx']"), Project("'B.hkx', 'A.hkx'"), reg, tmp, "a list in a patch replaces the whole");
+
+    const std::vector<common::LayerSource> layers{
+        { std::make_shared<common::DiskUnitSource>(WriteUnit(tmp, "layer0", base)), "base", { "base" } },
+        { std::make_shared<common::DiskUnitSource>(WriteUnit(tmp, "layer1", ProjectPatch("{'C.hkx': {}}"))), "one", { "base", "one" } },
+        { std::make_shared<common::DiskUnitSource>(WriteUnit(tmp, "layer2", ProjectPatch("{'D.hkx': {}}"))), "two", { "base", "two" } },
+    };
+    dec::ParsedHky graph;
+    std::string err;
+    std::vector<std::uint8_t> got;
+    Check(dec::MergeLayersReflective(layers, reg, nullptr, graph, err) && dec::SerializeGraph(graph, got, err), "two mods add to one list: " + err);
+    Check(got == Bytes(common::DiskUnitSource(WriteUnit(tmp, "whole", Project("'A.hkx', 'B.hkx', 'C.hkx', 'D.hkx'"))), reg, "two mods"),
+          "two mods adding to one value list keep both");
+
+    /// @note Derive states a map when it can and the list when it can't; either merges back to the mod.
+    const auto derives = [&](const std::string& mod, const std::string& form, const std::string& what) {
+        const Files modded = Project(mod);
+        const fs::path out = tmp / "derived";
+        std::error_code ec;
+        fs::remove_all(out, ec);
+        std::string e;
+        const auto baseBytes = Bytes(common::DiskUnitSource(WriteUnit(tmp, "dbase", base)), reg, what);
+        const auto modBytes  = Bytes(common::DiskUnitSource(WriteUnit(tmp, "dmod", modded)), reg, what);
+        Check(dec::DeriveHkyPatch(baseBytes, modBytes, reg, out.string(), e, nullptr, 0), what + ": derive: " + e);
+        const auto text = disk::ReadFile(out / "graph.yaml");
+        if (!text) { Check(false, what + ": derive wrote no graph.yaml"); return; }
+        Check(text->find(form) != std::string::npos, what + ": expected `" + form + "` in:\n" + *text);
+        MergesTo(base, { { "graph.yaml", *text } }, modded, reg, tmp, what + ": merges back");
+    };
+    derives("'A.hkx', 'B.hkx', 'C.hkx'", "'C.hkx': {}", "a derived append");
+    derives("'B.hkx'", "'A.hkx': {deleted: true}", "a derived removal");
+    derives("'B.hkx', 'A.hkx'", "'B.hkx', 'A.hkx'", "a derived reorder");
+    derives("'A.hkx', 'C.hkx', 'B.hkx'", "'A.hkx', 'C.hkx', 'B.hkx'", "a derived mid-list insert");
+}
+
+/// @brief A blueprint chooser row's conditions merge by their minted keys.
+void ConditionKeyChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto condition = [](const std::string& key, const std::string& variable) {
+        return "      '" + key + "':\n        variable: '" + variable + "'\n        kind: 0\n        intValue: 0\n        minValue: 0\n        maxValue: 0\n";
+    };
+    const auto chooser = [](const std::string& conditions) {
+        return "id: 0000x0002\nclass: CBBlueprintChooser\nrows:\n  '0000x0000':\n    conditions:\n" + conditions;
+    };
+    const std::string graph = "id: 0000x0001\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbBehaviorGraph':\n    className: 'CBBlueprintChooser'\n    variant: 0000x0002\n";
+    const Files base{ { "graph.yaml", graph }, { "c.yaml", chooser(condition("0000x0000", "A")) } };
+    const Files whole{ { "graph.yaml", graph }, { "c.yaml", chooser(condition("0000x0000", "A") + condition("0000x0001", "B")) } };
+    MergesTo(base, { { "p.yaml", chooser(condition("0001x0000", "B")) } }, whole, reg, tmp, "a condition patched in by key");
+}
+
+/// @brief The loader refuses a list that doesn't state how it merges, or a key its element can't give.
+void DeclarationChecks(const fs::path& tmp) {
+    const auto refuses = [&](const std::string& field, const std::string& why, const std::string& what) {
+        const fs::path dir = tmp / "schema-decl";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        std::string err;
+        Check(disk::WriteFile(dir / "CBTestList.yaml", "name: CBTestList\nparent: null\nsize: 16\nfields:\n  - " + field + "\n", {}, &err), what + ": " + err);
+        schema::SchemaRegistry r;
+        err.clear();
+        Check(!r.LoadDir(dir.string(), err) && err.find(why) != std::string::npos, what + ": " + err);
+    };
+    refuses("{ name: list, type: stringarray }", "must declare", "an undeclared list");
+    refuses("{ name: list, type: scalararray, scalar: float, roster: value }", "does not fit", "value on a scalar list");
+    refuses("{ name: list, type: stringarray, roster: id }", "does not fit", "id on a string list");
+    refuses("{ name: list, type: stringarray, roster: nonsense }", "unknown roster", "an unknown key kind");
+}
+
 void SkeletonPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     const Files base = Skeleton();
 
@@ -262,6 +350,9 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg) {
     StrictnessChecks(reg, tmp);
     PatchChecks(reg, tmp);
     SkeletonPatchChecks(reg, tmp);
+    ValueListChecks(reg, tmp);
+    ConditionKeyChecks(reg, tmp);
+    DeclarationChecks(tmp);
     std::error_code ec;
     fs::remove_all(tmp, ec);
 }

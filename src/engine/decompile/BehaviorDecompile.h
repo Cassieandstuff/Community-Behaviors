@@ -211,7 +211,7 @@ struct HkyPatchStats { int patched = 0; int added = 0; };
 ///        (unnamed shared leaves by content) and take the base's FormIds as master `baseIndex`; unmatched nodes are
 ///        NEW (self index 0, full body). A patched node file carries only its changed fields (nested inline objects
 ///        deep-diffed; a roster as its changed / new / `{deleted: true}` entries by key, in the node's folder; a union
-///        name roster as the names it adds; any other list whole).
+///        name roster as the names it adds; a `value` list as its added / removed strings; any other list whole).
 bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, std::uint16_t baseIndex = 1, HkyPatchStats* stats = nullptr);
