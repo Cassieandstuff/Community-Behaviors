@@ -6,4 +6,4 @@ size:      24
 view:      { kind: curve, keys: keys, label: name }
 fields:
   - { name: name, type: string }
-  - { name: keys, type: structarray, ref: CBCurveKey }
+  - { name: keys, type: structarray, ref: CBCurveKey, roster: whole }

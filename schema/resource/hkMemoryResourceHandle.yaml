@@ -6,4 +6,4 @@ size:      48
 fields:
   - { name: variant,    type: ptr, ref: hkReferencedObject }
   - { name: name,       type: string }
-  - { name: references, type: structarray, ref: hkMemoryResourceHandleExternalLink }
+  - { name: references, type: structarray, ref: hkMemoryResourceHandleExternalLink, roster: whole }

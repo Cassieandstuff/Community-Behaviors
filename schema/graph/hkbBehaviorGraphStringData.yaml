@@ -5,6 +5,6 @@ size:      80
 # The graph's name tables.
 fields:
   - { name: eventNames,             type: stringarray }
-  - { name: attributeNames,         type: stringarray }
+  - { name: attributeNames,         type: stringarray, roster: whole }
   - { name: variableNames,          type: stringarray }
   - { name: characterPropertyNames, type: stringarray }

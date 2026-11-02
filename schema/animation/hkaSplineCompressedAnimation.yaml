@@ -11,10 +11,10 @@ fields:
   - { name: blockInverseDuration,    type: float }
   - { name: frameDuration,           type: float }
   - { skip: 4 }
-  - { name: blockOffsets,      type: scalararray, scalar: uint32 }
-  - { name: floatBlockOffsets, type: scalararray, scalar: uint32 }
-  - { name: transformOffsets,  type: scalararray, scalar: uint32 }
-  - { name: floatOffsets,      type: scalararray, scalar: uint32 }
-  - { name: data,              type: scalararray, scalar: byte }
+  - { name: blockOffsets,      type: scalararray, scalar: uint32, roster: whole }
+  - { name: floatBlockOffsets, type: scalararray, scalar: uint32, roster: whole }
+  - { name: transformOffsets,  type: scalararray, scalar: uint32, roster: whole }
+  - { name: floatOffsets,      type: scalararray, scalar: uint32, roster: whole }
+  - { name: data,              type: scalararray, scalar: byte, roster: whole }
   - { name: endian,            type: int32 }
   - { skip: 4 }

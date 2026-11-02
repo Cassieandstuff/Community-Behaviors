@@ -17,6 +17,6 @@ fields:
   - { name: baseCostBias,           type: string }   # every candidate from this database
   - { name: continuingPoseCostBias, type: string }   # the playing pose, while it is from this database
   - { name: loopingCostBias,        type: string }   # candidates from this database's looping children
-  - { name: tags,                   type: stringarray }
+  - { name: tags,                   type: stringarray, roster: value }
   - { name: standingCandidate,      type: string }   # per row: may the search cut here while the request stands?
   - { name: movingCandidate,        type: string }   # per row: may the search cut here while the request moves?

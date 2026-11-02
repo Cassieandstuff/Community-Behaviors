@@ -16,9 +16,9 @@ fields:
   - { name: selectedIndex, type: int32 }
   - { name: currentIndex,  type: int32, ignored: true }
   - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
-  - { name: childFlags,    type: scalararray, scalar: byte }   # per child: 1 = disableReselection, 2 = looping
+  - { name: childFlags,    type: scalararray, scalar: byte, roster: whole }   # per child: 1 = disableReselection, 2 = looping
   - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
-  - { name: childRanges,   type: scalararray, scalar: float }   # per child: (start, end) seconds searched; end < 0 = the clip end; empty = every child whole
+  - { name: childRanges,   type: scalararray, scalar: float, roster: whole }   # per child: (start, end) seconds searched; end < 0 = the clip end; empty = every child whole
 # `databases` are contiguous child ranges (one per dance card), `chooser` picks which of them are searched; CB's
 # controller reads both from the merged graph, the live node never does. No member owns runtime memory: Skyrim
 # instances a character's graph by block-copying it, so memory the node owned would be shared by every copy and freed

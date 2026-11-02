@@ -5,11 +5,11 @@ signature: 0x095aca5d
 size:      128
 # Variable/event metadata + defaults.
 fields:
-  - { name: attributeDefaults,      type: scalararray, scalar: float }
-  - { name: variableInfos,          type: structarray, ref: hkbVariableInfo }
-  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo }
-  - { name: eventInfos,             type: structarray, ref: hkbEventInfo }
-  - { name: wordMinVariableValues,  type: structarray, ref: hkbVariableValue }
-  - { name: wordMaxVariableValues,  type: structarray, ref: hkbVariableValue }
+  - { name: attributeDefaults,      type: scalararray, scalar: float, roster: whole }
+  - { name: variableInfos,          type: structarray, ref: hkbVariableInfo, roster: whole }
+  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo, roster: whole }
+  - { name: eventInfos,             type: structarray, ref: hkbEventInfo, roster: whole }
+  - { name: wordMinVariableValues,  type: structarray, ref: hkbVariableValue, roster: whole }
+  - { name: wordMaxVariableValues,  type: structarray, ref: hkbVariableValue, roster: whole }
   - { name: variableInitialValues,  type: ptr, ref: hkbVariableValueSet }
   - { name: stringData,             type: ptr, ref: hkbBehaviorGraphStringData }

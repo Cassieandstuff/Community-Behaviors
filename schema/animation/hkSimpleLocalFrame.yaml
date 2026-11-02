@@ -6,7 +6,7 @@ size:      128
 # columns + translation), laid out as 4 vector4s like hkMatrix4.
 fields:
   - { name: transform,   type: vector4, count: 4 }                # @16 hkTransform
-  - { name: children,    type: ptrarray, ref: hkLocalFrame }      # @80
+  - { name: children,    type: ptrarray, ref: hkLocalFrame, roster: whole }      # @80
   - { name: parentFrame, type: ptr, ref: hkLocalFrame }           # @96 NOT_OWNED
   - { name: group,       type: ptr, ref: hkLocalFrameGroup }      # @104
   - { name: name,        type: string }                           # @112

@@ -236,6 +236,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneOf   = childStr(fn, "boneof");
                     f.charPropIf = childStr(fn, "charpropif");
                     f.roster     = childStr(fn, "roster");
+                    if (f.roster == "whole") { f.whole = true; f.roster.clear(); }
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky
@@ -532,6 +533,38 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                     if (!lookup("RoleFlags", flag, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role flag '" + flag + "' (an item of the RoleFlags enum)"; return false; }
                     f.roleFlags |= static_cast<int>(v);
                 }
+            }
+        }
+    }
+
+    /// @note Every list states how it merges, so none is a last-writer-wins value by accident: a `roster:` key, `roster: whole`,
+    ///       a per-bone form (`boneweights:`, `boneset:`), or `union` in the merge semantics. A key kind is checked against the
+    ///       element it reads. An ignored field never merges, and metadata records are never patched.
+    {
+        const auto isList = [](FieldKind k) {
+            return k == FieldKind::StructArray || k == FieldKind::PtrArray || k == FieldKind::Vec4Array ||
+                   k == FieldKind::QsTransformArray || k == FieldKind::StringArray || k == FieldKind::ScalarArray;
+        };
+        for (const auto& [name, cs] : m_byName) {
+            if (cs.metadata) continue;
+            for (const Field& f : cs.fields) {
+                const std::string where = "class '" + name + "' field '" + f.name + "'";
+                if (!f.roster.empty()) {
+                    const std::string kind = f.roster.substr(0, f.roster.find(':'));
+                    const bool objects = f.kind == FieldKind::StructArray || f.kind == FieldKind::PtrArray;
+                    const bool known = kind == "value" ? f.roster == kind
+                                     : kind == "field" || kind == "bone" ? f.roster.size() > kind.size() + 1
+                                     : (kind == "ref" || kind == "id" || kind == "slot") && f.roster == kind;
+                    if (!known) { err = where + ": unknown roster '" + f.roster + "'"; return false; }
+                    if (kind == "value" ? f.kind != FieldKind::StringArray : !objects) {
+                        err = where + ": roster '" + f.roster + "' does not fit this field's type";
+                        return false;
+                    }
+                    continue;
+                }
+                if (!isList(f.kind) || f.ignored || f.whole || f.boneWeights || f.boneSet || f.merge == "union") continue;
+                err = where + ": a list must declare how it merges (roster: <key> or roster: whole)";
+                return false;
             }
         }
     }
