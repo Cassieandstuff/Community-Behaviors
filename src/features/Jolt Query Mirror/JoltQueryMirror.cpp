@@ -266,7 +266,7 @@ namespace CB::feature::joltmirror {
                 if (const auto count = s_missingTypes[i].load()) missingTypes += std::to_string(i) + "=" + std::to_string(count) + " ";
             }
             LOG_INFO("JoltMirror: missing by outer type: {}", missingTypes);
-            static constexpr const char* kKinds[] = { "box", "sphere", "capsule", "convex", "convexTransform", "transform", "list", "mopp", "compressed" };
+            static constexpr const char* kKinds[] = { "box", "sphere", "capsule", "convex", "convexTransform", "transform", "list", "mopp", "compressed", "terrain" };
             std::string kinds;
             for (int i = 0; i < int(bhkJoltLoadedShapes::Kind::Count); ++i)
             {
