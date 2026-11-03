@@ -138,6 +138,7 @@ namespace resolve {
 // ── cb::schema ───────────────────────────────────────────────────────────────
 namespace schema {
     using Registry = CB::engine::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
+    using CB::engine::schema::ScalarWidth;                       ///< a scalar's width in bytes
     using Field    = CB::engine::schema::Field;                  ///< one member's description (Object::Fields()): kind, refs, unitRef
 
     // The process-wide registry the anim + skeleton codecs read. Point it at the deployed tree
