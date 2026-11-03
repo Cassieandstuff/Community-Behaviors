@@ -2,6 +2,7 @@ name:      hkbEventRangeData
 parent:    null
 signature: 0x6cb92c76
 size:      32
+defaults:  { eventMode: EVENT_MODE_SEND_ON_ENTER_RANGE }
 fields:
   - { name: upperBound, type: float }
   - { skip: 4 }

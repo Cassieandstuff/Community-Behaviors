@@ -2,6 +2,7 @@ name:      hkbGetUpModifier
 parent:    hkbModifier
 signature: 0x61cb7ac0
 size:      128
+defaults:  { alignWithGroundDuration: 0.25, duration: 1, enable: true, groundNormal: (0 0 1 0) }
 fields:
   - { name: groundNormal, type: vector4 }
   - { name: duration,                type: float }

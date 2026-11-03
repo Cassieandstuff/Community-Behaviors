@@ -2,6 +2,7 @@ name:      hkbTimerModifier
 parent:    hkbModifier
 signature: 0x338b4879
 size:      112
+defaults:  { enable: true }
 fields:
   - { name: alarmTimeSeconds, type: float }
   - { skip: 4 }

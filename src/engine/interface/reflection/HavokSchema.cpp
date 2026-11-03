@@ -178,6 +178,15 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
             }
             if (out.view.kind.empty()) { err = "'view' has no kind"; return false; }
         }
+        out.abstract = childStr(root, "abstract") == "true";
+        if (hasKey(root, "defaults")) {
+            const auto d = root[c4::to_csubstr("defaults")];
+            if (!d.is_map()) { err = "'defaults' is not a map"; return false; }
+            for (auto r : d) {
+                if (!r.has_val()) { err = "'defaults' holds a non-scalar"; return false; }
+                out.defaults[toStr(r.key())] = toStr(r.val());
+            }
+        }
 
         if (hasKey(root, "fields")) {
             for (auto fn : root[c4::to_csubstr("fields")]) {
@@ -258,6 +267,11 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                             for (auto x : fl)
                                 if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
                         }
+                    }
+                    f.required     = childStr(fn, "required") == "true";
+                    f.stateRef     = childStr(fn, "stateref");
+                    if (!f.stateRef.empty() && f.stateRef != "machine" && f.stateRef != "from" && f.stateRef != "to") {
+                        err = out.name + "." + f.name + ": unknown stateref '" + f.stateRef + "' (machine, from or to)"; return false;
                     }
                     f.unitRef      = childStr(fn, "unitref");
                     if (!f.unitRef.empty()) {

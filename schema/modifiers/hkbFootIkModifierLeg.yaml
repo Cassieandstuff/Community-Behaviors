@@ -2,6 +2,7 @@ name:      hkbFootIkModifierLeg
 parent:    null
 size:      160
 # Inline classArray element of hkbFootIkModifier (not registered).
+defaults:  { footRaisedAnkleHeightMS: 0.5, kneeAxisLS: (0 0 1 0), maxAnkleAngleDegrees: 45, maxAnkleHeightMS: 0.699999988, minAnkleHeightMS: -0.100000001 }
 fields:
   - { name: originalAnkleTransformMS, type: qstransform, ignored: true, hky: true }   # runtime state, but vanilla files carry bytes (dragon: identity transform) — emitted so they round-trip
   - { name: prevAnkleRotLS, type: quaternion }

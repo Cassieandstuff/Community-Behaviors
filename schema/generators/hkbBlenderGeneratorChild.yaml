@@ -3,6 +3,7 @@ parent:    hkbBindable
 signature: 0xe2b384b0
 size:      80
 view:      { kind: blendchild, clip: generator, position: weight }
+defaults:  { weight: 1, worldFromModelWeight: 1 }
 fields:
   - { name: generator,           type: ptr, ref: hkbGenerator }
   - { name: boneWeights,         type: ptr, ref: hkbBoneWeightArray, charprop: hkbBoneWeightArray }

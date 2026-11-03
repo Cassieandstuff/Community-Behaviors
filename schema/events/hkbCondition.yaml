@@ -2,4 +2,5 @@ name:      hkbCondition
 parent:    hkReferencedObject
 signature: 0xda8c7d7d
 size:      16
+abstract:  true
 fields:    []   # shares the sig with hkbEventPayload; distinguished by class NAME in the packfile type section

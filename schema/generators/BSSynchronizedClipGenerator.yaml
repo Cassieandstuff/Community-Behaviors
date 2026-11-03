@@ -2,6 +2,7 @@ name:      BSSynchronizedClipGenerator
 parent:    hkbGenerator
 signature: 0xd83bea64
 size:      304
+defaults:  { bReorientSupportChar: true }
 fields:
   - { skip: 8 }
   - { name: pClipGenerator,   type: ptr, ref: hkbGenerator }

@@ -2,6 +2,7 @@ name:      BSEventOnFalseToTrueModifier
 parent:    hkbModifier
 signature: 0x81d0777a
 size:      160
+defaults:  { bEnableEvent1: true, enable: true, userData: 2 }
 fields:
   - { name: bEnableEvent1,    type: bool }
   - { name: bVariableToTest1, type: bool }

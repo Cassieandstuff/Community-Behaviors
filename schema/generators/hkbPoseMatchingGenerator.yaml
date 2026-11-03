@@ -2,6 +2,7 @@ name:      hkbPoseMatchingGenerator
 parent:    hkbBlenderGenerator
 signature: 0x29e271b4
 size:      240
+defaults:  { blendSpeed: 1, indexOfSyncMasterChild: -1, maxCyclicBlendParameter: 1, minSpeedToSwitch: 0.200000003, minSwitchTimeNoError: 0.200000003, mode: MODE_MATCH, worldFromModelRotation: (0 0 0 1) }
 fields:
   - { name: worldFromModelRotation, type: quaternion }
   - { name: blendSpeed,             type: float }

@@ -118,6 +118,11 @@ struct Field {
                                          ///<        exactly when the stored value equals it, and reads `user` back to it.
                                          ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
                                          ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
+    bool        required = false;        ///< @brief `required: true` — an editor reports this pointer or list empty as an error. A
+                                         ///<        member attribute: no serde, size or signature effect.
+    std::string stateRef;                ///< @brief `stateref: machine|from|to` — the scalar is a stateId: of the machine holding
+                                         ///<        it (`machine`), or of the machine nested in the from / to state's generator.
+                                         ///<        A member attribute: no serde, size or signature effect.
     std::string charProp;                ///< @brief `charprop: <class>|bone` — the member's bone data comes from a CHARACTER
                                          ///<        PROPERTY: a pointer to `<class>` (its `ref`, a bone-weight or bone-index
                                          ///<        set) bound to a POINTER property, or (`bone`, on a `boneref` scalar) an
@@ -163,6 +168,10 @@ struct ClassSchema {
     /// @brief `view: { kind: <view>, <role>: <field>, ... }` — how an editor shows this class: `kind` names the view,
     ///        every other key maps one of that view's roles to one of the class's OWN fields. No serde, size or
     ///        signature effect.
+    bool abstract = false;                   ///< @brief `abstract: true` — an editor never offers it as a new object
+    /// @brief `defaults: { field: value }` — what an author's new object starts with, written as a unit file would state it.
+    ///        A subclass's entry wins. Unstated fields start at zero. Nothing but GraphEdit::New reads it: no serde effect.
+    std::map<std::string, std::string> defaults;
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
     ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and

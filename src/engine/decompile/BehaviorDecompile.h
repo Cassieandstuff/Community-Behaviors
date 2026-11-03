@@ -95,6 +95,9 @@ struct MergeBreak {
     std::string file;      ///< the layer's file stating it, relative to the unit
 };
 
+/// @brief The owner an editor's new objects carry (`(new):<local>`) until a save names their project: DeriveEditedPatch reads it as `self`.
+inline constexpr std::string_view kUnsavedOwner = "(new)";
+
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
@@ -148,6 +151,17 @@ public:
     std::vector<std::string> DropMistypedPointers();
     /// @brief A new object of `cls`, schema-initialized and owned by the graph.
     std::shared_ptr<io::SchemaObject> Make(std::string_view cls);
+    /// @brief A new object as an author starts it: schema `defaults:` (subclass last), unstated event / variable / bone
+    ///        references -1, a `user` member its sentinel, inline structs likewise. Owned by the graph, known by `id`, and a
+    ///        file node when its class is one. Null for an unknown class.
+    std::shared_ptr<io::SchemaObject> New(std::string_view cls, const std::string& id);
+    /// @brief A fresh id in `kUnsavedOwner`, above every local in the graph and above `floor`, which it raises. "" past the
+    ///        16 bits a FormID's local holds.
+    /// @note  `floor` outlives the session: another mod may name this project's nodes, so a deleted one's local is never reused.
+    std::string Mint(std::uint32_t& floor) const;
+    /// @brief The minted keys of `so`'s `roster: id|slot` list at field `i`, parallel to the list: stated by position until
+    ///        now. An edit changing the list's length or order keeps them in step, or a later element reads as a change.
+    std::vector<std::string>& RosterKeys(const io::SchemaObject& so, std::size_t i);
     /// @brief A node's id (FormID / canonical key) for FeatureResult::touched; "" for an inline object.
     std::string IdOf(const IHavokObject* o) const;
     const schema::SchemaRegistry& Registry() const { return m_reg; }

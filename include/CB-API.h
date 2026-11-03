@@ -107,6 +107,7 @@ namespace resolve {
     using CB::engine::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
     using CB::engine::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
     using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
+    using CB::engine::decompile::ParsePackfile;                ///< packfile bytes → a Graph (SerializeGraph's inverse)
     using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
     using CB::engine::decompile::MergeLayersSkippingBroken;    ///< a load order in use: a mod that can't apply is skipped for that graph
@@ -115,6 +116,8 @@ namespace resolve {
     using CB::engine::decompile::StatedField;                  ///< a field one layer states for a node
     using CB::engine::decompile::DeriveEditedPatch;            ///< (base, edited) graphs → a patch by FormID, and its masters
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
+    using CB::engine::decompile::kUnsavedOwner;                ///< the owner of an editor's new objects until a save names their project
+    using CB::engine::decompile::IsNodeClass;                  ///< whether a class's objects get a file of their own
 
     using EmbeddedKind = CB::engine::schema::EmbeddedKind;      ///< a hand-parsed file kind whose root map holds a schema class
     using CB::engine::decompile::EmbeddedKindOf;               ///< file text → its embedded kind (by root key), or null

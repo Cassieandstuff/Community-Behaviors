@@ -3,6 +3,7 @@ parent:    hkbGenerator
 signature: 0x22df7147
 size:      160
 view:      { kind: blendspace, children: children, parameter: blendParameter, cycleMin: minCyclicBlendParameter, cycleMax: maxCyclicBlendParameter, flags: flags }
+defaults:  { blendParameter: 1, flags: FLAG_PARAMETRIC_BLEND|FLAG_SYNC, indexOfSyncMasterChild: -1, maxCyclicBlendParameter: 1 }
 fields:
   - { name: referencePoseWeightThreshold, type: float }
   - { name: blendParameter,               type: float }

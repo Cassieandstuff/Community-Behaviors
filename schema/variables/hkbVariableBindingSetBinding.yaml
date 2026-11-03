@@ -2,6 +2,7 @@ name:      hkbVariableBindingSetBinding
 parent:    null
 signature: 0x4d592f72
 size:      40
+defaults:  { bindingType: BINDING_TYPE_VARIABLE, bitIndex: -1 }
 fields:
   - { name: memberPath,             type: string }              # ReadStringPointer
   - { empty: ptr }                                              # ReadEmptyPointer

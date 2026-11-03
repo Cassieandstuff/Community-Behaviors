@@ -2,6 +2,7 @@ name:      hkbFootIkGains
 parent:    null
 signature: 0xa681b7f0
 size:      48
+defaults:  { errorUpDownBias: 1, footPlantedGain: 1, footRaisedGain: 1, footUnlockGain: 1, groundAscendingGain: 1, groundDescendingGain: 1, onOffGain: 0.200000003 }
 fields:
   - { name: onOffGain,                 type: float }
   - { name: groundAscendingGain,       type: float }

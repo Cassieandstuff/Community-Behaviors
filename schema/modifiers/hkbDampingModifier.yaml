@@ -2,6 +2,7 @@ name:      hkbDampingModifier
 parent:    hkbModifier
 signature: 0x9a040f03
 size:      192
+defaults:  { enable: true, enableScalarDamping: true, kD: -0.100000001, kI: 0.0149999997, kP: 0.200000003, userData: 1 }
 fields:
   - { name: kP, type: float }
   - { name: kI, type: float }
