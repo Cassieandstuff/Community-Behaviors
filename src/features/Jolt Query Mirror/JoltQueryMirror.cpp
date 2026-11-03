@@ -89,6 +89,8 @@ namespace CB::feature::joltmirror {
         std::atomic<std::uint64_t>                                               s_loadedBoundsDiffer{ 0 };
         std::atomic<std::uint64_t>                                               s_missingTypes[32]{};
         std::atomic<int>                                                         s_missingLogs{ 0 };
+        std::atomic<std::uint64_t>                                               s_usedLoaded{ 0 };
+        std::atomic<std::uint64_t>                                               s_usedWalk{ 0 };
         std::atomic<int>                                                         s_mismatchLogs{ 0 };
 
         std::mutex                                     s_watchLock;
@@ -203,7 +205,11 @@ namespace CB::feature::joltmirror {
                     }
                 }
             }
-            if (!shape) return;
+            // Queries run on the shape built at load; the walk remains the check and the fallback.
+            const JPH::RefConst<JPH::Shape> loaded = bhkJoltLoadedShapes::Find(body->getCollidable()->getShape());
+            const JPH::RefConst<JPH::Shape> used = loaded ? loaded : shape;
+            if (!used) return;
+            ++(loaded ? s_usedLoaded : s_usedWalk);
 
             // hkTransform: three rotation columns, then the translation, four floats each.
             const auto* m = reinterpret_cast<const float*>(&body->getTransform());
@@ -212,7 +218,7 @@ namespace CB::feature::joltmirror {
             const std::uint32_t filter = body->getCollidable()->getCollisionFilterInfo();
 
             std::scoped_lock lock(s_lock);
-            if (MirrorOf(world).AddStatic(reinterpret_cast<std::uint64_t>(entity), shape, matrix.GetTranslation(), matrix.GetQuaternion().Normalized(), filter)) {
+            if (MirrorOf(world).AddStatic(reinterpret_cast<std::uint64_t>(entity), used, matrix.GetTranslation(), matrix.GetQuaternion().Normalized(), filter)) {
                 ++s_bodies;
             }
         }
@@ -266,6 +272,7 @@ namespace CB::feature::joltmirror {
                 if (const auto count = s_missingTypes[i].load()) missingTypes += std::to_string(i) + "=" + std::to_string(count) + " ";
             }
             LOG_INFO("JoltMirror: missing by outer type: {}", missingTypes);
+            LOG_INFO("JoltMirror: queries on loaded shapes {}, on walked shapes {}", s_usedLoaded.load(), s_usedWalk.load());
             static constexpr const char* kKinds[] = { "box", "sphere", "capsule", "convex", "convexTransform", "transform", "list", "mopp", "compressed", "terrain" };
             std::string kinds;
             for (int i = 0; i < int(bhkJoltLoadedShapes::Kind::Count); ++i)
