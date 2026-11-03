@@ -240,6 +240,7 @@ if(CB_WITH_JOLT)
     set(USE_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL "" FORCE)
     add_subdirectory("${CB_SDK_ROOT}/ThirdParty/JoltPhysics/Build" "${CMAKE_BINARY_DIR}/Jolt" EXCLUDE_FROM_ALL)
     add_library(cb_bsjolt STATIC
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltCompressedMesh.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltQueryMirror.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltRuntime.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkTripwire.cpp"

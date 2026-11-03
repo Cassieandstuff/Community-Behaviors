@@ -1,5 +1,6 @@
 #if defined(CB_WITH_JOLT)
 
+#include <string>
 #include "PCH.h"
 
 #include <BSJolt/bhkJoltHavokShapes.h>
@@ -76,6 +77,12 @@ namespace CB::feature::joltmirror {
         std::atomic<std::uint64_t>                                               s_unsupported{ 0 };
         std::atomic<std::uint64_t>                                               s_mixedFilters{ 0 };
         std::atomic<std::uint64_t>                                               s_convertMicros{ 0 };
+        std::atomic<std::uint64_t>                                               s_decodedMeshes{ 0 };
+        std::atomic<std::uint64_t>                                               s_decodedTriangles{ 0 };
+        std::atomic<std::uint64_t>                                               s_decodedConvex{ 0 };
+        std::atomic<std::uint64_t>                                               s_onlyWalk{ 0 };
+        std::atomic<std::uint64_t>                                               s_onlyDecoder{ 0 };
+        std::atomic<std::uint64_t>                                               s_shapeTypes[32]{};
         std::atomic<int>                                                         s_mismatchLogs{ 0 };
 
         std::mutex                                     s_watchLock;
@@ -168,6 +175,12 @@ namespace CB::feature::joltmirror {
             s_triangles += stats.m_triangles;
             s_unsupported += stats.m_unsupported;
             s_mixedFilters += stats.m_mixedChildFilters;
+            s_decodedMeshes += stats.m_decodedMeshes;
+            s_decodedTriangles += stats.m_decodedTriangles;
+            s_decodedConvex += stats.m_decodedConvexPieces;
+            s_onlyWalk += stats.m_decodeOnlyInWalk;
+            s_onlyDecoder += stats.m_decodeOnlyInDecoder;
+            for (int i = 0; i < 32; ++i) s_shapeTypes[i] += stats.m_shapeTypes[i];
             if (!shape) return;
 
             // hkTransform: three rotation columns, then the translation, four floats each.
@@ -215,6 +228,14 @@ namespace CB::feature::joltmirror {
                      count(R::FractionMismatch), count(R::JoltMissed), count(R::JoltExtra), count(R::Inconclusive), s_picksSkipped.load());
             LOG_INFO("JoltMirror: {} bodies, {} triangles, {} unsupported shapes, {} mixed child filters, {} ms converting", s_bodies.load(),
                      s_triangles.load(), s_unsupported.load(), s_mixedFilters.load(), s_convertMicros.load() / 1000);
+            LOG_INFO("JoltMirror: NIF decode: {} meshes, {} triangles, {} convex pieces; only in walk {}, only in decoder {}", s_decodedMeshes.load(),
+                     s_decodedTriangles.load(), s_decodedConvex.load(), s_onlyWalk.load(), s_onlyDecoder.load());
+            std::string shapeTypes;
+            for (int i = 0; i < 32; ++i)
+            {
+                if (const auto count = s_shapeTypes[i].load()) shapeTypes += std::to_string(i) + "=" + std::to_string(count) + " ";
+            }
+            LOG_INFO("JoltMirror: shape types met: {}", shapeTypes);
         }
 
         void LogTripwire()
