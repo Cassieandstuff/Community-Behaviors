@@ -225,6 +225,34 @@ target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
 target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml::ryml minhook::minhook)
 
+# The Jolt query mirror (src/features/Jolt Query Mirror): development only, so it's opt-in and shipped builds never
+# see Jolt. CB_SDK_ROOT is a CB SDK checkout with its Jolt submodule initialized.
+option(CB_WITH_JOLT "Build the Jolt query mirror" OFF)
+set(CB_SDK_ROOT "" CACHE PATH "CB SDK checkout holding BSJolt and the Jolt submodule, for CB_WITH_JOLT")
+if(CB_WITH_JOLT)
+    set(OBJECT_LAYER_BITS 32 CACHE STRING "" FORCE)
+    foreach(off ENABLE_ALL_WARNINGS ENABLE_INSTALL OVERRIDE_CXX_FLAGS INTERPROCEDURAL_OPTIMIZATION
+            FLOATING_POINT_EXCEPTIONS_ENABLED DEBUG_RENDERER_IN_DEBUG_AND_RELEASE PROFILER_IN_DEBUG_AND_RELEASE ENABLE_OBJECT_STREAM
+            GENERATE_DEBUG_SYMBOLS JPH_USE_DX12 JPH_USE_VK JPH_USE_MTL JPH_USE_CPU_COMPUTE
+            TARGET_UNIT_TESTS TARGET_HELLO_WORLD TARGET_PERFORMANCE_TEST TARGET_SAMPLES TARGET_VIEWER)
+        set(${off} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    set(USE_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL "" FORCE)
+    add_subdirectory("${CB_SDK_ROOT}/ThirdParty/JoltPhysics/Build" "${CMAKE_BINARY_DIR}/Jolt" EXCLUDE_FROM_ALL)
+    add_library(cb_bsjolt STATIC
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltQueryMirror.cpp"
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltRuntime.cpp"
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkTripwire.cpp"
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltHavokShapes.cpp")
+    target_include_directories(cb_bsjolt PUBLIC "${CB_SDK_ROOT}/Bethesda")
+    # The walker alone sees the SDK's global-namespace Havok headers: it only calls virtuals, so it needs no link.
+    target_include_directories(cb_bsjolt PRIVATE "${CB_SDK_ROOT}/Source")
+    target_compile_definitions(cb_bsjolt PRIVATE HK_EXE_GLOBALS_BY_REFERENCE)
+    target_link_libraries(cb_bsjolt PUBLIC Jolt)
+    target_link_libraries(CommunityBehaviors PRIVATE cb_bsjolt)
+    target_compile_definitions(CommunityBehaviors PRIVATE CB_WITH_JOLT)
+endif()
+
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
 

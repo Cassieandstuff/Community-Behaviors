@@ -242,6 +242,12 @@ namespace CB::core::debug {
           "hard cuts) from the old pose coasting at its velocity, slowing with an fMMBlendDecay halflife (default "
           "0.1 s). A pick's stretch of motion stays banned for fMMReselectTime seconds (default 1.0); a sharp change of "
           "the request searches at once. Without the add-on it does nothing. Prototype." },
+        { "jolt_query_mirror", FlagKind::IniBool, "JoltMirror", "bEnable", false, false,
+          "Jolt query mirror",
+          "Mirror fixed bodies into Jolt and log how bhkWorld::PickObject compares. Observe-only. Needs a CB_WITH_JOLT build." },
+        { "jolt_tripwire", FlagKind::IniBool, "JoltMirror", "bTripwire", false, false,
+          "Jolt tripwire",
+          "Page-guard rigid bodies and log which code outside physics touches them. Makes the game very slow. Needs a CB_WITH_JOLT build." },
         { "foot_ik", FlagKind::IniBool, "FootIk", "bEnable", false, false,
           "FABRIK foot IK",
           "CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla still finds "
