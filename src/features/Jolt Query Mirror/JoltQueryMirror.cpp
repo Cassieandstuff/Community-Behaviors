@@ -4,6 +4,7 @@
 #include "PCH.h"
 
 #include <BSJolt/bhkJoltHavokShapes.h>
+#include <BSJolt/bhkJoltLoadedShapes.h>
 #include <BSJolt/bhkJoltQueryMirror.h>
 #include <BSJolt/bhkTripwire.h>
 
@@ -83,6 +84,11 @@ namespace CB::feature::joltmirror {
         std::atomic<std::uint64_t>                                               s_onlyWalk{ 0 };
         std::atomic<std::uint64_t>                                               s_onlyDecoder{ 0 };
         std::atomic<std::uint64_t>                                               s_shapeTypes[32]{};
+        std::atomic<std::uint64_t>                                               s_loadedMatched{ 0 };
+        std::atomic<std::uint64_t>                                               s_loadedMissing{ 0 };
+        std::atomic<std::uint64_t>                                               s_loadedBoundsDiffer{ 0 };
+        std::atomic<std::uint64_t>                                               s_missingTypes[32]{};
+        std::atomic<int>                                                         s_missingLogs{ 0 };
         std::atomic<int>                                                         s_mismatchLogs{ 0 };
 
         std::mutex                                     s_watchLock;
@@ -181,6 +187,22 @@ namespace CB::feature::joltmirror {
             s_onlyWalk += stats.m_decodeOnlyInWalk;
             s_onlyDecoder += stats.m_decodeOnlyInDecoder;
             for (int i = 0; i < 32; ++i) s_shapeTypes[i] += stats.m_shapeTypes[i];
+            if (shape) {
+                bhkJoltLoadedShapes::Check check;
+                bhkJoltLoadedShapes::Compare(body->getCollidable()->getShape(), shape.GetPtr(), check);
+                s_loadedMatched += check.m_matched;
+                s_loadedMissing += check.m_missing;
+                s_loadedBoundsDiffer += check.m_boundsDiffer;
+                if (check.m_missing || check.m_boundsDiffer) {
+                    const auto* outer = reinterpret_cast<const ::hkpShape*>(body->getCollidable()->getShape());
+                    const auto type = std::uint32_t(outer->getType());
+                    if (check.m_missing && type < 32) ++s_missingTypes[type];
+                    if (s_missingLogs.fetch_add(1) < 40) {
+                        LOG_INFO("JoltMirror: loaded shape {}: {:x} type {} vtable rva {:x}, walked {} triangles", check.m_missing ? "missing" : "bounds differ",
+                                 reinterpret_cast<std::uintptr_t>(outer), type, *reinterpret_cast<const std::uintptr_t*>(outer) - REL::Module::get().base(), stats.m_triangles);
+                    }
+                }
+            }
             if (!shape) return;
 
             // hkTransform: three rotation columns, then the translation, four floats each.
@@ -236,6 +258,22 @@ namespace CB::feature::joltmirror {
                 if (const auto count = s_shapeTypes[i].load()) shapeTypes += std::to_string(i) + "=" + std::to_string(count) + " ";
             }
             LOG_INFO("JoltMirror: shape types met: {}", shapeTypes);
+            LOG_INFO("JoltMirror: loaded shapes: {} recorded; bodies matched {}, missing {}, bounds differ {}", bhkJoltLoadedShapes::GetRecordedCount(),
+                     s_loadedMatched.load(), s_loadedMissing.load(), s_loadedBoundsDiffer.load());
+            std::string missingTypes;
+            for (int i = 0; i < 32; ++i)
+            {
+                if (const auto count = s_missingTypes[i].load()) missingTypes += std::to_string(i) + "=" + std::to_string(count) + " ";
+            }
+            LOG_INFO("JoltMirror: missing by outer type: {}", missingTypes);
+            static constexpr const char* kKinds[] = { "box", "sphere", "capsule", "convex", "convexTransform", "transform", "list", "mopp", "compressed" };
+            std::string kinds;
+            for (int i = 0; i < int(bhkJoltLoadedShapes::Kind::Count); ++i)
+            {
+                const auto counts = bhkJoltLoadedShapes::GetKindCounts(bhkJoltLoadedShapes::Kind(i));
+                kinds += std::string(kKinds[i]) + " " + std::to_string(counts.m_built) + "/" + std::to_string(counts.m_failed) + "/" + std::to_string(counts.m_gated) + "  ";
+            }
+            LOG_INFO("JoltMirror: load hooks built/failed/gated: {}", kinds);
         }
 
         void LogTripwire()
@@ -332,6 +370,15 @@ namespace CB::feature::joltmirror {
             return result;
         }
 
+        bool LoadedShapesGate()
+        {
+            if (!MirrorOn()) return false;
+            EnsureRuntime();
+            bhkJoltLoadedShapes::SetFailureLog([](const char* text) { LOG_INFO("JoltMirror: load build failed: {}", text); });
+            return true;
+        }
+
+        [[maybe_unused]] const int s_loadedShapes = bhkJoltLoadedShapes::Install(&LoadedShapesGate);
         [[maybe_unused]] const bool s_addEntity    = AddEntity::Subscribe(&OnAddEntity, hooks::Priority::Normal, "JoltQueryMirror");
         [[maybe_unused]] const bool s_removeEntity = RemoveEntity::Subscribe(&OnRemoveEntity, hooks::Priority::Normal, "JoltQueryMirror");
         [[maybe_unused]] const bool s_addBatch     = AddBatch::Subscribe(&OnAddBatch, hooks::Priority::Normal, "JoltQueryMirror");
