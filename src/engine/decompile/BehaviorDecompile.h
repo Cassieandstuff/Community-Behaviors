@@ -138,6 +138,10 @@ public:
     ///        Exists / Failed as AddVariable; Failed for a non-quad type.
     Add AddQuadVariable(std::string_view name, std::string_view type, const float (&quad)[4], std::string& err);
     Add AddEvent(std::string_view name, std::string& err);
+    /// @brief Append a character property a graph declares it reads: name and type, as the character states its value.
+    Add AddCharacterProperty(std::string_view name, std::string_view type, std::string& err);
+    /// @brief Append an attribute with its default.
+    Add AddAttribute(std::string_view name, float defaultValue, std::string& err);
 
     /// @brief Every object of class `cls` reachable from the root (nodes and inline objects), once each.
     void ForEach(std::string_view cls, const std::function<void(io::SchemaObject&)>& fn);

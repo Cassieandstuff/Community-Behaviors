@@ -4114,6 +4114,39 @@ GraphEdit::Add GraphEdit::AddQuadVariable(std::string_view name, std::string_vie
     return Add::Added;
 }
 
+GraphEdit::Add GraphEdit::AddCharacterProperty(std::string_view name, std::string_view type, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    const auto& types = en::EnumTable("VariableType");
+    const auto t = types.find(std::string(type));
+    if (t == types.end()) { err = "unknown variable type '" + std::string(type) + "'"; return Add::Failed; }
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    auto info = makeObj(m_reg, "hkbVariableInfo"), role = makeObj(m_reg, "hkbRoleAttribute");
+    if (!sd || !info || !role) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    auto& names = sd->FieldRef("characterPropertyNames").strs;
+    if (indexIn(names, name)) return Add::Exists;
+    for (const auto& o : { info, role }) m_graph.objects.push_back(o);
+    info->SetInt("type", static_cast<std::int8_t>(t->second));
+    info->FieldRef("role").obj = role;
+    names.emplace_back(name);
+    gd->FieldRef("characterPropertyInfos").objs.push_back(info);
+    return Add::Added;
+}
+
+GraphEdit::Add GraphEdit::AddAttribute(std::string_view name, float defaultValue, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    if (!sd) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    auto& names = sd->FieldRef("attributeNames").strs;
+    if (indexIn(names, name)) return Add::Exists;
+    names.emplace_back(name);
+    auto&      raw   = gd->FieldRef("attributeDefaults").raw;
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(&defaultValue);
+    raw.insert(raw.end(), bytes, bytes + sizeof defaultValue);
+    return Add::Added;
+}
+
 GraphEdit::Add GraphEdit::AddEvent(std::string_view name, std::string& err) {
     io::SchemaObject* gd = GraphData();
     if (!gd) { err = "no behavior graph data"; return Add::Failed; }

@@ -118,6 +118,8 @@ struct Field {
                                          ///<        exactly when the stored value equals it, and reads `user` back to it.
                                          ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
                                          ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
+    bool        expression = false;      ///< @brief `expression: true` — the string names variables in its text, so a rename has to
+                                         ///<        rewrite it. A member attribute: no serde, size or signature effect.
     bool        required = false;        ///< @brief `required: true` — an editor reports this pointer or list empty as an error. A
                                          ///<        member attribute: no serde, size or signature effect.
     std::string stateRef;                ///< @brief `stateref: machine|from|to` — the scalar is a stateId: of the machine holding
