@@ -11,8 +11,8 @@ fields:
   - { empty: ptr }
   - { empty: array }
   - { empty: ptr }
-  - { name: rootGenerator, type: ptr, ref: hkbGenerator }
-  - { name: data,          type: ptr, ref: hkbBehaviorGraphData }
+  - { name: rootGenerator, type: ptr, ref: hkbGenerator, required: true }
+  - { name: data,          type: ptr, ref: hkbBehaviorGraphData, required: true }
   - { empty: ptr }   # 14 SERIALIZE_IGNORED node/toc pointers
   - { empty: ptr }
   - { empty: ptr }

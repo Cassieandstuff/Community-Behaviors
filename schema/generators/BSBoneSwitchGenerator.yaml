@@ -5,6 +5,6 @@ size:      112
 defaults:  { userData: 1 }
 fields:
   - { skip: 8 }
-  - { name: pDefaultGenerator, type: ptr, ref: hkbGenerator }
+  - { name: pDefaultGenerator, type: ptr, ref: hkbGenerator, required: true }
   - { name: ChildrenA,         type: ptrarray, ref: BSBoneSwitchGeneratorBoneData, roster: id }
   - { skip: 8 }

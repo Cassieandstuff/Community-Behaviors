@@ -5,4 +5,4 @@ size:      88
 defaults:  { userData: 1 }
 fields:
   - { name: modifier,  type: ptr, ref: hkbModifier }
-  - { name: generator, type: ptr, ref: hkbGenerator }
+  - { name: generator, type: ptr, ref: hkbGenerator, required: true }

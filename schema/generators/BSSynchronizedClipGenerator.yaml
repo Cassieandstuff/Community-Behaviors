@@ -5,7 +5,7 @@ size:      304
 defaults:  { bReorientSupportChar: true }
 fields:
   - { skip: 8 }
-  - { name: pClipGenerator,   type: ptr, ref: hkbGenerator }
+  - { name: pClipGenerator,   type: ptr, ref: hkbGenerator, required: true }
   - { name: SyncAnimPrefix,   type: cstring }
   - { name: bSyncClipIgnoreMarkPlacement, type: bool }
   - { skip: 3 }

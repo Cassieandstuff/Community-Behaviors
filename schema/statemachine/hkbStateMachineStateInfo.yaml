@@ -8,7 +8,7 @@ fields:
   - { name: enterNotifyEvents, type: ptr, ref: hkbStateMachineEventPropertyArray }
   - { name: exitNotifyEvents,  type: ptr, ref: hkbStateMachineEventPropertyArray }
   - { name: transitions,       type: ptr, ref: hkbStateMachineTransitionInfoArray }
-  - { name: generator,         type: ptr, ref: hkbGenerator }
+  - { name: generator,         type: ptr, ref: hkbGenerator, required: true }
   - { name: name,              type: string }
   - { name: stateId,           type: int32 }
   - { name: probability,       type: float }

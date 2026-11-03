@@ -5,7 +5,7 @@ size:      80
 view:      { kind: blendchild, clip: generator, position: weight }
 defaults:  { weight: 1, worldFromModelWeight: 1 }
 fields:
-  - { name: generator,           type: ptr, ref: hkbGenerator }
+  - { name: generator,           type: ptr, ref: hkbGenerator, required: true }
   - { name: boneWeights,         type: ptr, ref: hkbBoneWeightArray, charprop: hkbBoneWeightArray }
   - { name: weight,              type: float }
   - { name: worldFromModelWeight, type: float }
