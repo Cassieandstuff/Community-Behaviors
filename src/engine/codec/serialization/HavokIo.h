@@ -102,6 +102,8 @@ public:
     std::string&       Str(std::string_view name);
     /// @brief The SchemaObject behind a Ptr / inline Struct field (nullptr when unset).
     SchemaObject*      Child(std::string_view name) const;
+    /// @brief The registry its schema came from.
+    [[nodiscard]] const schema::SchemaRegistry* Registry() const { return m_reg; }
     /// @brief The objects of a PtrArray / StructArray (or a fixed inline Ptr array).
     const std::vector<std::shared_ptr<IHavokObject>>& Children(std::string_view name) const;
 
