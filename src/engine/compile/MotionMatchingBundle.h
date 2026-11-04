@@ -74,7 +74,10 @@ namespace CB::engine::compile {
     /// @note  GASP's chooser inputs. MM_Speed2D is game units/s (GASP's Speed2D is cm/s: an importer scales its bounds by
     ///        0.7); MM_TimeToLand is seconds until the predicted path lands (GASP's TrajectoryCollision.TimeToLand), 0 on
     ///        the ground.
-    inline constexpr std::array<MmVariableDecl, 15> kMmChooserVariables{ {
+    /// @note  Then the node's query. MM_Future* and MM_Past* are (side, forward, facing) in the current root space: game
+    ///        units and radians counter-clockwise, at the database's horizons ahead and back. MM_Desired is the request in
+    ///        world space, game units/s. MM_HaveQuery says they hold one, MM_PlayRate is clip seconds per second.
+    inline constexpr std::array<MmVariableDecl, 24> kMmChooserVariables{ {
         { "MM_MovementMode", "VARIABLE_TYPE_INT32" },
         { "MM_RotationMode", "VARIABLE_TYPE_INT32" },
         { "MM_MovementState", "VARIABLE_TYPE_INT32" },
@@ -90,6 +93,15 @@ namespace CB::engine::compile {
         { "MM_DatabaseLOD", "VARIABLE_TYPE_INT32" },
         { "MM_Speed2D", "VARIABLE_TYPE_REAL" },
         { "MM_TimeToLand", "VARIABLE_TYPE_REAL" },
+        { "MM_PlayRate", "VARIABLE_TYPE_REAL" },
+        { "MM_HaveQuery", "VARIABLE_TYPE_BOOL" },
+        { "MM_Desired", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past2", "VARIABLE_TYPE_VECTOR3" },
     } };
 
     struct MmBundleSpec {

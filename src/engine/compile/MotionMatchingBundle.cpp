@@ -132,9 +132,13 @@ namespace CB::engine::compile {
             graph->FieldRef("data").obj = data;
 
             std::string err;
-            for (const auto& v : Variables(spec))
-                if (edit.AddVariable(v.name, v.type, v.word, err) != dc::GraphEdit::Add::Added)
+            for (const auto& v : Variables(spec)) {
+                static constexpr float kZero[4] = {};
+                const auto added = v.type == "VARIABLE_TYPE_VECTOR3" ? edit.AddQuadVariable(v.name, v.type, kZero, err)
+                                                                     : edit.AddVariable(v.name, v.type, v.word, err);
+                if (added != dc::GraphEdit::Add::Added)
                     throw std::runtime_error("variable '" + v.name + "': " + (err.empty() ? "already declared" : err));
+            }
             const std::size_t clipIndex = *edit.VariableIndex(spec.clipVariable);
             const std::size_t timeIndex = *edit.VariableIndex(spec.timeVariable);
 

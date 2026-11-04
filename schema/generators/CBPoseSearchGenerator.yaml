@@ -4,7 +4,9 @@ size:      120
 view:      { kind: clipset, children: children, groups: databases }
 runtime:
   source: self
-# CB's own generator (motion matching, stage A): plays the one child `selectedIndex` names. A stock
+# CB's own generator: motion matching as a node. Each update it reads its query from its graph's variables, searches its
+# databases and plays the best frame, by writing what plays next to the variables `selectedIndex` and its children's
+# user-controlled time are bound to; with no query it just follows `selectedIndex`. A stock
 # hkbManualSelectorGenerator's indices are int8 (its last index is (int8)(children - 1)), so it holds 128 children at
 # most; this one's are int32. The children are real hkbClipGenerators, as LoadClips and the root-motion walk require.
 # Registered at startup by CB (platform/classes) from THIS descriptor: the members below are the hkClassMembers
@@ -17,8 +19,7 @@ fields:
   - { name: currentIndex,  type: int32, ignored: true }
   - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
   - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
-# `databases` are the dance cards each child names, `chooser` picks which of them are searched; CB's controller reads
-# both and the children's other columns from the merged graph, the live node only ever follows `children`'s generators.
+# `databases` are the dance cards each child names, `chooser` picks which of them are searched.
 # `children` is a slot roster because selectedIndex (MM_Clip) is a position. No member owns runtime memory: Skyrim
 # instances a character's graph by block-copying it, so memory the node owned would be shared by every copy and freed
 # by whichever is destroyed first. The arrays and the chooser are the loaded file's; the dead blend keeps its state per

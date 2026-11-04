@@ -2,17 +2,23 @@
 
 #include "CharFacing.h"
 
+#include <locomotion/PoseSearch.h>
+
 #include <array>
 #include <string>
 
 /// @file
-/// @brief Motion matching for the player (the stock-node prototype): the predictor's trajectory plus the current pose
-///        searched against the Motion Matching add-on's clips, the winner played through the add-on's graph.
-/// @note  The search runs where the predictor runs (the physics thread); the graph variables are written, and the
-///        chooser (which reads them) evaluated, in the per-frame movement hook (the update thread), where the engine
-///        itself hands the graph its `Speed`.
+/// @brief Motion matching: the character's side, which sets the graph variables CBPoseSearchGenerator reads, and the node's
+///        side, its per-character run and its database.
+/// @note  The predictor's query comes from the physics thread; the graph variables are written in the per-frame movement
+///        hook (the update thread), where the engine itself hands the graph its `Speed`; the node reads them on the job
+///        updating its graph.
+
+class hkbContext;
 
 namespace CB::feature::controller::motion {
+
+    class PoseSearchGenerator;
 
     /// @brief The predictor's query: where the player will be and face when the clip playing at Rate() reaches the
     ///        database's horizons (engine::anim::features::kHorizons / rate, real seconds), and where they were and
@@ -22,7 +28,6 @@ namespace CB::feature::controller::motion {
         std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
         /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
         float desiredX = 0, desiredY = 0;
-        Gait  gait = Gait::None;   ///< the controller's gait (logged beside each pick's frame gait)
     };
 
     /// @brief Whether motion matching runs (char_motion_matching); the predictor builds no query otherwise.
@@ -36,11 +41,22 @@ namespace CB::feature::controller::motion {
     ///        the controller covers, and the query samples the prediction at horizon / rate to compare like with like.
     float Rate(const FrameSpeed* frame);
 
-    /// @brief Search the chooser's databases with `q` when a search is due (every 0.1 s, at once near a clip's end, on a
-    ///        sharp change of the request, or on an interrupt).
-    /// @note  Called by the predictor each step; does nothing until the database is built. The chooser's pick and its
-    ///        inputs come from the frame hook, the last one published.
-    void Search(const Query& q);
+    /// @brief The player's latest query, which the frame hook writes to the graph's variables.
+    /// @note  Called by the predictor each step.
+    void Publish(const Query& q);
+    /// @brief The predictor has no query this step: the node searches nothing until the next.
+    void PublishNoQuery();
+
+    /// @brief One update of `context`'s character's matcher for `node`: reads its graph's variables, searches when one is
+    ///        due (every 0.1 s, at once near a clip's end, on a sharp change of the request, or on an interrupt) and writes
+    ///        what plays next to the variables the graph binds.
+    /// @param restart forget what played: the graph is coming back to the node.
+    /// @return the child that plays next, -1 when the matcher has none (no database yet, no query yet, or no actor)
+    int RunMatcher(const ::hkbContext& context, const PoseSearchGenerator& node, float timestep, bool restart);
+
+    /// @return the database `spec` states, null until it is built; the first request queues its build
+    /// @note  Thread-safe. Equal selectors share one database, whichever graphs and characters they come from.
+    const CB::engine::locomotion::Database* DatabaseFor(const CB::engine::locomotion::DatabaseSpec& spec);
 
     /// @brief SetTimeToLand's value when the predicted path doesn't land within its horizon (GASP's open upper bound).
     inline constexpr float kNoLanding = 999.0f;

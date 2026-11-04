@@ -6,12 +6,16 @@
 #include <Behavior/Behavior/Generator/hkbGenerator.h>
 #include <Common/Base/Container/String/hkString.h>
 
+#include <locomotion/PoseSearch.h>
+
 #include <cstddef>
+#include <optional>
 
 /// @file
-/// @brief CBPoseSearchGenerator, CB's own Havok generator (motion matching, stage A): it plays the one child
+/// @brief CBPoseSearchGenerator, CB's own Havok generator: motion matching as a node. Each update it searches its
+///        database for the frame the character's query asks for (motion::RunMatcher); it plays the one child
 ///        `m_selectedIndex` names, with 32-bit indices, keeps every other child active (getChildren), and dead-blends
-///        each switch (generate).
+///        each switch (generate). With no query or no database it just follows `m_selectedIndex`.
 /// @note  Why not the stock selector: hkbManualSelectorGenerator's indices are int8, and it clamps the selection to
 ///        (int8)(children - 1); with the add-on's 252 clips that is -5, so every selection read past its children
 ///        (the first in-game run crashed there). The layout is schema/generators/CBPoseSearchGenerator.yaml's: the
@@ -35,7 +39,7 @@ namespace CB::feature::controller::motion {
     static_assert(sizeof(PoseSearchChild) == 32, "PoseSearchChild size (schema: 32)");
 
     /// @brief CBPoseSearchDatabase: a dance card, named by its children, with Unreal's per-database cost biases
-    ///        (condition expressions, evaluated by CB's controller) and its tags.
+    ///        (condition expressions) and its tags.
     /// @note  Declared POD to hkArray: the elements live in the loaded file, so an array never constructs or destroys
     ///        them (a block-copied node's destructor must not tear down the template's data).
     struct PoseSearchDatabase {
@@ -60,9 +64,8 @@ namespace CB::feature::controller::motion {
     };
     static_assert(sizeof(PoseSearchChooserRow) == 24, "PoseSearchChooserRow size (schema: 24)");
 
-    /// @brief CBPoseSearchChooser: the generator's chooser table, a data object CB's controller evaluates.
-    /// @note  Only ever loaded (the finish constructor): CB reads it through the merged graph, the live object only has
-    ///        to exist for the loader.
+    /// @brief CBPoseSearchChooser: the generator's chooser table, which it evaluates through its database.
+    /// @note  Only ever loaded (the finish constructor).
     class PoseSearchChooser : public ::hkReferencedObject {
     public:
         ::hkArray<PoseSearchChooserRow>   m_rows;       ///< +0x10
@@ -84,8 +87,8 @@ namespace CB::feature::controller::motion {
         ::hkArray<PoseSearchChild>          m_children;       ///< +0x48
         ::hkInt32                           m_selectedIndex;  ///< +0x58, bound to the add-on's MM_Clip
         ::hkInt32                           m_currentIndex;   ///< +0x5c, the child playing, clamped into range
-        /// @note The databases, the rows' other columns and the chooser are read by CB's controller from the merged graph,
-        ///       never from a live node: a clone leaves the databases and chooser empty, and nothing here owns memory.
+        /// @note A clone leaves the databases and chooser empty, and nothing here owns memory: Describe reads them, and
+        ///       the rows' other columns, from the template the clone came from.
         ::hkArray<PoseSearchDatabase>       m_databases;      ///< +0x60
         PoseSearchChooser*                           m_chooser;        ///< +0x70, the loaded file's (never referenced or freed here)
 
@@ -107,6 +110,9 @@ namespace CB::feature::controller::motion {
                                       ::hkbGeneratorOutput& output, ::hkReal timeOffset) override;
         bool                 canRecycleOutput() const override;
         void                 updateSync(const ::hkbContext& context, ::hkbNodeInfo& info) override;
+
+        /// @return what this node loaded, for its database; nothing when its template cannot be found
+        std::optional<CB::engine::locomotion::DatabaseSpec> Describe(const ::hkbContext& context) const;
 
     private:
         /// @brief m_selectedIndex clamped into [0, last child].

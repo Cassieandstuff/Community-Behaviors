@@ -830,8 +830,9 @@ namespace CB::feature {
                 }
                 q.desiredX = tr.desiredWorld.x * kGameUnitsPerHavok;
                 q.desiredY = tr.desiredWorld.y * kGameUnitsPerHavok;
-                if (haveSpeed) q.gait = fs.gait;
-                ch::motion::Search(q);
+                ch::motion::Publish(q);
+            } else if (isPlayer && ch::motion::On()) {
+                ch::motion::PublishNoQuery();
             }
             if (ch::hud::On() && ch::IsControlled(self)) {
                 ch::hud::Prediction h;

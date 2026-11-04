@@ -17,8 +17,8 @@
 
 /// @file
 /// @brief The motion-matching database and its scoring, game-free: a database built from a CBPoseSearchGenerator and
-///        its clips' measurements, the chooser and biases over it, and the brute-force nearest-frame search. The ONE
-///        scoring the plugin's controller and an editor's match-test panel share.
+///        its clips' measurements, the chooser and biases over it, the brute-force nearest-frame search, and the Matcher
+///        one character runs them with. The ONE scoring the plugin's node and an editor's match-test panel share.
 
 namespace CB::engine::codec::io { class SchemaObject; }
 namespace CB::engine::decompile { struct ParsedHky; }
@@ -27,6 +27,12 @@ namespace CB::engine::locomotion {
 
     inline constexpr int kIgnoreSurrounding = 20;   ///< frames: a candidate this close in the current clip is the current
     inline constexpr float kForceMoving     = 10.0f;   ///< game units/s: a direction counts only above this speed; a request below it stands
+    inline constexpr double kSearchInterval = 0.1;     ///< seconds between searches
+    /// @brief A jump in the request since the last search searches at once, at most this soon after any search.
+    inline constexpr double kForcedSpacing  = 0.05;
+    inline constexpr float  kForceSpeed     = 100.0f;      ///< game units/s change of the desired speed
+    inline constexpr float  kForceCos       = 0.8660254f;  ///< cos 30 deg: a turn of the desired direction past it
+    inline constexpr double kEndMargin      = 0.1;         ///< seconds before a clip's end that force a search
 
     /// @brief Each feature group's weight (Holden's demo defaults).
     /// @note  Applied at search time, never stored in the rows, so a weight change needs no rebuild.
@@ -149,9 +155,41 @@ namespace CB::engine::locomotion {
     /// @note  The reference need only hold until the next call; each distinct name is asked for once.
     using ClipSource = std::function<const anim::MmCachedClip&(const std::string& animationName)>;
 
+    /// @brief One child of a selector, as a database reads it.
+    struct SpecChild {
+        std::string  clip;   ///< the clip generator's animationName; empty when the child is no clip (never chosen)
+        std::string  database;
+        float        rangeStart = 0, rangeEnd = 0;
+        std::uint8_t flags = 0;   ///< kFlag* bits
+    };
+    /// @brief One CBPoseSearchDatabase, its expressions as text.
+    struct SpecDatabase {
+        std::string name, baseCostBias, continuingPoseCostBias, loopingCostBias, standingCandidate, movingCandidate;
+        bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact)
+    };
+    /// @brief One CBPoseSearchChooserRow.
+    struct SpecChooserRow {
+        std::string              when;
+        std::vector<std::string> databases;
+    };
+    /// @brief What a database is built from, whoever holds the selector: a parsed unit (SpecOf) or a node loaded from a
+    ///        compiled graph, which state the same thing.
+    struct DatabaseSpec {
+        std::vector<SpecChild>      children;
+        std::vector<SpecDatabase>   databases;   ///< empty: one implicit database over every child
+        bool                        haveChooser = false;
+        std::vector<SpecChooserRow> rows;
+        std::vector<std::string>    fallback;
+
+        /// @return text equal for two specs exactly when they state the same selector
+        [[nodiscard]] std::string Key() const;
+    };
+
     /// @brief The behavior graph's root selector, or null when the graph is not the contract's shape (a
     ///        CBPoseSearchGenerator as its hkbBehaviorGraph's rootGenerator).
     codec::io::SchemaObject* RootSelector(const decompile::ParsedHky& g);
+    /// @brief What `selector`, a parsed CBPoseSearchGenerator, states.
+    DatabaseSpec SpecOf(const codec::io::SchemaObject& selector);
 
     /// @brief Each frame's gait from `c`'s Speed curve (None while standing, and for a clip without one).
     /// @pre   `out.dt` is set.
@@ -170,12 +208,12 @@ namespace CB::engine::locomotion {
     /// @brief Read the selector's databases into `db` and each row's columns into `db.clips` (sized to the rows).
     /// @note  A graph without `databases` is one implicit database over every child, unbiased. A row naming a
     ///        database the graph lacks is in none, so never searched.
-    void ReadDatabases(const codec::io::SchemaObject& sel, Database& db, const WarnFn& warn);
+    void ReadDatabases(const DatabaseSpec& spec, Database& db, const WarnFn& warn);
     /// @brief The databases named `names` (byte-exact), warning of any the graph lacks.
     std::vector<int> DatabasesNamed(const Database& db, const std::vector<std::string>& names, std::string_view where,
                                     const WarnFn& warn);
     /// @brief Read the selector's chooser into `db` (none: every database is searched).
-    void ReadChooser(const codec::io::SchemaObject& sel, Database& db, const WarnFn& warn);
+    void ReadChooser(const DatabaseSpec& spec, Database& db, const WarnFn& warn);
 
     /// @brief What a build covered, for its report.
     struct BuildReport {
@@ -191,6 +229,9 @@ namespace CB::engine::locomotion {
     /// @return null when no clip could be measured.
     /// @pre    The relay roster is registered: expressions compile against it, and one calling a function it lacks
     ///         counts as not compiling (RegisterCoreBuiltins offline: only GraphVar).
+    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const ClipSource& clips, const WarnFn& warn,
+                                            BuildReport* report = nullptr);
+    /// @brief BuildDatabase over a parsed selector.
     std::unique_ptr<Database> BuildDatabase(const codec::io::SchemaObject& selector, const ClipSource& clips, const WarnFn& warn,
                                             BuildReport* report = nullptr);
 
@@ -256,5 +297,65 @@ namespace CB::engine::locomotion {
     /// @note  Slower than Search, no bound. Its first is Search's bestRow with total == best: a row Search's bound cuts
     ///        short can only differ if its partial sum plus the bias rounds below the best, past float precision.
     std::vector<Candidate> TopCandidates(const Database& db, const Query& q, std::size_t n);
+
+    /// @brief What one character's graph asks of its Matcher this update.
+    struct MatchRequest {
+        /// @brief As Query's. @note Without one no search runs; what plays goes on.
+        std::array<float, 3> x{}, y{}, dirX{}, dirY{};
+        std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
+        float                desiredX = 0, desiredY = 0;
+        bool                 haveQuery = false;
+        float                rate = 1;              ///< clip seconds per second
+        std::vector<char>    active;                ///< as Query's
+        std::vector<Biases>  biases;                ///< as Query's
+        /// @brief An input whose change may interrupt changed since the last update: with the playing database out of the
+        ///        pick, the next search runs at once and the playing row cannot go on (GASP's InterruptOnDatabaseChange).
+        bool                 inputsChanged = false;
+        float                reselectTime  = 1;     ///< seconds a pick's neighbourhood stays banned
+    };
+
+    /// @brief What one update did.
+    struct MatchStep {
+        int          clip = -1;   ///< the child playing now, -1 = none yet
+        double       time = 0;    ///< seconds into it
+        int          nextClip = -1;   ///< the child the next update plays
+        double       nextTime = 0;    ///< seconds into it, this update's timestep ahead
+        bool         searched = false;
+        bool         switched = false;   ///< the search chose a new pick: `nextClip` and `nextTime` are it
+        const char*  trigger  = "";      ///< why it searched: "interrupt", "clip end", "forced" or "timer"
+        SearchResult result;             ///< its answer, when `searched`
+        float        searchMs = 0;
+        std::vector<char> searchedActive;   ///< the pick it searched
+    };
+
+    /// @brief One character's motion matching, game-free: what plays, when a search is due, and the reselect ban.
+    /// @note  Time is the timestep it is given, so a paused graph neither plays nor searches on a clock of its own.
+    class Matcher {
+    public:
+        /// @brief Play on by `dt`, then search if one is due.
+        /// @pre   `in.active` and `in.biases` are `db`'s, and every update of this Matcher takes the same `db`.
+        MatchStep Update(const Database& db, const MatchRequest& in, float dt);
+        /// @brief Forget what plays: the next update with a query searches at once, with no pose to continue.
+        void Restart();
+
+    private:
+        /// @brief A pick and when: the ban follows where it would have played to.
+        struct Pick {
+            int    clip  = 0;
+            double frame = 0;
+            double at    = 0;
+        };
+        int               m_clip = -1;
+        double            m_time = 0;
+        int               m_pendingClip = -1;
+        double            m_pendingTime = 0;
+        bool              m_searchNow = true;
+        bool              m_interrupt = false;
+        std::vector<char> m_interruptActive;   ///< the pick the interrupt saw, which its search uses
+        double            m_clock = 0;
+        double            m_lastSearch = -1.0e9;
+        float             m_lastWantX = 0, m_lastWantY = 0;
+        std::vector<Pick> m_picks;
+    };
 
 }  // namespace CB::engine::locomotion

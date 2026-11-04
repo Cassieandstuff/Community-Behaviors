@@ -444,6 +444,167 @@ void AgreementChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     }
 }
 
+/// @brief The per-character Matcher over a small random database: when it searches, and what it plays.
+void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    std::mt19937                    rng(0x4A7C4);
+    std::normal_distribution<float> normal(0.0f, 50.0f);
+
+    cmp::MmBundleSpec spec;
+    Clips             clips;
+    for (int d = 0; d < 2; ++d) {
+        cmp::MmDatabase db;
+        db.name = "D" + std::to_string(d);
+        for (int c = 0; c < 3; ++c) {
+            const std::string file = "animations/M/d" + std::to_string(d) + "c" + std::to_string(c) + ".hkx";
+            db.clips.push_back({ kRoot + file, "", 0, 0.0f, 0.0f });
+            anim::MmCachedClip m;
+            std::string name = file;
+            std::replace(name.begin(), name.end(), '/', '\\');
+            m.name          = name;
+            m.frames        = 90;
+            m.frameDuration = 1.0f / 30.0f;
+            m.duration      = static_cast<float>(m.frames - 1) / 30.0f;
+            m.features.resize(static_cast<std::size_t>(m.frames) * F::kDims);
+            for (float& v : m.features) v = normal(rng);
+            m.rootPositions.assign(static_cast<std::size_t>(m.frames) * 3, 0.0f);
+            clips[name] = std::move(m);
+        }
+        spec.databases.push_back(std::move(db));
+    }
+    Unit unit;
+    ParseUnit(spec, reg, tmp / "matcher", unit);
+    const auto dbp = Built(unit, clips);
+    Check(dbp != nullptr, "the matcher's database builds");
+    if (!dbp) return;
+    const ps::Database& db = *dbp;
+
+    const ps::DatabaseSpec described = ps::SpecOf(*unit.selector);
+    Check(described.children.size() == db.clips.size() && described.databases.size() == db.databases.size(), "a spec states the selector's rows");
+    ps::DatabaseSpec moved = described;
+    Check(moved.Key() == described.Key(), "the same selector, the same key");
+    moved.children[0].rangeEnd = 0.5f;
+    Check(moved.Key() != described.Key(), "a child's range changes the key");
+
+    const auto request = [&] {
+        ps::MatchRequest in;
+        for (auto* a : { &in.x, &in.y, &in.dirX, &in.dirY, &in.pastX, &in.pastY, &in.pastDirX, &in.pastDirY })
+            for (float& v : *a) v = normal(rng);
+        in.desiredX  = 200.0f;
+        in.haveQuery = true;
+        return in;
+    };
+    constexpr float kDt = 1.0f / 60.0f;
+
+    {
+        ps::Matcher m;
+        ps::MatchRequest none;
+        const ps::MatchStep waits = m.Update(db, none, kDt);
+        Check(!waits.searched && waits.clip == -1 && waits.nextClip == -1, "no query, nothing plays");
+
+        const ps::MatchRequest in = request();
+        const ps::MatchStep first = m.Update(db, in, kDt);
+        Check(first.searched && first.switched && first.clip == -1, "the first query searches, with nothing playing");
+        Check(first.nextClip >= 0, "and names what plays next");
+        const ps::MatchStep second = m.Update(db, in, kDt);
+        Check(second.clip == first.nextClip && second.time == first.nextTime, "the next update plays what the last one named");
+        Check(!second.searched, "a search is not due yet");
+        Check(second.nextClip == second.clip && std::fabs(second.nextTime - (second.time + kDt)) < 1.0e-9, "the time goes on by the timestep");
+    }
+    {
+        ps::Matcher m;
+        ps::MatchRequest in = request();
+        m.Update(db, in, kDt);
+        double waited = 0;
+        ps::MatchStep s;
+        do {
+            s = m.Update(db, in, kDt);
+            waited += kDt;
+        } while (!s.searched && waited < 1.0);
+        Check(s.searched && waited >= ps::kSearchInterval - kDt, "the timer waits its interval");
+        Check(std::string_view(s.trigger) == "timer", "and says so");
+
+        ps::MatchStep again = m.Update(db, in, kDt);
+        Check(!again.searched, "no search right after one");
+        in.desiredX = 0.0f;
+        int updates = 1;
+        do {
+            again = m.Update(db, in, kDt);
+            ++updates;
+        } while (!again.searched && updates < 60);
+        Check(again.searched && std::string_view(again.trigger) == "forced", "a jump in the request searches early");
+        Check(updates * kDt >= ps::kForcedSpacing - 1.0e-4f && updates * kDt < ps::kSearchInterval, "at the spacing, before the timer");
+    }
+    {
+        /// @note Without a query nothing else can move it: it plays the first pick up to the clip's end.
+        ps::Matcher      m;
+        ps::MatchRequest in = request();
+        in.rate = 3.0f;
+        m.Update(db, in, kDt);
+        ps::MatchRequest quiet;
+        quiet.rate = 3.0f;
+        ps::MatchStep s = m.Update(db, quiet, kDt);
+        const double  duration = db.clips[s.clip].duration;
+        for (int i = 0; i < 2000 && s.time < duration; ++i) {
+            s = m.Update(db, quiet, kDt);
+            Check(s.time <= duration, "the time stops at the clip's end");
+            Check(!s.searched, "no query, no search");
+        }
+        Check(s.time == duration, "it plays to the clip's end");
+        const ps::MatchStep ended = m.Update(db, in, kDt);
+        Check(ended.searched && std::string_view(ended.trigger) == "clip end", "a clip's end searches at once");
+    }
+    {
+        ps::Matcher m;
+        ps::MatchRequest in = request();
+        m.Update(db, in, kDt);
+        const ps::MatchStep playing = m.Update(db, in, kDt);
+        const int           from    = db.clips[playing.clip].database;
+        Check(from >= 0, "the pick is in a database");
+
+        ps::MatchRequest change = in;
+        change.active = { 0, 0 };
+        change.active[1 - from] = 1;
+        ps::MatchStep unchanged = m.Update(db, change, kDt);
+        Check(!unchanged.searched || std::string_view(unchanged.trigger) != "interrupt", "out of the pick without a change of input does not interrupt");
+        change.inputsChanged = true;
+        const ps::MatchStep cut = m.Update(db, change, kDt);
+        Check(cut.searched && std::string_view(cut.trigger) == "interrupt", "out of the pick with a change of input interrupts");
+        if (cut.switched) Check(db.clips[cut.nextClip].database == 1 - from, "an interrupt plays from the new pick");
+    }
+    {
+        /// @note The ban: no pick lands within reach of where an earlier pick of the last reselectTime would be now.
+        ps::Matcher m;
+        struct Seen { int clip; double frame; double at; };
+        std::vector<Seen> seen;
+        double            clock = 0;
+        int               picks = 0;
+        for (int i = 0; i < 1200; ++i) {
+            const ps::MatchStep s = m.Update(db, request(), kDt);
+            clock += kDt;
+            if (!s.switched) continue;
+            ++picks;
+            const int row = s.result.bestRow;
+            for (const Seen& p : seen) {
+                if (clock - p.at > 1.0 || p.clip != s.nextClip) continue;
+                const double at = p.frame + (clock - p.at) * 1.0 / db.clips[p.clip].dt;
+                Check(std::fabs((row - db.clips[p.clip].first) - at) >= ps::kIgnoreSurrounding - 1, "a recent pick's neighbourhood stays banned");
+            }
+            seen.push_back({ s.nextClip, static_cast<double>(row - db.clips[s.nextClip].first), clock });
+        }
+        Check(picks > 1, "random queries keep picking");
+    }
+    {
+        ps::Matcher m;
+        const ps::MatchRequest in = request();
+        m.Update(db, in, kDt);
+        m.Update(db, in, kDt);
+        m.Restart();
+        ps::MatchRequest none;
+        Check(m.Update(db, none, kDt).clip == -1, "a restart forgets what plays");
+        Check(m.Update(db, in, kDt).searched, "and the next query searches at once");
+    }
+}
+
 /// @brief A clip through the same text-to-cached-clip path the plugin measures with.
 void MeasureChecks() {
     anim::AnimationDef def;
@@ -522,6 +683,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     RelayChecks();
     DatabaseChecks(reg, tmp);
     AgreementChecks(reg, tmp);
+    MatcherChecks(reg, tmp);
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

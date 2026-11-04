@@ -4,6 +4,8 @@
 #include <decompile/BehaviorDecompile.h>
 
 #include <algorithm>
+#include <bit>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <format>
@@ -193,46 +195,109 @@ namespace CB::engine::locomotion {
         return e;
     }
 
-    void ReadDatabases(const SchemaObject& sel, Database& db, const WarnFn& warn)
+    std::string DatabaseSpec::Key() const
     {
-        const auto* field   = sel.HasField("databases") ? sel.FindField("databases") : nullptr;
-        const bool  implied = !field || field->objs.empty();
-        if (implied) {
-            db.databases.push_back({ "(every child)" });
-        } else {
+        std::string out;
+        const auto  text = [&](std::string_view s) { out.append(s), out += '\x1f'; };
+        const auto  bits = [&](float f) { out += std::format("{:08x}\x1f", std::bit_cast<std::uint32_t>(f)); };
+        for (const SpecChild& c : children) {
+            text(c.clip), text(c.database);
+            bits(c.rangeStart), bits(c.rangeEnd);
+            out += std::to_string(c.flags);
+            out += '\x1e';
+        }
+        out += '\x1d';
+        for (const SpecDatabase& d : databases) {
+            text(d.name), text(d.baseCostBias), text(d.continuingPoseCostBias), text(d.loopingCostBias);
+            text(d.standingCandidate), text(d.movingCandidate);
+            out += d.pivots ? "1\x1e" : "0\x1e";
+        }
+        out += haveChooser ? "\x1d" "1" : "\x1d" "0";
+        for (const SpecChooserRow& r : rows) {
+            text(r.when);
+            for (const auto& name : r.databases) text(name);
+            out += '\x1e';
+        }
+        out += '\x1d';
+        for (const auto& name : fallback) text(name);
+        return out;
+    }
+
+    DatabaseSpec SpecOf(const SchemaObject& selector)
+    {
+        DatabaseSpec spec;
+        if (const auto* field = selector.HasField("databases") ? selector.FindField("databases") : nullptr)
             for (const auto& o : field->objs) {
                 const auto* d = dynamic_cast<const SchemaObject*>(o.get());
                 if (!d) continue;
-                PoseDatabase p;
-                p.name       = d->Str("name");
-                p.base       = CompileExpression(StrOr(*d, "baseCostBias"), "database '" + p.name + "' baseCostBias", "0", warn);
-                p.continuing = CompileExpression(StrOr(*d, "continuingPoseCostBias"), "database '" + p.name + "' continuingPoseCostBias", "0", warn);
-                p.looping    = CompileExpression(StrOr(*d, "loopingCostBias"), "database '" + p.name + "' loopingCostBias", "0", warn);
-                p.standing   = CompileExpression(StrOr(*d, "standingCandidate"), "database '" + p.name + "' standingCandidate",
-                                                 "no row is a standing candidate", warn);
-                p.moving     = CompileExpression(StrOr(*d, "movingCandidate"), "database '" + p.name + "' movingCandidate",
-                                                 "no row is a moving candidate", warn);
+                SpecDatabase p;
+                p.name                   = d->Str("name");
+                p.baseCostBias           = StrOr(*d, "baseCostBias");
+                p.continuingPoseCostBias = StrOr(*d, "continuingPoseCostBias");
+                p.loopingCostBias        = StrOr(*d, "loopingCostBias");
+                p.standingCandidate      = StrOr(*d, "standingCandidate");
+                p.movingCandidate        = StrOr(*d, "movingCandidate");
                 if (const auto* tags = d->FindField("tags"))
                     p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
-                db.databases.push_back(std::move(p));
+                spec.databases.push_back(std::move(p));
             }
+        for (const auto& o : selector.Children("children")) {
+            SpecChild   c;
+            const auto* row = dynamic_cast<const SchemaObject*>(o.get());
+            if (row) {
+                const auto* gen = row->Child("generator");
+                if (gen && std::string_view(gen->ClassName()) == "hkbClipGenerator") c.clip = gen->Str("animationName");
+                c.database   = StrOr(*row, "database");
+                c.rangeStart = row->GetFloat("rangeStart");
+                c.rangeEnd   = row->GetFloat("rangeEnd");
+                c.flags      = static_cast<std::uint8_t>((row->GetBool("disableReselection") ? kFlagDisableReselection : 0) |
+                                                         (row->GetBool("looping") ? kFlagLooping : 0));
+            }
+            spec.children.push_back(std::move(c));
         }
-        const auto& rows = sel.Children("children");
-        for (std::size_t i = 0; i < rows.size(); ++i) {
-            const auto* row = dynamic_cast<const SchemaObject*>(rows[i].get());
-            if (!row) continue;
-            Clip& c      = db.clips[i];
-            c.flags      = static_cast<std::uint8_t>((row->GetBool("disableReselection") ? kFlagDisableReselection : 0) |
-                                                     (row->GetBool("looping") ? kFlagLooping : 0));
-            c.rangeStart = row->GetFloat("rangeStart");
-            c.rangeEnd   = row->GetFloat("rangeEnd");
+        if (const SchemaObject* chooser = selector.HasField("chooser") ? selector.Child("chooser") : nullptr) {
+            spec.haveChooser = true;
+            if (const auto* rows = chooser->FindField("rows"))
+                for (const auto& o : rows->objs) {
+                    const auto* r = dynamic_cast<const SchemaObject*>(o.get());
+                    if (!r) continue;
+                    SpecChooserRow row;
+                    row.when = StrOr(*r, "when");
+                    if (const auto* names = r->FindField("databases")) row.databases = names->strs;
+                    spec.rows.push_back(std::move(row));
+                }
+            if (const auto* fallback = chooser->FindField("fallback")) spec.fallback = fallback->strs;
+        }
+        return spec;
+    }
+
+    void ReadDatabases(const DatabaseSpec& spec, Database& db, const WarnFn& warn)
+    {
+        const bool implied = spec.databases.empty();
+        if (implied) db.databases.push_back({ "(every child)" });
+        for (const SpecDatabase& d : spec.databases) {
+            PoseDatabase p;
+            p.name       = d.name;
+            p.base       = CompileExpression(d.baseCostBias, "database '" + p.name + "' baseCostBias", "0", warn);
+            p.continuing = CompileExpression(d.continuingPoseCostBias, "database '" + p.name + "' continuingPoseCostBias", "0", warn);
+            p.looping    = CompileExpression(d.loopingCostBias, "database '" + p.name + "' loopingCostBias", "0", warn);
+            p.standing   = CompileExpression(d.standingCandidate, "database '" + p.name + "' standingCandidate", "no row is a standing candidate", warn);
+            p.moving     = CompileExpression(d.movingCandidate, "database '" + p.name + "' movingCandidate", "no row is a moving candidate", warn);
+            p.pivots     = d.pivots;
+            db.databases.push_back(std::move(p));
+        }
+        for (std::size_t i = 0; i < spec.children.size(); ++i) {
+            const SpecChild& row = spec.children[i];
+            Clip&            c   = db.clips[i];
+            c.flags      = row.flags;
+            c.rangeStart = row.rangeStart;
+            c.rangeEnd   = row.rangeEnd;
             if (implied) {
                 c.database = 0;
                 continue;
             }
-            const std::string& name = row->Str("database");
-            const auto         it   = std::find_if(db.databases.begin(), db.databases.end(), [&](const PoseDatabase& d) { return d.name == name; });
-            if (it == db.databases.end()) Warn(warn, std::format("child {} names database '{}', which the graph lacks - never searched", i, name));
+            const auto it = std::find_if(db.databases.begin(), db.databases.end(), [&](const PoseDatabase& d) { return d.name == row.database; });
+            if (it == db.databases.end()) Warn(warn, std::format("child {} names database '{}', which the graph lacks - never searched", i, row.database));
             else c.database = static_cast<int>(it - db.databases.begin());
         }
     }
@@ -248,45 +313,43 @@ namespace CB::engine::locomotion {
         return out;
     }
 
-    void ReadChooser(const SchemaObject& sel, Database& db, const WarnFn& warn)
+    void ReadChooser(const DatabaseSpec& spec, Database& db, const WarnFn& warn)
     {
-        const SchemaObject* chooser = sel.HasField("chooser") ? sel.Child("chooser") : nullptr;
-        if (!chooser) return;
+        if (!spec.haveChooser) return;
         db.haveChooser = true;
-        if (const auto* rows = chooser->FindField("rows"))
-            for (const auto& o : rows->objs) {
-                const auto* r = dynamic_cast<const SchemaObject*>(o.get());
-                if (!r) continue;
-                ChooserRow row;
-                row.when = CompileExpression(StrOr(*r, "when"), "chooser row " + std::to_string(db.chooser.size()) + " `when`",
-                                             "the row never holds", warn);
-                if (const auto* names = r->FindField("databases")) row.databases = DatabasesNamed(db, names->strs, "row", warn);
-                db.chooser.push_back(std::move(row));
-            }
-        if (const auto* fallback = chooser->FindField("fallback")) db.fallback = DatabasesNamed(db, fallback->strs, "fallback", warn);
+        for (const SpecChooserRow& r : spec.rows) {
+            ChooserRow row;
+            row.when      = CompileExpression(r.when, "chooser row " + std::to_string(db.chooser.size()) + " `when`", "the row never holds", warn);
+            row.databases = DatabasesNamed(db, r.databases, "row", warn);
+            db.chooser.push_back(std::move(row));
+        }
+        db.fallback = DatabasesNamed(db, spec.fallback, "fallback", warn);
     }
 
     std::unique_ptr<Database> BuildDatabase(const SchemaObject& selector, const ClipSource& clips, const WarnFn& warn, BuildReport* report)
     {
+        return BuildDatabase(SpecOf(selector), clips, warn, report);
+    }
+
+    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const ClipSource& clips, const WarnFn& warn, BuildReport* report)
+    {
         auto        db       = std::make_unique<Database>();
-        const auto& children = selector.Children("children");
+        const auto& children = spec.children;
         db->clips.resize(children.size());
-        ReadDatabases(selector, *db, warn);
-        ReadChooser(selector, *db, warn);
+        ReadDatabases(spec, *db, warn);
+        ReadChooser(spec, *db, warn);
 
         /// @note Keyed by the exact animationName: case is never folded (a differently cased name is its own clip).
         std::map<std::string, std::unique_ptr<Measured>> measured;
         std::vector<const Measured*>                     of(children.size(), nullptr);
         std::array<std::vector<float>, 4>                gaitSpeeds;
         for (std::size_t i = 0; i < children.size(); ++i) {
-            const auto* row = dynamic_cast<const SchemaObject*>(children[i].get());
-            const auto* gen = row ? row->Child("generator") : nullptr;
-            if (!gen || std::string_view(gen->ClassName()) != "hkbClipGenerator") {
+            if (children[i].clip.empty()) {
                 Warn(warn, std::format("selector child {} is not a clip generator - never chosen", i));
                 continue;
             }
             Clip& c = db->clips[i];
-            c.name  = gen->Str("animationName");
+            c.name  = children[i].clip;
             auto it = measured.find(c.name);
             if (it == measured.end()) {
                 std::unique_ptr<Measured> m;
@@ -512,6 +575,107 @@ namespace CB::engine::locomotion {
             }
         });
         std::sort_heap(out.begin(), out.end(), better);
+        return out;
+    }
+
+    void Matcher::Restart()
+    {
+        m_clip = m_pendingClip = -1;
+        m_time = m_pendingTime = 0;
+        m_searchNow = true;
+        m_interrupt = false;
+        m_interruptActive.clear();
+        m_lastSearch = -1.0e9;
+        m_lastWantX = m_lastWantY = 0;
+        m_picks.clear();
+    }
+
+    MatchStep Matcher::Update(const Database& db, const MatchRequest& in, float dt)
+    {
+        MatchStep out;
+        m_clock += dt;
+        if (m_pendingClip >= 0) {
+            m_clip        = m_pendingClip;
+            m_time        = m_pendingTime;
+            m_pendingClip = -1;
+        } else if (m_clip >= 0) {
+            m_time += dt * in.rate;
+        }
+        if (m_clip >= 0) {
+            const Clip& c = db.clips[m_clip];
+            if (m_time >= c.duration - kEndMargin) m_searchNow = true;
+            m_time = (std::min)(m_time, c.duration);
+            if (in.inputsChanged && c.database >= 0 && !IsActive(in.active, c.database)) {
+                m_interrupt       = true;
+                m_interruptActive = in.active;
+            }
+        }
+        out.clip = m_clip;
+        out.time = m_time;
+
+        const auto due = [&] {
+            if (!in.haveQuery) return false;
+            const double elapsed = m_clock - m_lastSearch;
+            /// @note Forced: the request jumped since the last search, in speed or (while moving) in direction.
+            const float speed = std::hypot(in.desiredX, in.desiredY), lastSpeed = std::hypot(m_lastWantX, m_lastWantY);
+            bool        forced = std::fabs(speed - lastSpeed) > kForceSpeed;
+            if (!forced && speed > kForceMoving && lastSpeed > kForceMoving)
+                forced = (in.desiredX * m_lastWantX + in.desiredY * m_lastWantY) / (speed * lastSpeed) < kForceCos;
+            out.trigger = m_interrupt ? "interrupt" : m_searchNow ? "clip end" : elapsed < kSearchInterval ? "forced" : "timer";
+            return m_searchNow || m_interrupt || elapsed >= kSearchInterval || (forced && elapsed >= kForcedSpacing);
+        };
+        if (due()) {
+            /// @note The reselect ban: each pick of the last reselectTime, advanced by the clip time played since (at the
+            ///       current rate), bans the rows within kIgnoreSurrounding of where it would be now, as merged row ranges.
+            std::erase_if(m_picks, [&](const Pick& p) { return m_clock - p.at > in.reselectTime; });
+            Query q;
+            for (const Pick& p : m_picks) {
+                const Clip&  c  = db.clips[p.clip];
+                const double at = p.frame + (m_clock - p.at) * in.rate / c.dt;
+                const int    lo = (std::max)(0, static_cast<int>(std::floor(at)) - kIgnoreSurrounding);
+                const int    hi = (std::min)(c.frames - 1, static_cast<int>(std::ceil(at)) + kIgnoreSurrounding);
+                if (lo <= hi) q.banned.emplace_back(c.first + lo, c.first + hi);
+            }
+            std::sort(q.banned.begin(), q.banned.end());
+            q.x = in.x, q.y = in.y, q.dirX = in.dirX, q.dirY = in.dirY;
+            q.pastX = in.pastX, q.pastY = in.pastY, q.pastDirX = in.pastDirX, q.pastDirY = in.pastDirY;
+            q.desiredX    = in.desiredX;
+            q.desiredY    = in.desiredY;
+            q.currentClip = m_clip;
+            q.currentTime = m_time;
+            q.active      = m_interrupt ? m_interruptActive : in.active;
+            q.biases      = in.biases;
+            q.clipEnd     = m_searchNow;
+            q.interrupt   = m_interrupt;
+
+            m_searchNow  = false;
+            m_interrupt  = false;
+            m_lastSearch = m_clock;
+            m_lastWantX  = in.desiredX;
+            m_lastWantY  = in.desiredY;
+
+            const auto t0 = std::chrono::steady_clock::now();
+            out.result    = Search(db, q);
+            out.searchMs  = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            out.searched  = true;
+            out.searchedActive = std::move(q.active);
+            if (out.result.wins) {
+                const int   clip = db.clipOf[out.result.bestRow];
+                const Clip& c    = db.clips[clip];
+                m_pendingClip = clip;
+                m_pendingTime = (out.result.bestRow - c.first) * c.dt;
+                m_picks.push_back({ clip, static_cast<double>(out.result.bestRow - c.first), m_clock });
+                out.switched = true;
+            }
+        }
+
+        if (m_pendingClip >= 0) {
+            out.nextClip = m_pendingClip;
+            out.nextTime = m_pendingTime;
+        } else if (m_clip >= 0) {
+            out.nextClip = m_clip;
+            out.nextTime = (std::min)(m_time + dt * in.rate, db.clips[m_clip].duration);
+        }
         return out;
     }
 

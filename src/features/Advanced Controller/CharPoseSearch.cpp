@@ -3,6 +3,7 @@
 #include "CharPoseSearch.h"
 
 #include "CharGround.h"
+#include "CharMotionMatching.h"
 #include "CharSkeletonWatch.h"
 
 #include <locomotion/DeadBlend.h>
@@ -10,8 +11,10 @@
 #include <platform/profile/Profile.h>
 
 #include <Common/Base/hkBase.h>
+#include <Common/Base/Reflection/hkClass.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbNodeInfo.h>
 #include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
 
@@ -23,6 +26,7 @@
 #include <cstring>
 #include <mutex>
 #include <new>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -169,9 +173,12 @@ namespace CB::feature::controller::motion {
         return cls;
     }
 
+    /// @note A parent activates before its children, and each child copies its bindings as it does: what the first search
+    ///       writes here reaches the child that first plays.
     void PoseSearchGenerator::activate(const ::hkbContext& context)
     {
         m_currentIndex = computeCurrentIndex();
+        if (const int next = RunMatcher(context, *this, 0.0f, true); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
     }
 
     void PoseSearchGenerator::update(const ::hkbContext& context, ::hkReal timestep)
@@ -187,6 +194,57 @@ namespace CB::feature::controller::motion {
             ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
             rootBehavior->m_updateActiveNodes  = true;
         }
+        RunMatcher(context, *this, timestep, false);
+    }
+
+    std::optional<CB::engine::locomotion::DatabaseSpec> PoseSearchGenerator::Describe(const ::hkbContext& context) const
+    {
+        const PoseSearchGenerator* from = this;
+        if (m_cloneState == CLONE_STATE_CLONE) {
+            from = static_cast<const PoseSearchGenerator*>(context.m_character->m_behaviorGraph->getNodeTemplate(this));
+            if (!from) return std::nullopt;
+        }
+        const auto text = [](const char* s) { return s ? std::string(s) : std::string(); };
+        const auto name = [&](const ::hkStringPtr& s) { return text(s.cString()); };
+        loco::DatabaseSpec spec;
+        for (int i = 0; i < from->m_databases.getSize(); ++i) {
+            const PoseSearchDatabase& d = from->m_databases[i];
+            loco::SpecDatabase        out;
+            out.name                   = name(d.m_name);
+            out.baseCostBias           = name(d.m_baseCostBias);
+            out.continuingPoseCostBias = name(d.m_continuingPoseCostBias);
+            out.loopingCostBias        = name(d.m_loopingCostBias);
+            out.standingCandidate      = name(d.m_standingCandidate);
+            out.movingCandidate        = name(d.m_movingCandidate);
+            for (int t = 0; t < d.m_tags.getSize(); ++t)
+                if (name(d.m_tags[t]) == "Pivots") out.pivots = true;
+            spec.databases.push_back(std::move(out));
+        }
+        for (int i = 0; i < from->m_children.getSize(); ++i) {
+            const PoseSearchChild& row = from->m_children[i];
+            loco::SpecChild        out;
+            const ::hkClass*       cls = row.m_generator ? row.m_generator->getClassType() : nullptr;
+            if (cls && std::strcmp(cls->getName(), "hkbClipGenerator") == 0)
+                out.clip = name(static_cast<const ::hkbClipGenerator*>(row.m_generator)->m_animationName);
+            out.database   = text(row.m_database);
+            out.rangeStart = row.m_rangeStart;
+            out.rangeEnd   = row.m_rangeEnd;
+            out.flags      = static_cast<std::uint8_t>((row.m_disableReselection ? loco::kFlagDisableReselection : 0) |
+                                                       (row.m_looping ? loco::kFlagLooping : 0));
+            spec.children.push_back(std::move(out));
+        }
+        if (const PoseSearchChooser* chooser = from->m_chooser) {
+            spec.haveChooser = true;
+            for (int r = 0; r < chooser->m_rows.getSize(); ++r) {
+                const PoseSearchChooserRow& row = chooser->m_rows[r];
+                loco::SpecChooserRow        out;
+                out.when = name(row.m_when);
+                for (int d = 0; d < row.m_databases.getSize(); ++d) out.databases.push_back(name(row.m_databases[d]));
+                spec.rows.push_back(std::move(out));
+            }
+            for (int f = 0; f < chooser->m_fallback.getSize(); ++f) spec.fallback.push_back(name(chooser->m_fallback[f]));
+        }
+        return spec;
     }
 
     int PoseSearchGenerator::getMaxNumChildren(GetChildrenFlags flags)
