@@ -187,26 +187,7 @@ namespace CB::feature {
             int    clip = -1;
             double time = 0;
         };
-        /// @brief What the player's node plays, for the frame hook and Describe.
-        struct Shown {
-            std::mutex lock;
-            Playback   now;
-        };
-        Shown g_shown;
-
-        /// @brief The predictor's latest query, which the frame hook turns into graph variables.
-        struct LatestQuery {
-            std::mutex        lock;
-            ch::motion::Query q;
-            bool              valid = false;
-            Clock::time_point at{};
-        };
-        LatestQuery      g_query;
         constexpr double kQueryStale = 0.25;   ///< seconds without a query from the predictor before there is none
-        /// @brief The playback rate (clip seconds per second): written by the predictor's Rate, read by the frame hook.
-        std::atomic<float> g_rate{ 1.0f };
-        /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
-        std::atomic<float> g_timeToLand{ controller::motion::kNoLanding };
         /// @brief When the last switch was chosen (steady_clock ticks; 0 = none yet), for Describe.
         std::atomic<Clock::rep> g_lastSwitch{ 0 };
         std::atomic<int>   g_logs{ 0 };
@@ -489,18 +470,53 @@ namespace CB::feature {
             float turnHold = 0;       ///< seconds ShouldTurnInPlace stays raised
         };
 
+        /// @brief One character's side of the matching, by FormID: what the predictor, the frame hook and the node hand each other.
+        /// @note  Entries stay, a small one per character met.
+        struct CharacterMatch {
+            /// @brief The node's current clip, for the frame hook and Describe.
+            std::mutex        shownLock;
+            Playback          shown;
+            /// @brief The predictor's latest query, which the frame hook turns into graph variables.
+            std::mutex        queryLock;
+            ch::motion::Query query;
+            bool              queryValid = false;
+            Clock::time_point queryAt{};
+            /// @brief The playback rate (clip seconds per second): written by the predictor's Rate, read by the frame hook.
+            std::atomic<float> rate{ 1.0f };
+            /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
+            std::atomic<float> timeToLand{ controller::motion::kNoLanding };
+            /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
+            Inputs            inputs = InitialInputs();
+            InputMemory       memory;
+            bool              enabled = false;
+        };
+
+        struct CharacterTable {
+            std::mutex                                                 lock;
+            std::unordered_map<RE::FormID, std::unique_ptr<CharacterMatch>> byActor;
+        };
+
+        CharacterMatch& MatchOf(RE::FormID actor)
+        {
+            static CharacterTable t;
+            std::scoped_lock lock(t.lock);
+            std::unique_ptr<CharacterMatch>& match = t.byActor[actor];
+            if (!match) match = std::make_unique<CharacterMatch>();
+            return *match;
+        }
+
         /// @brief GASP's chooser inputs for this frame into `io` (its previous values on entry).
         /// @param playingPivots the playing child's database is tagged "Pivots".
         /// @return false without a fresh movement-model frame: `io` keeps its values.
-        bool ComputeInputs(RE::Actor* player, float dt, bool playingPivots, Inputs& io)
+        bool ComputeInputs(RE::Actor* player, CharacterMatch& match, float dt, bool playingPivots, Inputs& io)
         {
-            static InputMemory m;
+            InputMemory& m = match.memory;
             const float z  = player->GetPosition().z;
             const float vz = m.haveZ && dt > 0.0f ? (z - m.lastZ) / dt : 0.0f;
             m.lastZ = z, m.haveZ = true;
 
             mv::Snapshot snap;
-            if (!mv::Current(snap)) return false;
+            if (!mv::Current(player->GetFormID(), snap)) return false;
             const mv::State& s      = snap.state;
             const mv::Input& in     = snap.input;
             const float      speed  = std::hypot(s.vx, s.vy);
@@ -549,7 +565,7 @@ namespace CB::feature {
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
             io.real[kSpeed2D]         = speed;
-            io.real[kTimeToLand]      = in.airborne ? g_timeToLand.load(std::memory_order_relaxed) : 0.0f;
+            io.real[kTimeToLand]      = in.airborne ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
             return true;
         }
 
@@ -612,18 +628,18 @@ namespace CB::feature {
             return names;
         }
 
-        /// @brief The predictor's latest query as the player's graph variables, and the playback rate.
+        /// @brief The predictor's latest query as the character's graph variables, and the playback rate.
         /// @return whether there is a query: the predictor's stopping (it stepped no query for kQueryStale) is none.
-        bool WriteQuery(RE::Actor* player)
+        bool WriteQuery(RE::Actor* player, CharacterMatch& match)
         {
             const QueryNames& names = QueryVariables();
-            player->SetGraphVariableFloat(names.rate, g_rate.load(std::memory_order_relaxed));
+            player->SetGraphVariableFloat(names.rate, match.rate.load(std::memory_order_relaxed));
             ch::motion::Query q;
             bool              have = false;
             {
-                std::scoped_lock lock(g_query.lock);
-                have = g_query.valid && std::chrono::duration<double>(Clock::now() - g_query.at).count() < kQueryStale;
-                q    = g_query.q;
+                std::scoped_lock lock(match.queryLock);
+                have = match.queryValid && std::chrono::duration<double>(Clock::now() - match.queryAt).count() < kQueryStale;
+                q    = match.query;
             }
             player->SetGraphVariableBool(names.have, have);
             if (!have) return false;
@@ -729,32 +745,53 @@ namespace CB::feature {
         /// @brief The character's side of motion matching: everything the node reads, set as the graph's variables each
         ///        frame, as the engine hands the graph its `Speed`.
         /// @note  Only the player so far: the inputs' memory here and the predictor's query are the player's alone.
+        /// @brief An NPC whose graph holds the add-on, the frame hook having no other way to tell: an NPC of a mod's own
+        ///        behavior project holds no MM_Enable.
+        RE::Actor* MatchingNpcOf(RE::MovementControllerNPC* controller)
+        {
+            static const bool on = core::debug::FlagOn("npc_controller");
+            RE::Actor* actor = on && controller ? controller->actor : nullptr;
+            if (!actor || actor == RE::PlayerCharacter::GetSingleton() || !actor->Is(RE::FormType::ActorCharacter)) return nullptr;
+            const auto& mc = actor->GetActorRuntimeData().movementController;
+            if (!mc || static_cast<void*>(mc.get()) != controller) return nullptr;
+            static const RE::BSFixedString enableName(kEnableVar);
+            std::int32_t enable = 0;
+            return actor->GetGraphVariableInt(enableName, enable) ? actor : nullptr;
+        }
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             next(controller, deltaTime, out);
             RE::Actor*       player = out ? PlayerOf(controller) : nullptr;
+            RE::Actor*       actor  = player ? player : out ? MatchingNpcOf(controller) : nullptr;
             const Database*  db     = g_db.load(std::memory_order_acquire);
-            if (!player) return;
-            ch::motion::QueueSkeletonWatch();
+            if (!actor) return;
+            if (player) ch::motion::QueueSkeletonWatch();
             if (!db) return;
-            CountFrame();
-            CB_PLOT("MM rate", g_rate.load(std::memory_order_relaxed));
+            if (player) CountFrame();
+            static const RE::BSFixedString enableName(kEnableVar);
+            CharacterMatch& match = MatchOf(actor->GetFormID());
+            /// @note An NPC its frame driver has let go (it sat down, mounted, died) goes back to the graph's own locomotion.
+            const auto* character = reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController());
+            if (!player && !ch::IsManagedNpc(character)) {
+                if (match.enabled) actor->SetGraphVariableInt(enableName, 0), match.enabled = false;
+                return;
+            }
+            if (player) CB_PLOT("MM rate", match.rate.load(std::memory_order_relaxed));
 
             Playback p;
             {
-                std::scoped_lock lock(g_shown.lock);
-                p = g_shown.now;
+                std::scoped_lock lock(match.shownLock);
+                p = match.shown;
             }
-            /// @note The frame hook's alone: the inputs as of the previous frame, then this one's.
-            static Inputs inputs = InitialInputs();
-            const int     playingDb = p.clip >= 0 ? db->clips[p.clip].database : -1;
-            ComputeInputs(player, deltaTime, playingDb >= 0 && db->databases[playingDb].pivots, inputs);
-            WriteInputs(player, inputs);
+            const int playingDb = p.clip >= 0 ? db->clips[p.clip].database : -1;
+            ComputeInputs(actor, match, deltaTime, playingDb >= 0 && db->databases[playingDb].pivots, match.inputs);
+            WriteInputs(actor, match.inputs);
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
-            if (!WriteQuery(player)) return;
-            static const RE::BSFixedString enableName(kEnableVar);
-            player->SetGraphVariableInt(enableName, 1);
+            if (!WriteQuery(actor, match)) return;
+            actor->SetGraphVariableInt(enableName, 1);
+            match.enabled = true;
         }
 
         [[maybe_unused]] const bool s_subscribed =
@@ -832,16 +869,17 @@ namespace CB::feature {
         return on;
     }
 
-    void controller::motion::SetTimeToLand(float seconds) { g_timeToLand.store(seconds, std::memory_order_relaxed); }
+    void controller::motion::SetTimeToLand(RE::FormID actor, float seconds) { MatchOf(actor).timeToLand.store(seconds, std::memory_order_relaxed); }
 
     std::string controller::motion::Describe()
     {
         const Database* db = g_db.load(std::memory_order_acquire);
         if (!db) return "no database";
-        Playback p;
+        CharacterMatch& match = MatchOf(ch::move::kPlayerId);
+        Playback        p;
         {
-            std::scoped_lock lock(g_shown.lock);
-            p = g_shown.now;
+            std::scoped_lock lock(match.shownLock);
+            p = match.shown;
         }
         if (p.clip < 0) return "no clip chosen yet";
         const Clip&      c    = db->clips[p.clip];
@@ -852,30 +890,33 @@ namespace CB::feature {
                            c.frames > 0 ? FrameOf(c, p.time) : 0, BlendRemaining(), ago);
     }
 
-    float controller::motion::Rate(const FrameSpeed* frame)
+    float controller::motion::Rate(RE::FormID actor, const FrameSpeed* frame)
     {
-        const Database* db   = g_db.load(std::memory_order_acquire);
-        const float     last = g_rate.load(std::memory_order_relaxed);
+        CharacterMatch& match = MatchOf(actor);
+        const Database* db    = g_db.load(std::memory_order_acquire);
+        const float     last  = match.rate.load(std::memory_order_relaxed);
         if (!db || !frame || frame->gait == Gait::None || frame->full < kRateStill) return last;
         const float clipSpeed = db->gaitSpeed[static_cast<std::size_t>(frame->gait)];
         if (clipSpeed <= 0.0f) return last;
         const float rate = std::clamp(frame->full / clipSpeed, kMinRate, kMaxRate);
-        g_rate.store(rate, std::memory_order_relaxed);
+        match.rate.store(rate, std::memory_order_relaxed);
         return rate;
     }
 
-    void controller::motion::Publish(const Query& q)
+    void controller::motion::Publish(RE::FormID actor, const Query& q)
     {
-        std::scoped_lock lock(g_query.lock);
-        g_query.q     = q;
-        g_query.valid = true;
-        g_query.at    = Clock::now();
+        CharacterMatch&  match = MatchOf(actor);
+        std::scoped_lock lock(match.queryLock);
+        match.query      = q;
+        match.queryValid = true;
+        match.queryAt    = Clock::now();
     }
 
-    void controller::motion::PublishNoQuery()
+    void controller::motion::PublishNoQuery(RE::FormID actor)
     {
-        std::scoped_lock lock(g_query.lock);
-        g_query.valid = false;
+        CharacterMatch&  match = MatchOf(actor);
+        std::scoped_lock lock(match.queryLock);
+        match.queryValid = false;
     }
 
     int controller::motion::RunMatcher(const ::hkbContext& context, const PoseSearchGenerator& node, float timestep, bool restart)
@@ -898,7 +939,9 @@ namespace CB::feature {
             s.db = DatabaseFor(*spec);
             if (!s.db) return -1;
             s.matcher.Restart();
-            LOG_INFO("motion matching: '{}' searches {} child(ren) of a database built for its own data", actor->GetName(), s.db->clips.size());
+            static std::atomic<int> searchers{ 0 };
+            if (searchers.fetch_add(1, std::memory_order_relaxed) < 32)
+                LOG_INFO("motion matching: '{}' searches {} child(ren) of a database built for its own data", actor->GetName(), s.db->clips.size());
         }
         const Database& db       = *s.db;
         const bool      isPlayer = actor == RE::PlayerCharacter::GetSingleton();
@@ -925,7 +968,8 @@ namespace CB::feature {
 
         if (request.active != s.lastActive) {
             static std::atomic<int> changes{ 0 };
-            if (changes.fetch_add(1, std::memory_order_relaxed) < 300) {
+            /// @note The log's lines are the player's: every NPC's would spend them all.
+            if (isPlayer && changes.fetch_add(1, std::memory_order_relaxed) < 300) {
                 const int playing = step.clip >= 0 ? db.clips[step.clip].database : -1;
                 LOG_INFO("motion matching: searching {} ({}){}", ActiveNames(db, request.active), InputsText(in),
                          step.searched && std::string_view(step.trigger) == "interrupt" && playing >= 0
@@ -983,11 +1027,12 @@ namespace CB::feature {
             h.blend    = BlendRemaining();
             ch::hud::Publish(h);
         };
-        if (step.searched) report();
+        if (step.searched && isPlayer) report();
 
-        if (isPlayer) {
-            std::scoped_lock lock(g_shown.lock);
-            g_shown.now = { step.clip, step.time };
+        {
+            CharacterMatch&  match = MatchOf(actor->GetFormID());
+            std::scoped_lock lock(match.shownLock);
+            match.shown = { step.clip, step.time };
         }
         if (step.nextClip < 0) return -1;
         /// @note Through the graph's own bindings: the engine copies these into this node and every child before their

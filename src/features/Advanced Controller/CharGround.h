@@ -42,9 +42,19 @@ namespace CB::feature::controller {
     /// @note The debug HUD shows this controller's step.
     inline bool IsControlled(const ::bhkCharacterController* ctrl) { return Riding() ? IsRiddenHorse(ctrl) : IsPlayer(ctrl); }
 
-    /// @brief The controllers CB's decision layer runs: the player's and the ridden horse's, on the proxy.
-    inline bool IsManaged(const ::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl)); }
-    /// @brief The actor a managed controller moves (the player, the ridden horse); null for any other.
+    /// @brief Publishes `npc` as held by its frame driver this frame (npc_controller).
+    /// @note Physics callbacks ask IsManagedNpc instead of resolving the actor themselves, as they do for the ridden horse.
+    void PublishNpc(RE::Actor& npc);
+    /// @brief `npc` left its driver's hands (it sat down, mounted, swam, ragdolled): vanilla's layers take it at once.
+    void UnpublishNpc(RE::Actor& npc);
+    /// @brief Whether `ctrl` is the controller of an NPC published within the last half second.
+    bool IsManagedNpc(const ::bhkCharacterController* ctrl);
+    /// @brief Whether `ctrl` has ever been an NPC's, published or not: its per-controller state may need a restart.
+    bool WasManagedNpc(const ::bhkCharacterController* ctrl);
+
+    /// @brief The controllers CB's decision layer runs, on the proxy: the player's, the ridden horse's, and the driven NPCs'.
+    inline bool IsManaged(const ::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl) || IsManagedNpc(&ctrl)); }
+    /// @brief The actor a managed controller moves (the player, the ridden horse, a driven NPC); null for any other.
     RE::NiPointer<RE::Actor> ManagedActor(const ::bhkCharacterController& ctrl);
 
     /// @brief The graph flag under which the graph moves `actor` itself (bAnimationDriven, bIsSynced), empty when

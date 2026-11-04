@@ -207,6 +207,12 @@ namespace CB::core::debug {
           "the player's flags (bStateWrapper, bGroundStates, bPlanes, bStepQuery): its footing is checked under its front "
           "and hind hooves (grounded when both stand; one end on ground holds it), and it walks up to 55 deg (the "
           "player 47). Read once as the game starts: changing it needs a restart. Unproven in game." },
+        { "npc_controller", FlagKind::IniBool, "Character", "bNpcController", false, false,
+          "Human NPCs on the Advanced Controller",
+          "Every race with the NPC keyword is built on the proxy controller, and each NPC in high process runs the player's "
+          "movement model, ground layer and predictor, with its AI package's movement frame in place of the stick. With "
+          "bMotionMatching on, those whose graph has the add-on also motion match. Creatures stay vanilla. Read once as the "
+          "game starts: changing it needs a restart. An experiment: costly, and unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "

@@ -22,6 +22,9 @@
 #include <string>
 #include <unordered_map>
 
+/// @note windows.h's GetObject macro (GetObjectW) would rename BGSDefaultObjectManager::GetObject.
+#undef GetObject
+
 /// @file
 /// @brief The frame drivers. The player's (char_movement_model): each frame the engine computes its frame from
 ///        forward-only input, so its speed is the gait's forward speed with every multiplier; CB then steps the movement
@@ -47,6 +50,7 @@ namespace CB::feature::controller {
         constexpr float kFreeAttackTurn  = 12.566371f;  ///< 720 deg/s
         constexpr float kMagnetReach     = 400.0f;      ///< units
         constexpr float kMagnetCone      = 1.0471976f;  ///< 60 deg either side of the aim
+        constexpr float kNpcStillSpeed   = 1.0f;        ///< game units/s: an AI asking for less stands
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
@@ -107,13 +111,16 @@ namespace CB::feature::controller {
         std::atomic<int>  g_restoreLogs{ 0 }, g_keepLogs{ 0 };
         std::atomic<bool> g_loggedTargetSpeed{ false };
 
-        /// @brief What CurrentSpeed hands out, stamped with the frame that wrote it.
+        /// @brief What CurrentSpeed hands out, stamped with the frame that wrote it, by FormID.
         struct Published {
-            std::mutex lock;
             FrameSpeed speed;
             double     at = -1.0e9;
         };
-        Published        g_published;
+        struct PublishedTable {
+            std::mutex                                lock;
+            std::unordered_map<RE::FormID, Published> byActor;
+        };
+        PublishedTable   g_published;
         constexpr double kStale = 0.5;
 
         double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -269,6 +276,12 @@ namespace CB::feature::controller {
                      move::kPlayer.sprintAccelFrom, move::kPlayer.sprintAccelTo, move::kPlayer.sprintFrictionTo);
         }
 
+        void PublishSpeed(RE::FormID actor, const FrameSpeed& speed)
+        {
+            std::scoped_lock lock(g_published.lock);
+            g_published.byActor[actor] = Published{ speed, Now() };
+        }
+
         float CapNow(const move::Caps& caps, const move::Input& in, const move::State& s)
         {
             return move::MaxSpeed(caps, in.mode, std::hypot(s.vx, s.vy) > 1.0f ? std::atan2(s.vx, s.vy) : s.yaw, s.yaw);
@@ -305,6 +318,28 @@ namespace CB::feature::controller {
             return Steer::Player;
         }
 
+        /// @brief Puts the engine's own speed and direction back before it computes a frame from them (see OnFrame's note).
+        void PutEngineStateBack(const EngineSpeed& es, RE::MiddleHighProcessData& mh)
+        {
+            if (!es.have) return;
+            const float seen = mh.currentMovementSpeed;
+            if (std::fabs(seen - es.written) <= 1.0e-3f * (std::max)(1.0f, std::fabs(es.written))) {
+                if (es.written != es.engine && g_restoreLogs.fetch_add(1, std::memory_order_relaxed) < 5)
+                    LOG_INFO("movement: engine speed state put back {:.1f} -> {:.1f}", seen, es.engine);
+                mh.currentMovementSpeed = es.engine;
+            } else if (g_keepLogs.fetch_add(1, std::memory_order_relaxed) < 5) {
+                LOG_INFO("movement: engine speed state {:.1f} is not CB's {:.1f} - the engine set it, kept", seen, es.written);
+            }
+            /// @note The direction the same way: Actor_ApplyFrameMovement stores the frame's angles in
+            ///       MiddleHighProcessData::rotation (+0xb0), which the actor's movement state hands back as its
+            ///       current movement (0x1406a2c70 -> 0x140710870), and MovementHandlerAgentLargeDeltaIdle
+            ///       (0x141210290 -> 0x1412192a0) weighs the current movement against the one asked for before it
+            ///       tweens instead of moving. CB's backward direction against the forward-only input is the largest
+            ///       delta there is.
+            /// @invariant The engine never sees CB's direction as its own.
+            if (mh.rotation.z == es.writtenDir) mh.rotation.z = es.engineDir;
+        }
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             RE::Actor* player   = out ? PlayerOf(controller) : nullptr;
@@ -321,25 +356,7 @@ namespace CB::feature::controller {
             ///       engine computes, the state is put back to the engine's own last value, unless the engine wrote a new
             ///       one since (the stick moved).
             /// @invariant The engine never sees CB's speed as its own.
-            if (driven && mh && driven->engineSpeed.have) {
-                const EngineSpeed& es = driven->engineSpeed;
-                const float seen = mh->currentMovementSpeed;
-                if (std::fabs(seen - es.written) <= 1.0e-3f * (std::max)(1.0f, std::fabs(es.written))) {
-                    if (es.written != es.engine && g_restoreLogs.fetch_add(1, std::memory_order_relaxed) < 5)
-                        LOG_INFO("movement: engine speed state put back {:.1f} -> {:.1f}", seen, es.engine);
-                    mh->currentMovementSpeed = es.engine;
-                } else if (g_keepLogs.fetch_add(1, std::memory_order_relaxed) < 5) {
-                    LOG_INFO("movement: engine speed state {:.1f} is not CB's {:.1f} - the engine set it, kept", seen, es.written);
-                }
-                /// @note The direction the same way: Actor_ApplyFrameMovement stores the frame's angles in
-                ///       MiddleHighProcessData::rotation (+0xb0), which the actor's movement state hands back as its
-                ///       current movement (0x1406a2c70 -> 0x140710870), and MovementHandlerAgentLargeDeltaIdle
-                ///       (0x141210290 -> 0x1412192a0) weighs the current movement against the one asked for before it
-                ///       tweens instead of moving. CB's backward direction against the forward-only input is the largest
-                ///       delta there is.
-                /// @invariant The engine never sees CB's direction as its own.
-                if (mh->rotation.z == es.writtenDir) mh->rotation.z = es.engineDir;
-            }
+            if (driven && mh) PutEngineStateBack(driven->engineSpeed, *mh);
 
             RE::NiPoint2 raw(0.0f, 0.0f);
             if (controls) {
@@ -513,11 +530,7 @@ namespace CB::feature::controller {
                              ::GetCurrentThreadId(), raw.x, raw.y, cameraYaw * kRad, haveStick ? stickHeading * kRad : -1.0f, heading * kRad,
                              s.yaw * kRad, out->turn[2] * kRad, std::atan2(s.vx, s.vy) * kRad);
             }
-            {
-                std::scoped_lock lock(g_published.lock);
-                g_published.speed = FrameSpeed{ full, speed, sl.scale, in.gait };
-                g_published.at    = Now();
-            }
+            PublishSpeed(player->GetFormID(), FrameSpeed{ full, speed, sl.scale, in.gait });
             if (hud::On() && !Riding()) {
                 hud::Movement h;
                 h.strafe    = in.mode == move::Mode::Strafe;
@@ -669,15 +682,124 @@ namespace CB::feature::controller {
 
         [[maybe_unused]] const bool s_horseSubscribed = Frame::Subscribe(&OnHorseFrame, hooks::Priority::Late, "CharFacing horse", "horse_movement_model");
 
+        /// @brief A human NPC on the proxy whose frame this is (npc_controller).
+        /// @note  Who is one: the race's NPC keyword, the test that put it on the proxy, so a creature that got there another
+        ///        way (a horse) stays out.
+        RE::Actor* NpcOf(RE::MovementControllerNPC* controller)
+        {
+            RE::Actor* actor = controller ? controller->actor : nullptr;
+            if (!actor || actor == RE::PlayerCharacter::GetSingleton() || !actor->Is(RE::FormType::ActorCharacter)) return nullptr;
+            const auto& mc = actor->GetActorRuntimeData().movementController;
+            if (!mc || static_cast<void*>(mc.get()) != controller) return nullptr;
+            static RE::BGSKeyword* const npcKey = [] {
+                auto* objects = RE::BGSDefaultObjectManager::GetSingleton();
+                auto** slot   = objects ? objects->GetObject<RE::BGSKeyword>(RE::DefaultObjectID::kKeywordNPC) : nullptr;
+                return slot ? *slot : nullptr;
+            }();
+            const RE::TESRace* race = actor->GetRace();
+            if (!npcKey || !race || !race->HasKeyword(npcKey)) return nullptr;
+            const auto* character = reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController());
+            return character && IsProxy(*character) ? actor : nullptr;
+        }
+
+        /// @brief Whether the engine keeps `npc` whatever it asks: nothing here reads an AI's walking.
+        bool NpcOutOfHand(RE::Actor* npc)
+        {
+            const auto* state = npc->AsActorState();
+            return npc->IsDead() || npc->IsInRagdollState() || npc->IsOnMount() || state->IsSwimming() || state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal ||
+                   state->GetKnockState() != RE::KNOCK_STATE_ENUM::kNormal || state->GetFlyState() != RE::FLY_STATE::kNone;
+        }
+
+        /// @brief An NPC's frame driver: the player's movement model, with what the AI asks for in place of the stick.
+        /// @note  It runs after the engine computed the NPC's frame: a package's goal has become a path and the path this
+        ///        frame's speed and direction by then. Those are the input, and the frame's speed the cap, so the AI still
+        ///        decides everything and the model only decides how the body gets there.
+        /// @note  The facing stays the engine's (the turn it asked for): an NPC faces what its AI faces, a combat target
+        ///        included. Only the velocity is the model's.
+        void OnNpcFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
+        {
+            RE::Actor* npc     = out && move::On() ? NpcOf(controller) : nullptr;
+            auto*      process = npc ? npc->GetActorRuntimeData().currentProcess : nullptr;
+            auto*      mh      = process ? process->middleHigh : nullptr;
+            Driven*    driven  = npc ? &g_driven.Of(npc->GetFormID()) : nullptr;
+            if (driven && mh) PutEngineStateBack(driven->engineSpeed, *mh);
+            next(controller, deltaTime, out);
+            if (!npc) return;
+
+            Driven&      d  = *driven;
+            EngineSpeed& es = d.engineSpeed;
+            if (NpcOutOfHand(npc)) {
+                UnpublishNpc(*npc);
+                d.init = false;
+                es     = EngineSpeed{};
+                return;
+            }
+            PublishNpc(*npc);
+
+            const float heading   = npc->GetHeading(false);
+            const float full      = out->speed;
+            const float engineDir = out->angles[2];
+            move::State& s = d.state;
+            const bool graphDrives = GraphDrivesSpeed(npc)[0] != 0;
+            if (!d.init || graphDrives || deltaTime <= 0.0f) {
+                /// @note The model restarts from the engine's own frame whenever it takes the NPC back.
+                const float dir = heading + engineDir;
+                s      = move::State{ full * std::sin(dir), full * std::cos(dir), heading, 0.0f };
+                d.init = !graphDrives;
+                es     = EngineSpeed{};
+                if (graphDrives || deltaTime <= 0.0f) return;
+            }
+            s.yaw = heading;
+
+            const RE::NiPoint3 pos = npc->GetPosition();
+            move::Input        in;
+            in.mode      = move::Mode::Orient;
+            in.gait      = GaitOf(npc);
+            in.airborne  = Airborne(npc);
+            in.haveStick = full > kNpcStillSpeed;
+            /// @note An AI's walking need not raise the walk or run flag the way a stick does.
+            if (in.gait == Gait::None && in.haveStick) in.gait = Gait::Run;
+            if (in.haveStick) in.stickX = std::sin(heading + engineDir), in.stickY = std::cos(heading + engineDir);
+
+            float slopeGoal = 1.0f;
+            FloorVerdict ground;
+            const float  speed0 = std::hypot(s.vx, s.vy);
+            if (const auto* character = reinterpret_cast<const ::bhkCharacterController*>(npc->GetCharController()); character && PublishedVerdict(*character, ground)) {
+                const float dir = speed0 > 1.0f ? std::atan2(s.vx, s.vy) : heading + engineDir;
+                slopeGoal       = SlopeSpeedScale(ground, std::sin(dir), std::cos(dir));
+            }
+            Slope& sl = d.slope;
+            if (!sl.init) sl = Slope{ true, slopeGoal, 0.0f };
+            else SpringDamperExact(sl.scale, sl.rate, slopeGoal, kSlopeSpeedHalflife, deltaTime);
+
+            move::Caps caps;
+            caps.forward = full * sl.scale;
+            const float turned = heading + out->turn[2] * deltaTime;
+            move::Step(s, in, caps, move::kPlayer, pos.x, pos.y, deltaTime);
+
+            const float speed = std::hypot(s.vx, s.vy);
+            out->speed        = speed;
+            out->angles[2]    = 0.0f;
+            Face(out, heading, turned, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
+            es = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
+            move::Publish(npc->GetFormID(), move::Snapshot{ s, in, caps, move::kPlayer, pos.x, pos.y });
+            PublishSpeed(npc->GetFormID(), FrameSpeed{ full, speed, sl.scale, in.gait });
+        }
+
+        [[maybe_unused]] const bool s_npcSubscribed = Frame::Subscribe(&OnNpcFrame, hooks::Priority::Late, "CharFacing NPC", "npc_controller");
+
     }  // namespace
 
-    bool CurrentSpeed(FrameSpeed& out)
+    bool CurrentSpeed(RE::FormID actor, FrameSpeed& out)
     {
         std::scoped_lock lock(g_published.lock);
-        if (Now() - g_published.at > kStale) return false;
-        out = g_published.speed;
+        const auto       it = g_published.byActor.find(actor);
+        if (it == g_published.byActor.end() || Now() - it->second.at > kStale) return false;
+        out = it->second.speed;
         return true;
     }
+
+    bool CurrentSpeed(FrameSpeed& out) { return CurrentSpeed(move::kPlayerId, out); }
 
     bool StickHeading(float& heading)
     {

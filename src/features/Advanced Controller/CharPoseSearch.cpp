@@ -329,8 +329,8 @@ namespace CB::feature::controller::motion {
         const auto              now    = Clock::now();
         const auto [found, created]    = table.slots.try_emplace(context.m_character);
         BlendSlot&              slot   = found->second;
-        /// @note Who runs the node: only the player should (MM_Enable is set on the player's graph alone), so an NPC
-        ///       here means the add-on's switch fired for it.
+        /// @note Who runs the node: the player, and NPCs under npc_controller; without that flag an NPC here means the
+        ///       add-on's switch fired for it.
         if (created && table.seen.insert(context.m_character).second && table.seenLogs++ < kMaxSlotLogs) {
             const auto        player = IsPlayerCharacter(context.m_character);
             const char* const whose  = !player ? "not yet known (the skeleton watch has not run)" : *player ? "the player's" : "NOT the player's";
@@ -377,7 +377,8 @@ namespace CB::feature::controller::motion {
             CB_MESSAGE("MM blended bone {} broken (child {}, {:.3f} s in) - fell back to live", fault.bone, m_currentIndex, b.t);
         }
         std::memcpy(out, pose.data(), sizeof(loco::Bone) * static_cast<std::size_t>(bones));
-        g_blendRemaining.store(b.Remaining(s), std::memory_order_relaxed);
+        /// @note For the player's HUD and Describe: an NPC's blend isn't the one they show.
+        if (IsPlayerCharacter(context.m_character).value_or(false)) g_blendRemaining.store(b.Remaining(s), std::memory_order_relaxed);
         CB_PLOT("MM blend left", b.Remaining(s));
     }
 

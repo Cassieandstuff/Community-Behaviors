@@ -3,6 +3,9 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+
+#include <memory>
+#include <unordered_map>
 #include "CharMotionMatching.h"
 #include "CharMovementModel.h"
 #include "CharSweep.h"
@@ -188,8 +191,19 @@ namespace CB::feature {
             bool                           lastWindup  = false;
         };
 
-        std::mutex                 g_lock;
-        State                      g_state;
+        /// @brief Each managed controller's prediction. Only the thread stepping a controller touches its State, so the lock
+        ///        covers finding it. Entries stay and restart on a reused address (Reset below): a few dozen KB each, bounded
+        ///        by the controller addresses the allocator hands out.
+        std::mutex                                                g_lock;
+        std::unordered_map<const void*, std::unique_ptr<State>>   g_states;
+
+        State& StateOf(const void* ctrl)
+        {
+            std::scoped_lock lock(g_lock);
+            std::unique_ptr<State>& state = g_states[ctrl];
+            if (!state) state = std::make_unique<State>();
+            return *state;
+        }
         std::atomic<std::uint32_t> g_lines{ 0 };
 
         bool TakeLine() { return g_lines.fetch_add(1, std::memory_order_relaxed) < kMaxLines; }
@@ -711,20 +725,21 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsManaged(*self) || !ch::IsControlled(self)) return;
+            const bool npc = self && ch::IsManagedNpc(self);
+            if (!self || !ch::IsManaged(*self) || !(npc || ch::IsControlled(self))) return;
             ::bhkCharacterController& ctrl = *self;
             const RE::NiPointer<RE::Actor> actor = ch::ManagedActor(ctrl);
             if (!actor) return;
-            /// @note Motion matching and the frame speed are the player's: the ridden horse's prediction feeds the HUD and
-            ///       the scoring only.
-            const bool isPlayer = ch::IsPlayer(self);
+            /// @note Motion matching and the frame speed are the player's and the NPCs': the ridden horse's prediction feeds
+            ///       the HUD and the scoring only.
+            const bool       matches = ch::IsPlayer(self) || npc;
+            const RE::FormID actorId = actor->GetFormID();
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);
             Vec2 tangent, sideAxis;
             if (!hull.valid || !MovementFrame(ctrl, tangent, sideAxis)) return;
 
-            std::scoped_lock lock(g_lock);
-            State& s = g_state;
+            State& s = StateOf(self);
             if (s.ctrl != self) Reset(s, self);
             const HistoryEntry here{ s.clock + (dt > 0 ? dt : 0), hull.cx, hull.cy, hull.feetZ, std::atan2(tangent.y, tangent.x) };
             if (s.historyCount) {
@@ -751,7 +766,7 @@ namespace CB::feature {
             Drive drive;
             drive.desired = desired;
             ch::FrameSpeed     fs;
-            const bool         haveSpeed = isPlayer && ch::CurrentSpeed(fs);
+            const bool         haveSpeed = matches && ch::CurrentSpeed(actorId, fs);
             ch::move::Snapshot snap;
             if (ch::move::Current(actor->GetFormID(), snap)) {
                 drive.model   = true;
@@ -793,22 +808,22 @@ namespace CB::feature {
             ///       prediction is then, so turns compare as well as distances.
             static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
             std::array<float, kFutureSamples> queryTimes{};
-            if (isPlayer && ch::motion::On()) {
-                const float rate = ch::motion::Rate(haveSpeed ? &fs : nullptr);
+            if (matches && ch::motion::On()) {
+                const float rate = ch::motion::Rate(actorId, haveSpeed ? &fs : nullptr);
                 for (int k = 0; k < kFutureSamples; k++) queryTimes[k] = static_cast<float>(CB::engine::anim::features::kHorizons[k]) / rate;
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
-            if (isPlayer && ch::motion::On()) {
+            if (matches && ch::motion::On()) {
                 float land = ch::motion::kNoLanding;
                 for (int i = 0; i < kPathPoints; i++)
                     if (path.ground[i] == ch::Ground::Grounded) {
                         land = static_cast<float>(i + 1) * kPathStep;
                         break;
                     }
-                ch::motion::SetTimeToLand(land);
+                ch::motion::SetTimeToLand(actorId, land);
             }
             /// @note The query in the clips' root space: x along the side axis (where a rightward request moves the
             ///       character), y forward, game units; a facing turned by `f` (counter-clockwise, the math angle's sense)
@@ -816,7 +831,7 @@ namespace CB::feature {
             const auto allValid = [](const std::array<Sample, kFutureSamples>& a) {
                 return std::all_of(a.begin(), a.end(), [](const Sample& p) { return p.valid; });
             };
-            if (isPlayer && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
+            if (matches && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
                 for (int k = 0; k < kFutureSamples; k++) {
                     q.x[k]        = tr.query[k].side * kGameUnitsPerHavok;
@@ -830,9 +845,9 @@ namespace CB::feature {
                 }
                 q.desiredX = tr.desiredWorld.x * kGameUnitsPerHavok;
                 q.desiredY = tr.desiredWorld.y * kGameUnitsPerHavok;
-                ch::motion::Publish(q);
-            } else if (isPlayer && ch::motion::On()) {
-                ch::motion::PublishNoQuery();
+                ch::motion::Publish(actorId, q);
+            } else if (matches && ch::motion::On()) {
+                ch::motion::PublishNoQuery(actorId);
             }
             if (ch::hud::On() && ch::IsControlled(self)) {
                 ch::hud::Prediction h;
@@ -885,13 +900,14 @@ namespace CB::feature {
             else if (blocked && !s.lastBlocked) why = "blocked";
             else if (active && s.clock - s.lastDump >= kDumpPeriod) why = "periodic";
             if (why) {
-                Dump(s, tr, why);
+                /// @note The log's lines are for the character being controlled: an NPC's would spend them all.
+                if (!npc) Dump(s, tr, why);
                 s.lastDump = s.clock;
             }
             s.lastIState  = iState;
             s.lastBlocked = blocked;
             s.lastWindup  = tr.jumpIn >= 0.0f;
-            Report(s);
+            if (!npc) Report(s);
         }
 
         [[maybe_unused]] const bool s_predictor =

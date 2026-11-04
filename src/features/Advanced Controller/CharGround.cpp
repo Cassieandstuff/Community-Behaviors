@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 
@@ -106,7 +107,64 @@ namespace CB::feature::controller {
         ///        than the player, still slides past its limit). A starting value, to tune.
         constexpr float kHorseWalkableZ = 0.57357644f;
 
+        /// @brief One driven NPC, by its controller.
+        struct NpcEntry {
+            RE::ActorHandle     actor;
+            std::atomic<double> at{ -1.0e9 };
+            std::atomic<bool>   graphMoves{ false };
+        };
+        /// @brief Every NPC a frame driver has held. Physics callbacks read it many times a step, so readers share.
+        /// @note Entries stay: IsManagedNpc goes by the time, and a reused controller address takes the new actor's handle.
+        ///       Bounded by the controller addresses the allocator hands out.
+        std::shared_mutex                           g_npcLock;
+        std::unordered_map<const void*, NpcEntry>   g_npcs;
+        std::atomic<bool>                           g_anyNpc{ false };
+        constexpr double                            kNpcStale = 0.5;
+
     }  // namespace
+
+    void PublishNpc(RE::Actor& npc)
+    {
+        const void* ctrl = static_cast<const void*>(npc.GetCharController());
+        if (!ctrl) return;
+        const RE::ActorHandle handle = npc.GetHandle();
+        {
+            std::shared_lock read(g_npcLock);
+            if (const auto it = g_npcs.find(ctrl); it != g_npcs.end() && it->second.actor == handle) {
+                it->second.at.store(Now(), std::memory_order_release);
+                return;
+            }
+        }
+        std::unique_lock write(g_npcLock);
+        NpcEntry& entry = g_npcs[ctrl];
+        entry.actor     = handle;
+        entry.graphMoves.store(false, std::memory_order_relaxed);
+        entry.at.store(Now(), std::memory_order_release);
+        g_anyNpc.store(true, std::memory_order_release);
+    }
+
+    void UnpublishNpc(RE::Actor& npc)
+    {
+        const void* ctrl = static_cast<const void*>(npc.GetCharController());
+        if (!ctrl || !g_anyNpc.load(std::memory_order_acquire)) return;
+        std::shared_lock read(g_npcLock);
+        if (const auto it = g_npcs.find(ctrl); it != g_npcs.end()) it->second.at.store(-1.0e9, std::memory_order_release);
+    }
+
+    bool IsManagedNpc(const ::bhkCharacterController* ctrl)
+    {
+        if (!ctrl || !g_anyNpc.load(std::memory_order_acquire)) return false;
+        std::shared_lock read(g_npcLock);
+        const auto       it = g_npcs.find(static_cast<const void*>(ctrl));
+        return it != g_npcs.end() && Now() - it->second.at.load(std::memory_order_acquire) <= kNpcStale;
+    }
+
+    bool WasManagedNpc(const ::bhkCharacterController* ctrl)
+    {
+        if (!ctrl || !g_anyNpc.load(std::memory_order_acquire)) return false;
+        std::shared_lock read(g_npcLock);
+        return g_npcs.contains(static_cast<const void*>(ctrl));
+    }
 
     void PublishRiddenHorse(RE::Actor* horse)
     {
@@ -131,6 +189,11 @@ namespace CB::feature::controller {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return {};
         if (IsPlayer(&ctrl)) return RE::NiPointer<RE::Actor>(player);
+        if (IsManagedNpc(&ctrl)) {
+            std::shared_lock read(g_npcLock);
+            const auto       it = g_npcs.find(static_cast<const void*>(&ctrl));
+            return it != g_npcs.end() ? it->second.actor.get() : RE::NiPointer<RE::Actor>{};
+        }
         if (!IsRiddenHorse(&ctrl)) return {};
         RE::NiPointer<RE::Actor> mount;
         if (!player->GetMount(mount) || !mount || static_cast<const void*>(mount->GetCharController()) != static_cast<const void*>(&ctrl)) return {};
@@ -164,13 +227,22 @@ namespace CB::feature::controller {
         if (actor == RE::PlayerCharacter::GetSingleton()) g_playerGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
         else if (IsRiddenHorse(reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController())))
             g_horseGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
+        else if (g_anyNpc.load(std::memory_order_acquire)) {
+            std::shared_lock read(g_npcLock);
+            if (const auto it = g_npcs.find(static_cast<const void*>(actor->GetCharController())); it != g_npcs.end())
+                it->second.graphMoves.store(flag[0] != 0, std::memory_order_relaxed);
+        }
         return flag;
     }
 
     bool GraphMovesPublished(const ::bhkCharacterController& ctrl)
     {
         if (IsPlayer(&ctrl)) return g_playerGraphMoves.load(std::memory_order_relaxed);
-        return IsRiddenHorse(&ctrl) && g_horseGraphMoves.load(std::memory_order_relaxed);
+        if (IsRiddenHorse(&ctrl)) return g_horseGraphMoves.load(std::memory_order_relaxed);
+        if (!g_anyNpc.load(std::memory_order_acquire)) return false;
+        std::shared_lock read(g_npcLock);
+        const auto       it = g_npcs.find(static_cast<const void*>(&ctrl));
+        return it != g_npcs.end() && it->second.graphMoves.load(std::memory_order_relaxed);
     }
 
     const char* Name(Ground g) { return g == Ground::Grounded ? "Grounded" : "Airborne"; }
@@ -524,7 +596,8 @@ namespace CB::feature::controller {
         };
         std::mutex                                     g_publishLock;
         std::unordered_map<const void*, Published>     g_published;
-        constexpr std::size_t                          kMaxPublished = 8;
+        /// @note Room for high process's 128 actors with the player and a horse; a stale controller's slot goes when it fills.
+        constexpr std::size_t                          kMaxPublished = 256;
 
         /// @pre g_publishLock is held.
         Published& SlotOf(const ::bhkCharacterController& ctrl)

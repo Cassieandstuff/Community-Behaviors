@@ -828,7 +828,7 @@ namespace CB::feature {
             const auto  actor = ch::ManagedActor(*controller);
             const char* flag  = actor ? ch::GraphMovesActor(actor.get()) : "";
             static std::atomic<const char*> lastFlag{ "" };
-            if (std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
+            if (!ch::IsManagedNpc(controller) && std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
                 LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the {} ({}) - vanilla's states run", ch::IsPlayer(controller) ? "player" : "ridden horse", flag)
                                                     : std::format("the graph hands the {} back", ch::IsPlayer(controller) ? "player" : "ridden horse"));
             return *flag == 0;
@@ -845,8 +845,8 @@ namespace CB::feature {
                 if (previous != Id) LOG_INFO("state wrapper: player state {} -> {}", previous, Id);
             }
             if (CbRuns(controller)) return CbSimulate(Id, *controller);
-            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller)) {
-                /// @note The player (or the ridden horse) left CB's states for a step (chase/ragdoll, the graph moving it);
+            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller) || ch::WasManagedNpc(controller)) {
+                /// @note The player (or the ridden horse, or an NPC) left CB's states for a step (chase/ragdoll, the graph moving it);
                 ///       the next CB step resyncs.
                 std::scoped_lock lock(g_trackLock);
                 auto it = g_tracks.find(static_cast<const void*>(controller));

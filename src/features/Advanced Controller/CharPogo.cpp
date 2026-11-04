@@ -369,7 +369,8 @@ namespace CB::feature {
 
         float RaiseLift(::bhkCharacterController& ctrl, const Hull& hull)
         {
-            Slot* s = Acquire(&ctrl);
+            /// @note An NPC stays on the hull its race built: the slots are the player's and the ridden horse's.
+            Slot* s = ch::IsManagedNpc(&ctrl) ? nullptr : Acquire(&ctrl);
             if (!s) return 0.0f;
             s->claimed.store(true, std::memory_order_release);
             /// @note The controller swapped its shape (its second slot, the console's ToggleCharControllerShape): the edit

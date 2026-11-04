@@ -20,7 +20,7 @@ namespace CB::feature::controller::motion {
 
     class PoseSearchGenerator;
 
-    /// @brief The predictor's query: where the player will be and face when the clip playing at Rate() reaches the
+    /// @brief The predictor's query: where the character will be and face when the clip playing at Rate() reaches the
     ///        database's horizons (engine::anim::features::kHorizons / rate, real seconds), and where they were and
     ///        faced that long ago, in the current root space (x right, y forward), game units.
     struct Query {
@@ -39,13 +39,13 @@ namespace CB::feature::controller::motion {
     /// @note  Why the clips' gait speed and not the speed alone: they were authored slower than Skyrim moves (run 284
     ///        against 370), so the raw speed matched sprint clips at a run. Played at this rate they cover the ground
     ///        the controller covers, and the query samples the prediction at horizon / rate to compare like with like.
-    float Rate(const FrameSpeed* frame);
+    float Rate(RE::FormID actor, const FrameSpeed* frame);
 
-    /// @brief The player's latest query, which the frame hook writes to the graph's variables.
+    /// @brief `actor`'s latest query, which the frame hook writes to its graph's variables.
     /// @note  Called by the predictor each step.
-    void Publish(const Query& q);
-    /// @brief The predictor has no query this step: the node searches nothing until the next.
-    void PublishNoQuery();
+    void Publish(RE::FormID actor, const Query& q);
+    /// @brief The predictor has no query for `actor` this step: the node searches nothing until the next.
+    void PublishNoQuery(RE::FormID actor);
 
     /// @brief One update of `context`'s character's matcher for `node`: reads its graph's variables, searches when one is
     ///        due (every 0.1 s, at once near a clip's end, on a sharp change of the request, or on an interrupt) and writes
@@ -62,10 +62,10 @@ namespace CB::feature::controller::motion {
     inline constexpr float kNoLanding = 999.0f;
 
     /// @brief The predictor's landing time for the chooser's MM_TimeToLand: seconds until its predicted path is first
-    ///        grounded, kNoLanding when it isn't within the horizon. Read only while the player is airborne (0 on the
+    ///        grounded, kNoLanding when it isn't within the horizon. Read only while `actor` is airborne (0 on the
     ///        ground), so the predictor may publish it every step.
     /// @note  Thread-safe: the predictor (physics thread) writes it, the frame hook (update thread) reads it.
-    void SetTimeToLand(float seconds);
+    void SetTimeToLand(RE::FormID actor, float seconds);
 
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
