@@ -52,7 +52,7 @@ namespace CB::feature::controller::motion {
     ///        what plays next to the variables the graph binds.
     /// @param restart forget what played: the graph is coming back to the node.
     /// @return the child that plays next, -1 when the matcher has none (no database yet, no query yet, or no actor)
-    int RunMatcher(const ::hkbContext& context, const PoseSearchGenerator& node, float timestep, bool restart);
+    int RunMatcher(const ::hkbContext& context, PoseSearchGenerator& node, float timestep, bool restart);
 
     /// @return the database `spec` states, null until it is built; the first request queues its build
     /// @note  Thread-safe. Equal selectors share one database, whichever graphs and characters they come from.

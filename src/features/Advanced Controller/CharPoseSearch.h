@@ -110,6 +110,11 @@ namespace CB::feature::controller::motion {
         bool                 canRecycleOutput() const override;
         void                 updateSync(const ::hkbContext& context, ::hkbNodeInfo& info) override;
 
+        /// @brief Play child `index` at `fraction` of its length, on this character's clone of it.
+        /// @note  For a node with no bindings. Two nodes alive through a state's transition would fight over MM_Clip and MM_Time,
+        ///        which hold one child of one database. Its effect lands when a binding's would: the children updated before this.
+        void PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction);
+
         /// @return what this node loaded, for its database; nothing when its template cannot be found
         std::optional<CB::engine::locomotion::DatabaseSpec> Describe(const ::hkbContext& context) const;
 

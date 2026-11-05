@@ -14,6 +14,7 @@
 #include <Common/Base/Reflection/hkClass.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbNodeInfo.h>
 #include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
@@ -63,9 +64,8 @@ namespace CB::feature::controller::motion {
     using namespace detail;
     using loco::DeadBlend;
 
-    /// @brief The dead blend's state per character (hkbContext::m_character), never in the node: while the node owned it,
-    ///        random actors vanished (suspected cause, not proven).
-    /// @note  Only the player plays the node, so the lock is uncontended.
+    /// @brief The dead blend's state per clone (one character's node), never in the node: while the node owned it, random actors
+    ///        vanished (suspected cause, not proven).
     struct BlendSlot {
         DeadBlend                             blend;
         std::vector<loco::Bone>               pose;   ///< the output pose, copied out of and back into Havok's
@@ -186,7 +186,7 @@ namespace CB::feature::controller::motion {
         if (timestep > 0.0f) {
             BlendTable& table = Blends();
             std::scoped_lock lock(table.lock);
-            if (const auto it = table.slots.find(context.m_character); it != table.slots.end()) it->second.blend.dt = timestep;
+            if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.blend.dt = timestep;
         }
         const int previous = m_currentIndex;
         m_currentIndex     = computeCurrentIndex();
@@ -195,6 +195,15 @@ namespace CB::feature::controller::motion {
             rootBehavior->m_updateActiveNodes  = true;
         }
         RunMatcher(context, *this, timestep, false);
+    }
+
+    void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
+    {
+        m_selectedIndex = index;
+        ::hkbGenerator* child = m_children[index].m_generator;
+        if (!child || child->getClassType() != &::hkbClipGenerator::staticClass()) return;
+        ::hkbNode* clone = context.m_character->m_behaviorGraph->getOrCreateNodeClone(child);
+        static_cast<::hkbClipGenerator*>(clone)->m_userControlledTimeFraction = fraction;
     }
 
     std::optional<CB::engine::locomotion::DatabaseSpec> PoseSearchGenerator::Describe(const ::hkbContext& context) const
@@ -327,7 +336,7 @@ namespace CB::feature::controller::motion {
         BlendTable&             table  = Blends();
         std::scoped_lock        lock(table.lock);
         const auto              now    = Clock::now();
-        const auto [found, created]    = table.slots.try_emplace(context.m_character);
+        const auto [found, created]    = table.slots.try_emplace(this);
         BlendSlot&              slot   = found->second;
         /// @note Who runs the node: the player, and NPCs under npc_controller; without that flag an NPC here means the
         ///       add-on's switch fired for it.

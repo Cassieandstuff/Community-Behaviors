@@ -388,7 +388,7 @@ namespace CB::feature {
             return true;
         }();
 
-        /// @brief One character's matcher, kept apart from the node as the dead blend is.
+        /// @brief One node's matcher for one character, kept apart from the node as the dead blend is.
         struct MatchSlot {
             ps::Matcher        matcher;
             const Database*    db    = nullptr;
@@ -402,16 +402,17 @@ namespace CB::feature {
         constexpr double kSlotStale     = 0.5;    ///< seconds unused before a slot starts over
         constexpr double kSlotDrop      = 10.0;   ///< seconds unused before a slot is dropped
 
-        /// @brief `character`'s slot. @note A character updates on one thread at a time and different ones update in
-        ///        parallel, so the table's lock covers finding a slot and nothing done with it.
-        std::shared_ptr<MatchSlot> SlotOf(const void* character, const RE::Actor*)
+        /// @brief `node`'s slot: a clone is one character's, and a character may hold several nodes, each with its own database.
+        /// @note  A character updates on one thread at a time and different ones update in parallel, so the table's lock
+        ///        covers finding a slot and nothing done with it.
+        std::shared_ptr<MatchSlot> SlotOf(const void* node, const RE::Actor*)
         {
             static std::mutex                                                lock;
             static std::unordered_map<const void*, std::shared_ptr<MatchSlot>> slots;
             static std::uint32_t                                             calls = 0;
             const auto       now = Clock::now();
             std::scoped_lock held(lock);
-            auto&            slot = slots[character];
+            auto&            slot = slots[node];
             if (!slot || std::chrono::duration<double>(now - slot->used).count() > kSlotStale) slot = std::make_shared<MatchSlot>();
             slot->used = now;
             std::shared_ptr<MatchSlot> out = slot;
@@ -918,12 +919,12 @@ namespace CB::feature {
         match.queryValid = false;
     }
 
-    int controller::motion::RunMatcher(const ::hkbContext& context, const PoseSearchGenerator& node, float timestep, bool restart)
+    int controller::motion::RunMatcher(const ::hkbContext& context, PoseSearchGenerator& node, float timestep, bool restart)
     {
         if (!On()) return -1;
         RE::Actor* actor = ActorOf(context.m_character);
         if (!actor) return -1;
-        const std::shared_ptr<MatchSlot> held = SlotOf(context.m_character, actor);
+        const std::shared_ptr<MatchSlot> held = SlotOf(&node, actor);
         MatchSlot&                       s    = *held;
         if (!s.db) {
             s.retry -= timestep;
@@ -1037,10 +1038,15 @@ namespace CB::feature {
         /// @note Through the graph's own bindings: the engine copies these into this node and every child before their
         ///       next updates, per character. A child updates before its parent, so anything this update wrote straight
         ///       into a child would reach the pose a frame later anyway.
+        const Clip&  next     = db.clips[step.nextClip];
+        const float  fraction = static_cast<float>(next.duration > 0 ? step.nextTime / next.duration : 0.0);
+        if (node.m_variableBindingSet == HK_NULL) {
+            node.PlayUnbound(context, step.nextClip, fraction);
+            return step.nextClip;
+        }
         static const RE::BSFixedString clipName(kClipVar), timeName(kTimeVar);
-        const Clip& next = db.clips[step.nextClip];
         actor->SetGraphVariableInt(clipName, step.nextClip);
-        actor->SetGraphVariableFloat(timeName, static_cast<float>(next.duration > 0 ? step.nextTime / next.duration : 0.0));
+        actor->SetGraphVariableFloat(timeName, fraction);
         return step.nextClip;
     }
 

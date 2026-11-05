@@ -82,6 +82,7 @@
 #include "locomotion/Horse.h"
 #include "locomotion/Slope.h"
 #include "locomotion/DeadBlend.h"
+#include "codec/resource/PathKey.h"
 
 namespace cb {
 
@@ -89,6 +90,8 @@ namespace cb {
 namespace resolve {
     using Archive     = CB::engine::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
     using UnitKind    = CB::engine::codec::HkyArchive::UnitKind;
+    using CB::engine::codec::resource::PathKey;                 // a path's identity: the one place a path folds case
+    using CB::engine::codec::resource::ClipSlotKey;             // which animation slot a name binds: the engine keys them by file name
     using UnitSource  = CB::engine::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
     using DiskUnitSource = CB::engine::common::DiskUnitSource;  ///< a unit folder on disk, as a UnitSource
     using Layer       = CB::engine::common::LayerSource;        // one load-order layer: unit + bundle stem + master table
@@ -180,6 +183,13 @@ namespace anim {
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file
     using CB::engine::anim::DecodeAnimation;         // .hkx bytes → Decoded (spline or interleaved)
     using CB::engine::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
+    /// @brief `def`'s motion curves from its root motion: Speed, MoveDirection, TurnRate, Acceleration and, with the leg chains, the foot locks.
+    /// @return nothing with `err` set when it has no root motion to measure.
+    inline std::optional<std::vector<AnimCurveDef>> MeasureCurves(const Def& def, std::string& err) {
+        const auto motion = CB::engine::anim::MeasureClip(def, err);
+        if (!motion) return std::nullopt;
+        return CB::engine::anim::MeasureMotionCurves(*motion, {});
+    }
 }  // namespace anim
 
 // ── cb::animdata ───────────────────────────────────────────────────────────────
