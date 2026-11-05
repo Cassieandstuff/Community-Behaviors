@@ -1,9 +1,7 @@
 {
     "name": "Blend Space Test",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "author": "Cassieandstuff",
-    "description": "Starts MM_Enable at 2, so MM_Gate plays MT_Direction_BlendSpace (MT_Direction_Blend converted to one node) wherever motion matching isn't running. Remove this bundle to compare with vanilla.",
-    "masters": [
-        "Motion Matching Wiring"
-    ]
+    "description": "Plays H2H_1HM_Direction_Blend, one-handed and unarmed locomotion with a weapon drawn, as one CBBlendSpace2DGenerator over the same clips. Remove this bundle to compare with vanilla.",
+    "masters": []
 }
