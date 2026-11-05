@@ -179,9 +179,11 @@ struct ClassSchema {
     std::map<std::string, std::string> defaults;
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
-    ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and
-    ///        its groups; `clipchild` (clip, group, start, end) — one row: the clip, the name of its group, and the
-    ///        seconds searched; `clipgroup` (label) — one group, named by its rows.
+    ///        `clipset` (children, groups, chooser) — a node over clips an editor opens as a database workspace: its rows,
+    ///        its groups and what picks among them; `clipchild` (clip, group, start, end) — one row: the clip, the name of
+    ///        its group, and the seconds searched; `clipgroup` (label) — one group, named by its rows.
+    ///        `chooser` (rows, fallback) — what picks the groups searched; `chooserrow` (when, results) — one row: a
+    ///        condition expression and the groups it adds.
     ///        `blendspace` (children, parameter, cycleMin, cycleMax, flags) — a node blending children along an axis;
     ///        `blendchild` (clip, position) — one child, where it sits.
     struct View {

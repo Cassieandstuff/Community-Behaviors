@@ -82,6 +82,7 @@
 #include "locomotion/Horse.h"
 #include "locomotion/Slope.h"
 #include "locomotion/Pogo.h"
+#include "locomotion/ChooserInputs.h"
 #include "locomotion/DeadBlend.h"
 #include "codec/resource/PathKey.h"
 
@@ -275,7 +276,32 @@ namespace mm {
     using CB::engine::locomotion::kGroups;                     ///< how many groups Candidate::groupCost holds
     using CB::engine::locomotion::kIgnoreSurrounding;          ///< frames around the playing row that are the playing row
     using CB::engine::locomotion::kForceMoving;                ///< below this request the search gates on standing
+    using CB::engine::locomotion::kWalkRun;                    ///< game units/s: a speed band's start, run's
     using CB::engine::locomotion::kRunSprint;                  ///< game units/s: a speed band's start, sprint's
+
+    // What a chooser reads, shared with the game's frame hook.
+    using ChooserInputs     = CB::engine::locomotion::ChooserInputs;      ///< one frame's values
+    using ChooserVariables  = CB::engine::locomotion::ChooserVariables;   ///< those values as GraphVar reads them
+    using ChooserColumn     = CB::engine::locomotion::ChooserColumn;      ///< one input, and what its values mean
+    using ChooserColumnKind = CB::engine::locomotion::ChooserColumnKind;
+    using CB::engine::locomotion::kChooserColumns;                        ///< every input, in an editor's order
+    using CB::engine::locomotion::InitialChooserInputs;
+    using CB::engine::locomotion::MovementInputs;                         ///< the inputs a frame's movement decides
+    using CB::engine::locomotion::kMovementMode;                          ///< ChooserInputs indices
+    using CB::engine::locomotion::kRotationMode;
+    using CB::engine::locomotion::kMovementState;
+    using CB::engine::locomotion::kGait;
+    using CB::engine::locomotion::kIsStarting;
+    using CB::engine::locomotion::kIsPivoting;
+    using CB::engine::locomotion::kShouldSpinTransition;
+    using CB::engine::locomotion::kSpeed2D;
+    using CB::engine::locomotion::kStance;
+    using CB::engine::locomotion::kJustLandedLight;
+    using CB::engine::locomotion::kJustLandedHeavy;
+    using CB::engine::locomotion::kShouldTurnInPlace;
+    using CB::engine::locomotion::kJustTraversed;
+    using CB::engine::locomotion::kDatabaseLOD;
+    using CB::engine::locomotion::kTimeToLand;
     using CB::engine::locomotion::kRowStanding;                ///< SearchDatabase::rowGates bits
     using CB::engine::locomotion::kRowMoving;
     using CB::engine::locomotion::kFlagDisableReselection;     ///< SearchClip::flags bits (kMmDisableReselection's values)

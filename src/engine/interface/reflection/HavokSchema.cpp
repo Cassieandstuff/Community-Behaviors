@@ -592,7 +592,9 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         static const std::map<std::string, std::vector<std::string>> kViewRoles{
             { "curve", { "keys", "label" } },
             { "curvekey", { "time", "value", "interp" } },
-            { "clipset", { "children", "groups" } },
+            { "clipset", { "children", "groups", "chooser" } },
+            { "chooser", { "rows", "fallback" } },
+            { "chooserrow", { "when", "results" } },
             { "clipchild", { "clip", "group", "start", "end" } },
             { "clipgroup", { "label" } },
             { "blendspace", { "children", "parameter", "cycleMin", "cycleMax", "flags" } },
@@ -601,7 +603,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         for (const auto& [name, cs] : m_byName) {
             if (cs.view.kind.empty()) continue;
             const auto known = kViewRoles.find(cs.view.kind);
-            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (blendspace, blendchild, curve, curvekey, clipset, clipchild, clipgroup)"; return false; }
+            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (blendspace, blendchild, curve, curvekey, clipset, clipchild, clipgroup, chooser, chooserrow)"; return false; }
             for (const auto& role : known->second)
                 if (!cs.view.roles.count(role)) { err = "class '" + name + "': view '" + cs.view.kind + "' has no '" + role + "'"; return false; }
             for (const auto& [role, field] : cs.view.roles) {

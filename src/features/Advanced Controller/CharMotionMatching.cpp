@@ -3,6 +3,7 @@
 #include "CharDebugHud.h"
 #include "CharGround.h"
 #include "CharMotionMatching.h"
+#include <locomotion/ChooserInputs.h>
 #include "CharMovementModel.h"
 #include "CharPoseSearch.h"
 #include "CharSkeletonWatch.h"
@@ -112,71 +113,23 @@ namespace CB::feature {
         /// @brief Below this asked-for speed (game units/s) the gait's rate stays as it was: standing has no speed to match.
         constexpr float kRateStill = 10.0f;
 
-        /// @brief The chooser's inputs, GASP's (its AnimBP's chooser columns), as the MotionMatching graph declares them.
-        /// @note  Values: MovementMode 0 OnGround / 1 InAir; RotationMode 0 OrientToMovement / 1 Strafe / 2 Aim (never
-        ///        set: GASP's CMC character); MovementState 0 Idle / 1 Moving; Gait 0 Walk / 1 Run / 2 Sprint; Stance
-        ///        0 Stand / 1 Crouch; kIsStarting..kJustTraversed are BOOL, the rest INT32.
-        enum Input : int {
-            kMovementMode,
-            kRotationMode,
-            kMovementState,
-            kGait,
-            kStance,
-            kIsStarting,
-            kIsPivoting,
-            kJustLandedLight,
-            kJustLandedHeavy,
-            kShouldTurnInPlace,
-            kShouldSpinTransition,
-            kJustTraversed,
-            kDatabaseLOD,
-            kInputs
-        };
-        /// @brief The graph variables' names, byte-exact (the generator that writes the add-on declares these).
-        constexpr std::array<const char*, kInputs> kInputNames{ "MM_MovementMode",      "MM_RotationMode",      "MM_MovementState",
-                                                                "MM_Gait",              "MM_Stance",            "MM_IsStarting",
-                                                                "MM_IsPivoting",        "MM_JustLandedLight",   "MM_JustLandedHeavy",
-                                                                "MM_ShouldTurnInPlace", "MM_ShouldSpinTransition", "MM_JustTraversed",
-                                                                "MM_DatabaseLOD" };
-        constexpr bool IsBoolInput(int i) { return i >= kIsStarting && i <= kJustTraversed; }
-
-        /// @brief The REAL chooser inputs. Speed2D: the horizontal speed, game units/s (GASP's is cm/s; an importer scales
-        ///        its bounds by 0.7). TimeToLand: seconds until the predicted path lands (GASP's
-        ///        TrajectoryCollision.TimeToLand), 0 on the ground, kNoLanding when no landing is within the horizon.
-        enum RealInput : int { kSpeed2D, kTimeToLand, kRealInputs };
-        constexpr std::array<const char*, kRealInputs> kRealInputNames{ "MM_Speed2D", "MM_TimeToLand" };
-
-        /// @brief One frame's chooser inputs: the INT32 / BOOL ones by Input (`in[kGait]`), the REAL ones in `real`.
-        struct Inputs {
-            std::array<int, kInputs>       word{};
-            std::array<float, kRealInputs> real{};
-            constexpr int&       operator[](int i) { return word[i]; }
-            constexpr const int& operator[](int i) const { return word[i]; }
-            bool                 operator==(const Inputs&) const = default;
-        };
-        /// @brief Before the first frame: on the ground, orienting, idle, standing, Run (GASP's starting gait), LOD 0.
-        /// @note  Settings-free: it initializes a global, before settings.ini is read.
-        constexpr Inputs InitialInputs()
-        {
-            Inputs in{};
-            in[kGait] = 1;
-            return in;
-        }
+        /// @brief The chooser's inputs, as the MotionMatching graph declares them.
+        using Inputs         = ps::ChooserInputs;
+        using InputVariables = ps::ChooserVariables;
+        using ps::kMovementMode, ps::kRotationMode, ps::kMovementState, ps::kGait, ps::kStance, ps::kIsStarting, ps::kIsPivoting;
+        using ps::kJustLandedLight, ps::kJustLandedHeavy, ps::kShouldTurnInPlace, ps::kShouldSpinTransition, ps::kJustTraversed, ps::kDatabaseLOD;
+        using ps::kSpeed2D, ps::kTimeToLand, ps::IsBoolInput;
+        constexpr int kInputs = ps::kChooserInputs, kRealInputs = ps::kChooserRealInputs;
+        constexpr const auto& kInputNames = ps::kChooserInputNames;
+        constexpr const auto& kRealInputNames = ps::kChooserRealInputNames;
+        constexpr Inputs InitialInputs() { return ps::InitialChooserInputs(); }
 
         /// @brief GASP's thresholds (its AnimBP's), centimetres at 0.7 game units each.
-        constexpr float kMovingEpsilon   = 1.0f;          ///< game units/s: IsMoving's "velocity != 0"
-        constexpr float kStartGain       = 70.0f;         ///< IsStarting: the future speed exceeds the speed by 100 cm/s
-        constexpr float kPivotOrient     = 0.78539816f;   ///< IsPivoting: 45 deg orienting to movement ...
-        constexpr float kPivotStrafe     = 0.52359878f;   ///< ... 30 deg strafing
         constexpr float kTurnInPlace     = 0.87266463f;   ///< ShouldTurnInPlace: 50 deg
-        constexpr float kSpinAngle       = 2.2689280f;    ///< ShouldSpinTransition: 130 deg ...
-        constexpr float kSpinSpeed       = 105.0f;        ///< ... at 150 cm/s or more
         constexpr float kLandHold        = 0.2f;          ///< seconds JustLanded* stays true after touching down
         /// @brief JustLandedHeavy's vertical speed (700 cm/s). @warning Assumed: GASP's HeavyLandSpeedThreshold was not
         ///        exported with the sample's assets.
         constexpr float kHeavyLandSpeed  = 490.0f;
-        /// @brief GASP's future velocity spans the trajectory's 0.4 -> 0.5 s; the model is stepped at kFutureStep.
-        constexpr float kFutureFrom = 0.4f, kFutureTo = 0.5f, kFutureStep = 1.0f / 60.0f;
 
         /// @brief The player's database: read by the frame hook and the predictor's Rate, lock-free.
         /// @note  The add-on's once it is warm, then whichever the player's node asks for.
@@ -439,24 +392,6 @@ namespace CB::feature {
             return mc && static_cast<void*>(mc.get()) == controller ? player : nullptr;
         }
 
-        /// @brief GASP's future velocity's speed: the displacement over kFutureFrom -> kFutureTo ahead, game units/s.
-        /// @note  An approximation of GASP's trajectory sample: the movement model stepped on from the frame's snapshot
-        ///        with its input frozen (the predictor's own step), integrated directly, without the predictor's velocity
-        ///        spring, collisions, floors or falls.
-        float FutureSpeed(const mv::Snapshot& snap)
-        {
-            mv::State   s    = snap.state;
-            float       px   = snap.px, py = snap.py, ax = px, ay = py;
-            const int   from = static_cast<int>(std::lround(kFutureFrom / kFutureStep));
-            const int   to   = static_cast<int>(std::lround(kFutureTo / kFutureStep));
-            for (int i = 0; i < to; ++i) {
-                if (i == from) ax = px, ay = py;
-                mv::Step(s, snap.input, snap.caps, snap.profile, px, py, kFutureStep);
-                px += s.vx * kFutureStep, py += s.vy * kFutureStep;
-            }
-            return std::hypot(px - ax, py - ay) / (kFutureTo - kFutureFrom);
-        }
-
         /// @brief Frame-to-frame memory of the chooser inputs. @note The frame hook's alone: no lock.
         struct InputMemory {
             bool  haveZ = false;
@@ -521,21 +456,13 @@ namespace CB::feature {
             if (!mv::Current(player->GetFormID(), snap)) return false;
             const mv::State& s      = snap.state;
             const mv::Input& in     = snap.input;
-            const float      speed  = std::hypot(s.vx, s.vy);
-            const bool       moving = speed > kMovingEpsilon && in.haveStick;
             const bool       strafe = in.mode == mv::Mode::Strafe;
             const bool       wasMoving = io[kMovementState] == 1;
-            const float      velYaw = std::atan2(s.vx, s.vy);
             if (in.haveStick) m.stickYaw = std::atan2(in.stickX, in.stickY), m.haveStickYaw = true;
 
-            io[kMovementMode]  = in.airborne ? 1 : 0;
-            io[kRotationMode]  = strafe ? 1 : 0;
-            io[kMovementState] = moving ? 1 : 0;
-            if (in.gait != ch::Gait::None) io[kGait] = static_cast<int>(in.gait) - 1;
-            io[kStance]        = player->IsSneaking() ? 1 : 0;
-
-            io[kIsStarting] = moving && !playingPivots && FutureSpeed(snap) >= speed + kStartGain;
-            io[kIsPivoting] = moving && std::fabs(ch::WrapPi(m.stickYaw - velYaw)) >= (strafe ? kPivotStrafe : kPivotOrient);
+            ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, m.stickYaw, playingPivots, io);
+            const bool moving = io[kMovementState] == 1;
+            io[kStance]       = player->IsSneaking() ? 1 : 0;
 
             /// @note The landing's vertical speed is the player's height change over the last airborne frame (the
             ///       touch-down frame's own is already cut short by the floor).
@@ -563,10 +490,8 @@ namespace CB::feature {
             else m.turnHold = (std::max)(0.0f, m.turnHold - dt);
             io[kShouldTurnInPlace] = m.turnHold > 0.0f;
 
-            io[kShouldSpinTransition] = !playingPivots && speed >= kSpinSpeed && std::fabs(ch::WrapPi(velYaw - s.yaw)) >= kSpinAngle;
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
-            io.real[kSpeed2D]         = speed;
             io.real[kTimeToLand]      = in.airborne ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
             return true;
         }
@@ -687,31 +612,6 @@ namespace CB::feature {
             return before[kMovementState] != now[kMovementState] || (now[kMovementState] == 1 && before[kGait] != now[kGait]) ||
                    before[kStance] != now[kStance];
         }
-
-        /// @brief The chooser inputs, by their exact names, as GraphVar reads them: this frame's values, typed as declared.
-        /// @note  Why ahead of the graph: the inputs are declared on the add-on's graph, not the root one GraphVar takes
-        ///        types from, and the frame knows them before the graph is evaluated.
-        class InputVariables final : public relay::VariableSource {
-        public:
-            explicit InputVariables(const Inputs& in) : m_in(in) {}
-            bool Read(const char* name, relay::Value& out) const override
-            {
-                for (int i = 0; i < kInputs; ++i)
-                    if (std::strcmp(name, kInputNames[i]) == 0) {
-                        out = IsBoolInput(i) ? relay::Value::Bool(m_in[i] != 0) : relay::Value::Int(m_in[i]);
-                        return true;
-                    }
-                for (int i = 0; i < kRealInputs; ++i)
-                    if (std::strcmp(name, kRealInputNames[i]) == 0) {
-                        out = relay::Value::Float(m_in.real[i]);
-                        return true;
-                    }
-                return false;
-            }
-
-        private:
-            const Inputs& m_in;
-        };
 
         std::string ActiveNames(const Database& db, const std::vector<char>& active)
         {

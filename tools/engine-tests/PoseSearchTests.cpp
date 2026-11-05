@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <locomotion/ChooserInputs.h>
 #include <filesystem>
 #include <map>
 #include <process.h>
@@ -606,6 +607,57 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 }
 
 /// @brief A clip through the same text-to-cached-clip path the plugin measures with.
+void ChooserInputChecks() {
+    const ps::Profile& profile = ps::kPlayer;
+    ps::Caps           caps;
+    caps.forward = 300.0f;
+    const auto inputs = [&](float vy, float stickDegrees, bool stick, bool pivots = false) {
+        ps::State s;
+        s.vy = vy;
+        ps::Input in;
+        in.gait      = ps::Gait::Sprint;
+        in.haveStick = stick;
+        const float yaw = stickDegrees * 3.14159265f / 180.0f;
+        in.stickX = std::sin(yaw), in.stickY = std::cos(yaw);
+        ps::ChooserInputs io = ps::InitialChooserInputs();
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, yaw, pivots, io);
+        return io;
+    };
+    const ps::ChooserInputs cruising = inputs(300.0f, 0.0f, true);
+    Check(cruising[ps::kMovementState] == 1 && cruising[ps::kGait] == 2 && cruising.real[ps::kSpeed2D] == 300.0f, "moving at speed, the gait as the input names it");
+    Check(!cruising[ps::kIsStarting] && !cruising[ps::kIsPivoting], "a steady run neither starts nor pivots");
+    Check(inputs(30.0f, 0.0f, true)[ps::kIsStarting] == 1, "speeding up well past its speed starts");
+    Check(inputs(30.0f, 0.0f, true, true)[ps::kIsStarting] == 0, "not from a pivot");
+    Check(inputs(300.0f, 90.0f, true)[ps::kIsPivoting] == 1, "a stick 90 degrees off the velocity pivots");
+    Check(inputs(300.0f, 30.0f, true)[ps::kIsPivoting] == 0, "30 does not");
+    Check(inputs(300.0f, 0.0f, false)[ps::kMovementState] == 0, "no stick is idle at any speed");
+
+    ps::ChooserInputs     spinning = ps::InitialChooserInputs();
+    ps::State             backward;
+    backward.vy = -200.0f;
+    ps::MovementInputs(backward, ps::Input{}, caps, profile, 0.0f, 0.0f, 0.0f, false, spinning);
+    Check(spinning[ps::kShouldSpinTransition] == 1, "moving against the facing spins");
+    Check(spinning[ps::kGait] == 1, "an input naming no gait keeps the last");
+
+    ps::ChooserInputs values = ps::InitialChooserInputs();
+    values[ps::kGait]        = 2;
+    values[ps::kIsPivoting]  = 1;
+    values.real[ps::kSpeed2D] = 12.5f;
+    const ps::ChooserVariables vars(values);
+    relay::Value               v;
+    Check(vars.Read("MM_Gait", v) && v.type == relay::VType::Int && v.AsInt() == 2, "an INT32 reads as one");
+    Check(vars.Read("MM_IsPivoting", v) && v.type == relay::VType::Bool && v.AsBool(), "a BOOL reads as one");
+    Check(vars.Read("MM_Speed2D", v) && v.AsFloat() == 12.5f, "a REAL reads as one");
+    Check(!vars.Read("iState", v) && !vars.Read("mm_gait", v), "any other name is the graph's, and case counts");
+
+    std::size_t named = 0;
+    for (const ps::ChooserColumn& c : ps::kChooserColumns) {
+        relay::Value read;
+        if (vars.Read(c.variable, read)) ++named;
+    }
+    Check(named == ps::kChooserColumns.size(), "every column names an input");
+}
+
 void MeasureChecks() {
     anim::AnimationDef def;
     def.name          = "t";
@@ -684,6 +736,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     DatabaseChecks(reg, tmp);
     AgreementChecks(reg, tmp);
     MatcherChecks(reg, tmp);
+    ChooserInputChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

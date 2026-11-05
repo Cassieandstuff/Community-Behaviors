@@ -1,7 +1,7 @@
 name:      CBPoseSearchGenerator
 parent:    hkbGenerator
 size:      120
-view:      { kind: clipset, children: children, groups: databases }
+view:      { kind: clipset, children: children, groups: databases, chooser: chooser }
 runtime:
   source: self
 # CB's own generator: motion matching as a node. Each update it reads its query from its graph's variables, searches its
