@@ -34,15 +34,34 @@ namespace CB::engine::locomotion {
     inline constexpr float  kForceCos       = 0.8660254f;  ///< cos 30 deg: a turn of the desired direction past it
     inline constexpr double kEndMargin      = 0.1;         ///< seconds before a clip's end that force a search
 
-    /// @brief Each feature group's weight (Holden's demo defaults).
+    /// @brief The default weights: Holden's demo weights on the samples CB matched on first (1/3, 2/3 and 1 s, ahead and
+    ///        back), 0 on every part added since, so a database stating no weights matches as it did.
     /// @note  Applied at search time, never stored in the rows, so a weight change needs no rebuild.
-    /// @note  The past groups start at the future's weights.
-    inline constexpr float kWeightTrajPos = 1.0f, kWeightTrajDir = 1.5f, kWeightPastPos = 1.0f, kWeightPastDir = 1.5f,
-                           kWeightFootPos = 0.75f, kWeightFootVel = 1.0f, kWeightHipVel = 1.0f;
-    inline constexpr int   kGroups = 7;
+    inline constexpr float kWeightTrajPos = 1.0f, kWeightTrajDir = 1.5f, kWeightFootPos = 0.75f, kWeightFootVel = 1.0f,
+                           kWeightHipVel = 1.0f;
 
-    /// @return the feature group of dimension `d`: trajectory position, trajectory direction, past position, past
-    ///         direction, foot position, foot velocity, hip velocity
+    /// @brief The parts a database weighs (CBPoseSearchWeight): per trajectory sample its position, facing, velocity and
+    ///        height, then the pose's feet, foot velocity, hip velocity, foot spacing and pelvis facing.
+    inline constexpr int kChannels     = 4;
+    inline constexpr int kWeightGroups = anim::features::kSamples * kChannels + 5;
+    /// @return the weight group of dimension `d`
+    int WeightGroupOf(int d);
+    /// @return weight group `g`'s name: a channel and its sample's time ("position+0.2", "facing-1"), or a pose part
+    ///         ("feet", "feetVelocity", "hipVelocity", "footSpacing", "pelvisFacing")
+    std::string WeightGroupName(int g);
+    /// @return every dimension's default weight
+    std::array<float, anim::features::kDims> DefaultWeights();
+    /// @brief `weights` (a weight group's name, its weight) over `out`. A name may also be a channel alone (every
+    ///        sample) or a channel with "+" or "-" (every sample ahead or back); broader names apply first, so a
+    ///        narrower one wins. Names are byte-exact.
+    /// @return the names that name nothing
+    std::vector<std::string> ApplyWeights(const std::vector<std::pair<std::string, float>>& weights,
+                                          std::array<float, anim::features::kDims>& out);
+
+    /// @brief How many groups Candidate::groupCost reports: path, path facing, path velocity, past, past facing, height,
+    ///        foot position, foot velocity, hips.
+    inline constexpr int kGroups = 9;
+    /// @return the reported group of dimension `d`
     int GroupOf(int d);
 
     inline constexpr std::uint8_t kFlagDisableReselection = 1, kFlagLooping = 2;   ///< Clip::flags bits
@@ -98,6 +117,9 @@ namespace CB::engine::locomotion {
         ///        that does not compile: no row).
         Expression  standing, moving;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
+        /// @brief How much each dimension of its candidates counts.
+        std::array<float, anim::features::kDims> weight = DefaultWeights();
+        std::vector<int> dims;   ///< the dimensions weighted above 0, which alone the search reads
     };
 
     /// @brief One chooser row (CBPoseSearchChooserRow).
@@ -114,7 +136,7 @@ namespace CB::engine::locomotion {
         std::vector<char>         searchable;   ///< row's whole future lies inside its clip, and the row inside its child's range
         std::vector<std::uint8_t> rowGates;     ///< the frame's kRow* bits (the search's gates)
         std::vector<std::uint8_t> rowGait;      ///< the frame's Gait from its Speed curve (None standing)
-        std::array<float, anim::features::kDims> mean{}, scale{}, weight{};
+        std::array<float, anim::features::kDims> mean{}, scale{};
         /// @brief The clips' own speed per gait (game units/s, indexed by Gait), 0 where no clip has one: the median
         ///        root speed of the steady forward frames in that gait's Speed band (CollectGaitSpeeds).
         std::array<float, 4>      gaitSpeed{};
@@ -166,6 +188,7 @@ namespace CB::engine::locomotion {
     struct SpecDatabase {
         std::string name, baseCostBias, continuingPoseCostBias, loopingCostBias, standingCandidate, movingCandidate;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact)
+        std::vector<std::pair<std::string, float>> weights;   ///< (a weight group's name, its weight), as stated
     };
     /// @brief One CBPoseSearchChooserRow.
     struct SpecChooserRow {
@@ -249,12 +272,19 @@ namespace CB::engine::locomotion {
     /// @return whether `database` is in the pick `active` (empty = every database; -1, in none, never is)
     bool IsActive(const std::vector<char>& active, int database);
 
+    /// @brief One trajectory sample of a question, in the current root space (x right, y forward), game units.
+    struct TrajectorySample {
+        float x = 0, y = 0;         ///< where the character is
+        float dirX = 0, dirY = 1;   ///< and faces, a unit vector
+        float vx = 0, vy = 0;       ///< its velocity, game units/s
+        float z = 0;                ///< its height
+    };
+    /// @brief At anim::features::kAhead's times, then kBack's.
+    using QueryTrajectory = std::array<TrajectorySample, anim::features::kSamples>;
+
     /// @brief One search's question.
     struct Query {
-        /// @brief Where the character will be and face at the database's horizons (anim::features::kHorizons), and where
-        ///        they were and faced that long ago, in the current root space (x right, y forward), game units.
-        std::array<float, 3> x{}, y{}, dirX{}, dirY{};
-        std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
+        QueryTrajectory samples{};
         /// @brief The request, game units/s: below kForceMoving it stands, gating on kRowStanding, else on kRowMoving.
         float desiredX = 0, desiredY = 0;
         int    currentClip = -1;   ///< the playing child, -1 = none (no pose to continue or match)
@@ -301,8 +331,7 @@ namespace CB::engine::locomotion {
     /// @brief What one character's graph asks of its Matcher this update.
     struct MatchRequest {
         /// @brief As Query's. @note Without one no search runs; what plays goes on.
-        std::array<float, 3> x{}, y{}, dirX{}, dirY{};
-        std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
+        QueryTrajectory      samples{};
         float                desiredX = 0, desiredY = 0;
         bool                 haveQuery = false;
         float                rate = 1;              ///< clip seconds per second

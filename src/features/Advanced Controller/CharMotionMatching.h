@@ -24,8 +24,7 @@ namespace CB::feature::controller::motion {
     ///        database's horizons (engine::anim::features::kHorizons / rate, real seconds), and where they were and
     ///        faced that long ago, in the current root space (x right, y forward), game units.
     struct Query {
-        std::array<float, 3> x{}, y{}, dirX{}, dirY{};
-        std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
+        CB::engine::locomotion::QueryTrajectory samples{};
         /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
         float desiredX = 0, desiredY = 0;
     };

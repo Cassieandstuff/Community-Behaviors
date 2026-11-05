@@ -1,0 +1,13 @@
+name:      CBPoseSearchWeight
+parent:    null
+size:      16
+# One weight of a CBPoseSearchDatabase: how much a part of each frame counts when the search compares one of its
+# candidates (Unreal's schema per database, as weights over one measurement). `group` names a trajectory channel
+# (position, facing, velocity, height) at one sample ("position+0.2", "facing-1"), at every sample ahead or back
+# ("velocity+", "height-") or at every sample ("height"); or a pose part (feet, feetVelocity, hipVelocity, footSpacing,
+# pelvisFacing). A narrower name wins over a broader one; a part nothing names keeps CB's default, and 0 leaves it out.
+# Keyed by group, so a mod changes one weight by naming it.
+fields:
+  - { name: group,  type: string }
+  - { name: weight, type: float }
+  - { pad: 8 }

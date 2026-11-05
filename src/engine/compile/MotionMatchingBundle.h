@@ -77,7 +77,7 @@ namespace CB::engine::compile {
     /// @note  Then the node's query. MM_Future* and MM_Past* are (side, forward, facing) in the current root space: game
     ///        units and radians counter-clockwise, at the database's horizons ahead and back. MM_Desired is the request in
     ///        world space, game units/s. MM_HaveQuery says they hold one, MM_PlayRate is clip seconds per second.
-    inline constexpr std::array<MmVariableDecl, 24> kMmChooserVariables{ {
+    inline constexpr std::array<MmVariableDecl, 38> kMmChooserVariables{ {
         { "MM_MovementMode", "VARIABLE_TYPE_INT32" },
         { "MM_RotationMode", "VARIABLE_TYPE_INT32" },
         { "MM_MovementState", "VARIABLE_TYPE_INT32" },
@@ -99,9 +99,23 @@ namespace CB::engine::compile {
         { "MM_Future0", "VARIABLE_TYPE_VECTOR3" },
         { "MM_Future1", "VARIABLE_TYPE_VECTOR3" },
         { "MM_Future2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future4", "VARIABLE_TYPE_VECTOR3" },
         { "MM_Past0", "VARIABLE_TYPE_VECTOR3" },
         { "MM_Past1", "VARIABLE_TYPE_VECTOR3" },
         { "MM_Past2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past4", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion4", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion4", "VARIABLE_TYPE_VECTOR3" },
     } };
 
     struct MmBundleSpec {

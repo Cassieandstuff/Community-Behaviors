@@ -222,7 +222,10 @@ namespace CB::engine::anim {
         m.rootPos.resize(n);
         m.rootRot.resize(n);
         if (m.hasHip) m.hip.resize(n);
-        if (m.hasFeet) m.foot = { std::vector<MotionVec>(n), std::vector<MotionVec>(n) };
+        if (m.hasFeet) {
+            m.foot  = { std::vector<MotionVec>(n), std::vector<MotionVec>(n) };
+            m.thigh = { std::vector<MotionVec>(n), std::vector<MotionVec>(n) };
+        }
         const auto local = [](const AnimTrackDef* tr, double t) { return Xf{ SampleV3(tr->translation, t), SampleQt(tr->rotation, t) }; };
         for (int i = 0; i < n; ++i) {
             const double t     = i * m.dt;
@@ -235,7 +238,10 @@ namespace CB::engine::anim {
             if (!m.hasFeet) continue;
             for (int s = 0; s < 2; ++s) {
                 Xf w = pelvisX;
-                for (const auto* tr : legs[s]) w = Compose(w, local(tr, t));
+                for (std::size_t b = 0; b < legs[s].size(); ++b) {
+                    w = Compose(w, local(legs[s][b], t));
+                    if (b == 0) m.thigh[s][i] = w.p;
+                }
                 m.foot[s][i] = w.p;
             }
         }
@@ -246,27 +252,28 @@ namespace CB::engine::anim {
     {
         using namespace features;
         const int n = m.frames;
-        std::array<int, kHorizons.size()> ahead{};
-        for (std::size_t k = 0; k < kHorizons.size(); ++k) ahead[k] = static_cast<int>(std::lround(kHorizons[k] / m.dt));
+        std::array<int, kSamples> offset{};
+        for (int s = 0; s < kSamples; ++s) offset[s] = static_cast<int>(std::lround(SampleTime(s) / m.dt));
         const std::size_t base = rows.size();
         rows.resize(base + static_cast<std::size_t>(n) * kDims);
         for (int i = 0; i < n; ++i) {
             float* r = rows.data() + base + static_cast<std::size_t>(i) * kDims;
             const MotionQuat& q = m.rootRot[i];
             const MotionVec&  p = m.rootPos[i];
-            const auto put = [&](int j, int posAt, int dirAt) {
+            for (int s = 0; s < kSamples; ++s) {
+                const int       j   = std::clamp(i + offset[s], 0, n - 1);
                 const MotionVec pos = ToLocal(q, m.rootPos[j] - p);
                 const MotionVec dir = ToLocal(q, Rotate(m.rootRot[j], { 0, 1, 0 }));
+                const MotionVec vel = ToLocal(q, Velocity(m.rootPos, j, m.dt));
                 const double    len = std::hypot(dir.x, dir.y);
-                r[posAt]     = static_cast<float>(pos.x);
-                r[posAt + 1] = static_cast<float>(pos.y);
-                r[dirAt]     = static_cast<float>(len > 0 ? dir.x / len : 0.0);
-                r[dirAt + 1] = static_cast<float>(len > 0 ? dir.y / len : 1.0);
-            };
-            for (std::size_t k = 0; k < kHorizons.size(); ++k) {
-                const int at = static_cast<int>(2 * k);
-                put((std::min)(i + ahead[k], n - 1), kTrajPos + at, kTrajDir + at);
-                put((std::max)(i - ahead[k], 0), kPastPos + at, kPastDir + at);
+                float*          o   = r + SampleAt(s);
+                o[kSamplePos]          = static_cast<float>(pos.x);
+                o[kSamplePos + 1]      = static_cast<float>(pos.y);
+                o[kSampleFacing]       = static_cast<float>(len > 0 ? dir.x / len : 0.0);
+                o[kSampleFacing + 1]   = static_cast<float>(len > 0 ? dir.y / len : 1.0);
+                o[kSampleVelocity]     = static_cast<float>(vel.x);
+                o[kSampleVelocity + 1] = static_cast<float>(vel.y);
+                o[kSampleHeight]       = static_cast<float>(pos.z);
             }
             for (int s = 0; s < 2; ++s) {
                 const MotionVec fp = ToLocal(q, m.foot[s][i] - p);
@@ -280,6 +287,16 @@ namespace CB::engine::anim {
             r[kHipVel]     = static_cast<float>(hv.x);
             r[kHipVel + 1] = static_cast<float>(hv.y);
             r[kHipVel + 2] = static_cast<float>(hv.z);
+            const MotionVec spacing = ToLocal(q, m.foot[0][i] - m.foot[1][i]);
+            r[kFootSpacing]     = static_cast<float>(spacing.x);
+            r[kFootSpacing + 1] = static_cast<float>(spacing.y);
+            r[kFootSpacing + 2] = static_cast<float>(spacing.z);
+            /// @note The hips' forward from the line between the thighs, not a pelvis bone axis: that line is level in
+            ///       every humanoid rig, where a bone's own axes depend on how the rig was built.
+            const MotionVec across = ToLocal(q, m.thigh[0][i] - m.thigh[1][i]);
+            const double    len    = std::hypot(across.x, across.y);
+            r[kPelvisFacing]     = static_cast<float>(len > 0 ? across.y / len : 0.0);
+            r[kPelvisFacing + 1] = static_cast<float>(len > 0 ? -across.x / len : 1.0);
         }
     }
 

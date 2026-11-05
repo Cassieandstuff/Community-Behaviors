@@ -31,6 +31,7 @@ namespace CB::engine::anim {
         std::vector<MotionQuat>               rootRot;
         bool                                  hasFeet = false;        ///< both leg chains are present
         std::array<std::vector<MotionVec>, 2> foot;                   ///< [0] left, [1] right (the foot bones)
+        std::array<std::vector<MotionVec>, 2> thigh;                  ///< [0] left, [1] right: where each leg leaves the pelvis
         bool                                  hasHip = false;
         std::vector<MotionVec>                hip;                    ///< the pelvis
     };
@@ -47,29 +48,40 @@ namespace CB::engine::anim {
     /// @brief `v` rotated by `q`.
     MotionVec Rotate(const MotionQuat& q, const MotionVec& v);
 
-    /// @brief The motion-matching feature vector's layout (Holden's 27, at the predictor's horizons, plus the past).
-    /// @note  Every value is in the CURRENT frame's root space (x right, y forward, z up), game units:
-    ///        trajectory positions and facing directions (x, y) at kHorizons ahead, then at kHorizons back; left and
-    ///        right foot positions and velocities; the pelvis velocity. Everything from kFootPos on is the pose.
-    /// @note  Why the past: with only the future, a steady stretch inside a gait-change take (run-to-sprint) matched a
-    ///        steady run as well as a run did, and won about a quarter of the picks; where the motion came from tells
-    ///        them apart (Unreal's pose history plays the same part).
+    /// @brief The motion-matching feature vector's layout: trajectory samples ahead and back, then the pose.
+    /// @note  Every value is in the CURRENT frame's root space (x right, y forward, z up), game units. Each sample holds
+    ///        the root's position (x, y), facing (x, y, a unit vector), velocity (x, y, game units/s) and height (z).
+    ///        The pose: left and right foot positions and velocities, the pelvis velocity, the left foot from the right,
+    ///        and the pelvis's facing. Everything from kFootPos on is the pose.
+    /// @note  One row holds every part any database matches on; each database weighs the parts (PoseSearch's
+    ///        DefaultWeights / ApplyWeights), so one measurement serves all and a weight of 0 leaves a part out.
+    /// @note  The samples cover GASP's schemas: 0.2, 0.35, 0.5, 0.7 and 1 s ahead and 0.05 and 0.2 s back (PSS_Default,
+    ///        PSS_Stop, PSS_Jump). 1/3 and 2/3 stand for 0.35 and 0.7, the horizons CB matched on first.
+    /// @note  Why the past reaches 1 s: with only the future, a steady stretch inside a gait-change take (run-to-sprint)
+    ///        matched a steady run as well as a run did, and won about a quarter of the picks; where the motion came from
+    ///        tells them apart (Unreal's pose history plays the same part).
     namespace features {
-        inline constexpr std::array<double, 3> kHorizons{ 1.0 / 3.0, 2.0 / 3.0, 1.0 };   ///< seconds ahead, and back
-        inline constexpr int kTrajPos = 0;    ///< 6: (x, y) per horizon ahead
-        inline constexpr int kTrajDir = 6;    ///< 6: (x, y) per horizon ahead, a unit vector
-        inline constexpr int kPastPos = 12;   ///< 6: (x, y) per horizon back
-        inline constexpr int kPastDir = 18;   ///< 6: (x, y) per horizon back, a unit vector
-        inline constexpr int kFootPos = 24;   ///< 6: left (x, y, z), right (x, y, z)
-        inline constexpr int kFootVel = 30;   ///< 6: left, right, game units/s
-        inline constexpr int kHipVel  = 36;   ///< 3: game units/s
-        inline constexpr int kDims    = 39;
+        inline constexpr std::array<double, 5> kAhead{ 0.2, 1.0 / 3.0, 0.5, 2.0 / 3.0, 1.0 };    ///< seconds ahead
+        inline constexpr std::array<double, 5> kBack{ 0.05, 0.2, 1.0 / 3.0, 2.0 / 3.0, 1.0 };   ///< seconds back
+        inline constexpr int kSamples   = 10;   ///< kAhead's, then kBack's
+        inline constexpr int kPerSample = 7;
+        inline constexpr int kSamplePos = 0, kSampleFacing = 2, kSampleVelocity = 4, kSampleHeight = 6;   ///< within a sample
+        inline constexpr int kFootPos      = kSamples * kPerSample;   ///< 6: left (x, y, z), right (x, y, z)
+        inline constexpr int kFootVel      = kFootPos + 6;            ///< 6: left, right, game units/s
+        inline constexpr int kHipVel       = kFootVel + 6;            ///< 3: game units/s
+        inline constexpr int kFootSpacing  = kHipVel + 3;             ///< 3: the left foot from the right
+        inline constexpr int kPelvisFacing = kFootSpacing + 3;        ///< 2: the hips' forward, a unit vector in the ground plane
+        inline constexpr int kDims         = kPelvisFacing + 2;
+        /// @return the first dimension of sample `s`
+        constexpr int SampleAt(int s) { return s * kPerSample; }
+        /// @return the time of sample `s`, seconds from now (negative: back)
+        constexpr double SampleTime(int s) { return s < static_cast<int>(kAhead.size()) ? kAhead[s] : -kBack[s - kAhead.size()]; }
     }
 
     /// @brief The clip's feature rows, one per frame (kDims floats each), appended to `rows`.
     /// @pre   `m.hasFeet && m.hasHip`.
-    /// @note  A horizon past the clip's last frame holds at that frame: the database marks those frames unsearchable,
-    ///        since their future is the clip ending, not the motion continuing. A horizon back before the first frame
+    /// @note  A sample past the clip's last frame holds at that frame: the database marks those frames unsearchable,
+    ///        since their future is the clip ending, not the motion continuing. A sample back before the first frame
     ///        holds at the first: a start clip's past is where it starts (standing), and every frame stays searchable.
     void AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows);
 

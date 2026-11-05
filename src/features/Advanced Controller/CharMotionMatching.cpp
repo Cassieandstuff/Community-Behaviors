@@ -544,10 +544,21 @@ namespace CB::feature {
         }
 
         /// @brief The query's graph variables.
+        /// @note Each sample is two VECTOR3 variables: where (x, y, facing in radians) and how (vx, vy, height). Samples
+        ///       0-4 are MM_Future0-4 and MM_FutureMotion0-4, at kAhead's times; 5-9 MM_Past0-4 and MM_PastMotion0-4.
         struct QueryNames {
             RE::BSFixedString have{ "MM_HaveQuery" }, rate{ "MM_PlayRate" }, desired{ "MM_Desired" };
-            std::array<RE::BSFixedString, 3> future{ RE::BSFixedString("MM_Future0"), RE::BSFixedString("MM_Future1"), RE::BSFixedString("MM_Future2") };
-            std::array<RE::BSFixedString, 3> past{ RE::BSFixedString("MM_Past0"), RE::BSFixedString("MM_Past1"), RE::BSFixedString("MM_Past2") };
+            std::array<RE::BSFixedString, CB::engine::anim::features::kSamples> where, how;
+            QueryNames()
+            {
+                constexpr int ahead = static_cast<int>(CB::engine::anim::features::kAhead.size());
+                for (int s = 0; s < CB::engine::anim::features::kSamples; ++s) {
+                    const bool        future = s < ahead;
+                    const std::string k      = std::to_string(future ? s : s - ahead);
+                    where[s] = RE::BSFixedString((future ? "MM_Future" : "MM_Past") + k);
+                    how[s]   = RE::BSFixedString((future ? "MM_FutureMotion" : "MM_PastMotion") + k);
+                }
+            }
         };
         const QueryNames& QueryVariables()
         {
@@ -571,11 +582,12 @@ namespace CB::feature {
             player->SetGraphVariableBool(names.have, have);
             if (!have) return false;
             RE::NiPoint3 p;
-            for (std::size_t k = 0; k < 3; ++k) {
-                p = { q.x[k], q.y[k], std::atan2(-q.dirX[k], q.dirY[k]) };
-                player->SetGraphVariableNiPoint3(names.future[k], p);
-                p = { q.pastX[k], q.pastY[k], std::atan2(-q.pastDirX[k], q.pastDirY[k]) };
-                player->SetGraphVariableNiPoint3(names.past[k], p);
+            for (std::size_t s = 0; s < q.samples.size(); ++s) {
+                const auto& t = q.samples[s];
+                p = { t.x, t.y, std::atan2(-t.dirX, t.dirY) };
+                player->SetGraphVariableNiPoint3(names.where[s], p);
+                p = { t.vx, t.vy, t.z };
+                player->SetGraphVariableNiPoint3(names.how[s], p);
             }
             p = { q.desiredX, q.desiredY, 0.0f };
             player->SetGraphVariableNiPoint3(names.desired, p);
@@ -592,11 +604,12 @@ namespace CB::feature {
             bool have = false;
             if (!actor->GetGraphVariableBool(names.have, have) || !have) return;
             RE::NiPoint3 p;
-            for (std::size_t k = 0; k < 3; ++k) {
-                if (!actor->GetGraphVariableNiPoint3(names.future[k], p)) return;
-                out.x[k] = p.x, out.y[k] = p.y, out.dirX[k] = -std::sin(p.z), out.dirY[k] = std::cos(p.z);
-                if (!actor->GetGraphVariableNiPoint3(names.past[k], p)) return;
-                out.pastX[k] = p.x, out.pastY[k] = p.y, out.pastDirX[k] = -std::sin(p.z), out.pastDirY[k] = std::cos(p.z);
+            for (std::size_t s = 0; s < out.samples.size(); ++s) {
+                auto& t = out.samples[s];
+                if (!actor->GetGraphVariableNiPoint3(names.where[s], p)) return;
+                t.x = p.x, t.y = p.y, t.dirX = -std::sin(p.z), t.dirY = std::cos(p.z);
+                if (!actor->GetGraphVariableNiPoint3(names.how[s], p)) return;
+                t.vx = p.x, t.vy = p.y, t.z = p.z;
             }
             if (!actor->GetGraphVariableNiPoint3(names.desired, p)) return;
             out.desiredX = p.x, out.desiredY = p.y;

@@ -253,6 +253,9 @@ namespace mm {
     using Biases           = CB::engine::locomotion::Biases;       ///< one database's biases, for one frame
     using CurveVariables   = CB::engine::locomotion::CurveVariables; ///< a clip's curves as relay variables
     using Query            = CB::engine::locomotion::Query;        ///< one search's question
+    using TrajectorySample = CB::engine::locomotion::TrajectorySample; ///< one of a question's samples
+    using QueryTrajectory  = CB::engine::locomotion::QueryTrajectory;  ///< its samples, ahead then back
+    namespace features = CB::engine::anim::features;               ///< the feature row's layout and sample times
     using SearchResult     = CB::engine::locomotion::SearchResult; ///< one search's answer
     using Candidate        = CB::engine::locomotion::Candidate;    ///< one row as TopCandidates scored it
     using BuildReport      = CB::engine::locomotion::BuildReport;
@@ -274,6 +277,11 @@ namespace mm {
     using CB::engine::locomotion::TopCandidates;               ///< the n best rows, with their costs per feature group
     using CB::engine::locomotion::GroupOf;                     ///< a feature dimension → its group
     using CB::engine::locomotion::kGroups;                     ///< how many groups Candidate::groupCost holds
+    using CB::engine::locomotion::kWeightGroups;               ///< the parts a database weighs
+    using CB::engine::locomotion::WeightGroupOf;
+    using CB::engine::locomotion::WeightGroupName;             ///< a weight group's name ("position+0.2", "feet")
+    using CB::engine::locomotion::DefaultWeights;
+    using CB::engine::locomotion::ApplyWeights;                ///< (name, weight) pairs over the defaults
     using CB::engine::locomotion::kIgnoreSurrounding;          ///< frames around the playing row that are the playing row
     using CB::engine::locomotion::kForceMoving;                ///< below this request the search gates on standing
     using CB::engine::locomotion::kWalkRun;                    ///< game units/s: a speed band's start, run's

@@ -227,6 +227,7 @@ namespace CB::feature::controller::motion {
             out.movingCandidate        = name(d.m_movingCandidate);
             for (int t = 0; t < d.m_tags.getSize(); ++t)
                 if (name(d.m_tags[t]) == "Pivots") out.pivots = true;
+            for (int w = 0; w < d.m_weights.getSize(); ++w) out.weights.emplace_back(name(d.m_weights[w].m_group), d.m_weights[w].m_weight);
             spec.databases.push_back(std::move(out));
         }
         for (int i = 0; i < from->m_children.getSize(); ++i) {

@@ -48,11 +48,13 @@ namespace CB::engine::locomotion {
         {
             Prepared p;
             std::array<float, F::kDims>& qv = p.qv;
-            for (int k = 0; k < 3; ++k) {
-                const float raw[8] = { q.x[k], q.y[k], q.dirX[k], q.dirY[k], q.pastX[k], q.pastY[k], q.pastDirX[k], q.pastDirY[k] };
-                const int   at[8]  = { F::kTrajPos + 2 * k, F::kTrajPos + 2 * k + 1, F::kTrajDir + 2 * k, F::kTrajDir + 2 * k + 1,
-                                       F::kPastPos + 2 * k, F::kPastPos + 2 * k + 1, F::kPastDir + 2 * k, F::kPastDir + 2 * k + 1 };
-                for (int j = 0; j < 8; ++j) qv[at[j]] = (raw[j] - db.mean[at[j]]) / db.scale[at[j]];
+            for (int s = 0; s < F::kSamples; ++s) {
+                const TrajectorySample& t = q.samples[s];
+                const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
+                for (int j = 0; j < F::kPerSample; ++j) {
+                    const int d = F::SampleAt(s) + j;
+                    qv[d]       = (raw[j] - db.mean[d]) / db.scale[d];
+                }
             }
             if (q.currentClip >= 0 && db.clips[q.currentClip].frames > 0) {
                 const Clip& c = db.clips[q.currentClip];
@@ -61,6 +63,49 @@ namespace CB::engine::locomotion {
                             qv.data() + F::kFootPos);
             }
             return p;
+        }
+
+        /// @brief The database weighing nothing in particular: the defaults.
+        const PoseDatabase& Unweighted()
+        {
+            static const PoseDatabase d = [] {
+                PoseDatabase out;
+                for (int k = 0; k < F::kDims; ++k)
+                    if (out.weight[k] > 0.0f) out.dims.push_back(k);
+                return out;
+            }();
+            return d;
+        }
+
+        /// @return the weights a candidate of `clip` is scored with
+        const PoseDatabase& WeighingOf(const Database& db, int clip)
+        {
+            const int d = db.clips[clip].database;
+            return d >= 0 ? db.databases[d] : Unweighted();
+        }
+
+        /// @brief The normalization groups: per direction (ahead, back) each channel, then each pose part.
+        int NormGroupOf(int d)
+        {
+            if (d < F::kFootPos) {
+                const int sample = d / F::kPerSample, within = d % F::kPerSample;
+                const int channel = within < F::kSampleFacing ? 0 : within < F::kSampleVelocity ? 1 : within < F::kSampleHeight ? 2 : 3;
+                return (sample < static_cast<int>(F::kAhead.size()) ? 0 : kChannels) + channel;
+            }
+            return 2 * kChannels + (WeightGroupOf(d) - F::kSamples * kChannels);
+        }
+        constexpr int kNormGroups = 2 * kChannels + 5;
+
+        constexpr const char* kChannelNames[kChannels] = { "position", "facing", "velocity", "height" };
+        constexpr const char* kPoseNames[5]            = { "feet", "feetVelocity", "hipVelocity", "footSpacing", "pelvisFacing" };
+
+        /// @return `seconds` as a sample label: "+0.2", "+0.33", "-1"
+        std::string SampleLabel(double seconds)
+        {
+            std::string out = std::format("{:.2f}", std::fabs(seconds));
+            while (out.back() == '0') out.pop_back();
+            if (out.back() == '.') out.pop_back();
+            return (seconds < 0 ? "-" : "+") + out;
         }
 
         /// @brief The latest biases for `database` (all 0 outside `q.biases` or outside every database).
@@ -108,15 +153,85 @@ namespace CB::engine::locomotion {
 
     }  // namespace
 
+    int WeightGroupOf(int d)
+    {
+        if (d < F::kFootPos) {
+            const int within  = d % F::kPerSample;
+            const int channel = within < F::kSampleFacing ? 0 : within < F::kSampleVelocity ? 1 : within < F::kSampleHeight ? 2 : 3;
+            return (d / F::kPerSample) * kChannels + channel;
+        }
+        const int pose = d < F::kFootVel ? 0 : d < F::kHipVel ? 1 : d < F::kFootSpacing ? 2 : d < F::kPelvisFacing ? 3 : 4;
+        return F::kSamples * kChannels + pose;
+    }
+
+    std::string WeightGroupName(int g)
+    {
+        if (g < 0 || g >= kWeightGroups) return {};
+        if (g >= F::kSamples * kChannels) return kPoseNames[g - F::kSamples * kChannels];
+        return kChannelNames[g % kChannels] + SampleLabel(F::SampleTime(g / kChannels));
+    }
+
+    std::array<float, F::kDims> DefaultWeights()
+    {
+        std::array<float, F::kDims> out{};
+        const auto classic = [](double seconds) {
+            const double t = std::fabs(seconds);
+            return std::fabs(t - 1.0 / 3.0) < 1.0e-6 || std::fabs(t - 2.0 / 3.0) < 1.0e-6 || std::fabs(t - 1.0) < 1.0e-6;
+        };
+        for (int d = 0; d < F::kDims; ++d) {
+            const int g = WeightGroupOf(d);
+            if (g < F::kSamples * kChannels) {
+                if (!classic(F::SampleTime(g / kChannels))) continue;
+                if (g % kChannels == 0) out[d] = kWeightTrajPos;
+                if (g % kChannels == 1) out[d] = kWeightTrajDir;
+                continue;
+            }
+            const int pose = g - F::kSamples * kChannels;
+            out[d] = pose == 0 ? kWeightFootPos : pose == 1 ? kWeightFootVel : pose == 2 ? kWeightHipVel : 0.0f;
+        }
+        return out;
+    }
+
+    std::vector<std::string> ApplyWeights(const std::vector<std::pair<std::string, float>>& weights, std::array<float, F::kDims>& out)
+    {
+        /// @note Three passes, broadest first: a channel alone, a channel with a direction, then one group.
+        std::vector<char> used(weights.size(), 0);
+        for (int pass = 0; pass < 3; ++pass)
+            for (std::size_t w = 0; w < weights.size(); ++w) {
+                const std::string& name = weights[w].first;
+                for (int d = 0; d < F::kDims; ++d) {
+                    const int g = WeightGroupOf(d);
+                    bool      hit = false;
+                    if (g < F::kSamples * kChannels) {
+                        const std::string channel = kChannelNames[g % kChannels];
+                        const bool        ahead   = g / kChannels < static_cast<int>(F::kAhead.size());
+                        if (pass == 0) hit = name == channel;
+                        if (pass == 1) hit = name == channel + (ahead ? "+" : "-");
+                    }
+                    if (pass == 2) hit = name == WeightGroupName(g);
+                    if (!hit) continue;
+                    out[d]  = weights[w].second;
+                    used[w] = 1;
+                }
+            }
+        std::vector<std::string> unknown;
+        for (std::size_t w = 0; w < weights.size(); ++w)
+            if (!used[w]) unknown.push_back(weights[w].first);
+        return unknown;
+    }
+
     int GroupOf(int d)
     {
-        if (d < F::kTrajDir) return 0;
-        if (d < F::kPastPos) return 1;
-        if (d < F::kPastDir) return 2;
-        if (d < F::kFootPos) return 3;
-        if (d < F::kFootVel) return 4;
-        if (d < F::kHipVel) return 5;
-        return 6;
+        const int g = WeightGroupOf(d);
+        if (g < F::kSamples * kChannels) {
+            const bool ahead   = g / kChannels < static_cast<int>(F::kAhead.size());
+            const int  channel = g % kChannels;
+            if (channel == 3) return 5;
+            if (ahead) return channel;
+            return channel == 1 ? 4 : 3;
+        }
+        const int pose = g - F::kSamples * kChannels;
+        return pose == 0 || pose == 3 ? 6 : pose == 1 ? 7 : 8;
     }
 
     bool CurveVariables::Read(const char* name, relay::Value& out) const
@@ -177,7 +292,7 @@ namespace CB::engine::locomotion {
         out->frames       = c.frames;
         out->dt           = c.frameDuration;
         out->duration     = c.duration;
-        const int horizon = static_cast<int>(std::lround(F::kHorizons.back() / out->dt));
+        const int horizon = static_cast<int>(std::lround(F::kAhead.back() / out->dt));
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
@@ -210,6 +325,7 @@ namespace CB::engine::locomotion {
         for (const SpecDatabase& d : databases) {
             text(d.name), text(d.baseCostBias), text(d.continuingPoseCostBias), text(d.loopingCostBias);
             text(d.standingCandidate), text(d.movingCandidate);
+            for (const auto& [group, weight] : d.weights) text(group), bits(weight);
             out += d.pivots ? "1\x1e" : "0\x1e";
         }
         out += haveChooser ? "\x1d" "1" : "\x1d" "0";
@@ -239,6 +355,9 @@ namespace CB::engine::locomotion {
                 p.movingCandidate        = StrOr(*d, "movingCandidate");
                 if (const auto* tags = d->FindField("tags"))
                     p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
+                if (const auto* weights = d->FindField("weights"))
+                    for (const auto& wo : weights->objs)
+                        if (const auto* w = dynamic_cast<const SchemaObject*>(wo.get())) p.weights.emplace_back(StrOr(*w, "group"), w->GetFloat("weight"));
                 spec.databases.push_back(std::move(p));
             }
         for (const auto& o : selector.Children("children")) {
@@ -284,7 +403,14 @@ namespace CB::engine::locomotion {
             p.standing   = CompileExpression(d.standingCandidate, "database '" + p.name + "' standingCandidate", "no row is a standing candidate", warn);
             p.moving     = CompileExpression(d.movingCandidate, "database '" + p.name + "' movingCandidate", "no row is a moving candidate", warn);
             p.pivots     = d.pivots;
+            for (const std::string& unknown : ApplyWeights(d.weights, p.weight))
+                Warn(warn, std::format("database '{}' weighs '{}', which names nothing - ignored", p.name, unknown));
             db.databases.push_back(std::move(p));
+        }
+        for (PoseDatabase& p : db.databases) {
+            p.dims.clear();
+            for (int d = 0; d < F::kDims; ++d)
+                if (p.weight[d] > 0.0f) p.dims.push_back(d);
         }
         for (std::size_t i = 0; i < spec.children.size(); ++i) {
             const SpecChild& row = spec.children[i];
@@ -383,18 +509,15 @@ namespace CB::engine::locomotion {
                 var[k % F::kDims] += x * x;
             }
         }
-        std::array<double, kGroups> groupSpread{}, groupDims{};
+        std::array<double, kNormGroups> groupSpread{}, groupDims{};
         for (int d = 0; d < F::kDims; ++d) {
-            groupSpread[GroupOf(d)] += std::sqrt(var[d] / static_cast<double>(distinctRows));
-            groupDims[GroupOf(d)] += 1;
+            groupSpread[NormGroupOf(d)] += std::sqrt(var[d] / static_cast<double>(distinctRows));
+            groupDims[NormGroupOf(d)] += 1;
         }
-        const std::array<float, kGroups> weights{ kWeightTrajPos, kWeightTrajDir, kWeightPastPos, kWeightPastDir,
-                                                  kWeightFootPos, kWeightFootVel, kWeightHipVel };
         for (int d = 0; d < F::kDims; ++d) {
-            const double spread = groupSpread[GroupOf(d)] / groupDims[GroupOf(d)];
-            db->mean[d]   = static_cast<float>(mean[d]);
-            db->scale[d]  = static_cast<float>(spread > 1.0e-6 ? spread : 1.0);
-            db->weight[d] = weights[GroupOf(d)];
+            const double spread = groupSpread[NormGroupOf(d)] / groupDims[NormGroupOf(d)];
+            db->mean[d]  = static_cast<float>(mean[d]);
+            db->scale[d] = static_cast<float>(spread > 1.0e-6 ? spread : 1.0);
         }
 
         std::size_t total = 0;
@@ -508,26 +631,28 @@ namespace CB::engine::locomotion {
         const auto&    qv     = p.qv;
         const int      curRow = p.curRow;
 
-        const auto cost = [&](std::size_t r, float bound) {
+        /// @note Each candidate is weighed by its own database: GASP's schema per database.
+        const auto cost = [&](std::size_t r, const PoseDatabase& by, float bound) {
             const float* row = db.rows.data() + r * F::kDims;
             float        sum = 0;
-            for (int d = 0; d < F::kDims && sum < bound; ++d) {
-                const float e = db.weight[d] * (qv[d] - row[d]);
+            for (const int d : by.dims) {
+                if (!(sum < bound)) break;
+                const float e = by.weight[d] * (qv[d] - row[d]);
                 sum += e * e;
             }
             return sum;
         };
 
         /// @note The playing row (the continuing pose) carries its database's continuing bias on top of a candidate's.
-        const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), 1.0e30f) + BiasOf(db, q, q.currentClip) +
-                                                BiasesOf(q, db.clips[q.currentClip].database).continuing
+        const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), WeighingOf(db, q.currentClip), 1.0e30f) +
+                                                BiasOf(db, q, q.currentClip) + BiasesOf(q, db.clips[q.currentClip].database).continuing
                                           : 1.0e30f;
         float       best     = 1.0e30f;
         int         bestRow  = -1;
         std::size_t searched = 0;
-        ForEachCandidate(db, q, curRow, [&](int, int r, float b) {
+        ForEachCandidate(db, q, curRow, [&](int ci, int r, float b) {
             ++searched;
-            const float f = cost(static_cast<std::size_t>(r), best - b);
+            const float f = cost(static_cast<std::size_t>(r), WeighingOf(db, ci), best - b);
             if (f + b < best) best = f + b, bestRow = r;
         });
 
@@ -550,11 +675,12 @@ namespace CB::engine::locomotion {
         const Prepared p = Prepare(db, q);
         const auto     better = [](const Candidate& a, const Candidate& b) { return a.total < b.total || (a.total == b.total && a.row < b.row); };
         ForEachCandidate(db, q, p.curRow, [&](int ci, int r, float b) {
-            const float* row = db.rows.data() + static_cast<std::size_t>(r) * F::kDims;
-            Candidate    c;
-            float        sum = 0;
-            for (int d = 0; d < F::kDims; ++d) {
-                const float e = db.weight[d] * (p.qv[d] - row[d]);
+            const float*        row = db.rows.data() + static_cast<std::size_t>(r) * F::kDims;
+            const PoseDatabase& by  = WeighingOf(db, ci);
+            Candidate           c;
+            float               sum = 0;
+            for (const int d : by.dims) {
+                const float e = by.weight[d] * (p.qv[d] - row[d]);
                 sum += e * e;
                 c.groupCost[GroupOf(d)] += e * e;
             }
@@ -637,8 +763,7 @@ namespace CB::engine::locomotion {
                 if (lo <= hi) q.banned.emplace_back(c.first + lo, c.first + hi);
             }
             std::sort(q.banned.begin(), q.banned.end());
-            q.x = in.x, q.y = in.y, q.dirX = in.dirX, q.dirY = in.dirY;
-            q.pastX = in.pastX, q.pastY = in.pastY, q.pastDirX = in.pastDirX, q.pastDirY = in.pastDirY;
+            q.samples     = in.samples;
             q.desiredX    = in.desiredX;
             q.desiredY    = in.desiredY;
             q.currentClip = m_clip;

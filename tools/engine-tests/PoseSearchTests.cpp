@@ -104,6 +104,9 @@ void RelayChecks() {
 
 const std::string kRoot = "meshes/actors/character/";
 
+/// @brief The dimension the line clips move along: the 1/3 s sample's x, weighed by default.
+constexpr int kLineDim = F::SampleAt(1) + F::kSamplePos;
+
 /// @brief A clip of `frames` raw rows, every dimension 0 but the first trajectory x (`xBase` + the frame); its Speed curve
 ///        reads 0 until `standUntil`, then 100.
 anim::MmCachedClip LineClip(const std::string& name, int frames, float xBase, float standUntil) {
@@ -113,7 +116,7 @@ anim::MmCachedClip LineClip(const std::string& name, int frames, float xBase, fl
     c.frameDuration = 1.0f / 30.0f;
     c.duration      = static_cast<float>(frames - 1) / 30.0f;
     c.features.assign(static_cast<std::size_t>(frames) * F::kDims, 0.0f);
-    for (int f = 0; f < frames; ++f) c.features[static_cast<std::size_t>(f) * F::kDims + F::kTrajPos] = xBase + static_cast<float>(f);
+    for (int f = 0; f < frames; ++f) c.features[static_cast<std::size_t>(f) * F::kDims + kLineDim] = xBase + static_cast<float>(f);
     c.rootPositions.assign(static_cast<std::size_t>(frames) * 3, 0.0f);
     anim::AnimCurveDef speed;
     speed.name = "Speed";
@@ -203,7 +206,9 @@ Clips LineClips() {
 /// @brief A query at raw trajectory x `x`, moving unless `standing`.
 ps::Query At(float x, bool standing = false) {
     ps::Query q;
-    q.x[0]     = x;
+    /// @note The line clips hold 0 in every dimension but one, facing included.
+    for (ps::TrajectorySample& s : q.samples) s.dirY = 0.0f;
+    q.samples[1].x = x;
     q.desiredX = standing ? 0.0f : 100.0f;
     return q;
 }
@@ -278,7 +283,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         ps::Query q = At(1020.0f);
         q.active    = runOnly;
         Check(ps::Search(db, q).bestRow == ranged + 20, "an in-range row of the ranged child");
-        q.x[0] = 1028.0f;
+        q.samples[1].x = 1028.0f;
         Check(ps::Search(db, q).bestRow == ranged + 24, "past the range, its last row");
         Check(ps::Search(db, At(1035.0f)).bestRow == 29, "a horizon-cut frame is no candidate: the last searchable row");
     }
@@ -318,7 +323,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         q.active      = walkOnly;
         q.currentClip = 0;
         q.currentTime = 0.5;   // frame 15
-        q.x[0]        = 1015.0f;
+        q.samples[1].x = 1015.0f;
         ps::SearchResult r = ps::Search(db, q);
         Check(r.playing == 0.0f && !r.wins, "the playing row at cost 0 holds");
         q.clipEnd = true;
@@ -389,12 +394,13 @@ void AgreementChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     if (!dbp) return;
     const ps::Database& db = *dbp;
 
-    const auto randomArray = [&](std::array<float, 3>& a) { for (float& v : a) v = normal(rng); };
+    const auto randomTrajectory = [&](ps::QueryTrajectory& t) {
+        for (ps::TrajectorySample& v : t) v = { normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng) };
+    };
     int moved = 0;
     for (int i = 0; i < 400; ++i) {
         ps::Query q;
-        randomArray(q.x), randomArray(q.y), randomArray(q.dirX), randomArray(q.dirY);
-        randomArray(q.pastX), randomArray(q.pastY), randomArray(q.pastDirX), randomArray(q.pastDirY);
+        randomTrajectory(q.samples);
         q.desiredX = unit01(rng) < 0.5f ? 0.0f : 200.0f;
         if (unit01(rng) < 0.7f) {
             q.currentClip = static_cast<int>(unit01(rng) * db.clips.size());
@@ -437,12 +443,10 @@ void AgreementChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(moved > 0, "some searches found a winner");
 
     for (int d = 0; d < F::kDims; ++d) {
-        const int g = ps::GroupOf(d);
-        Check(g >= 0 && g < ps::kGroups, "GroupOf is in range");
-        const float weights[ps::kGroups] = { ps::kWeightTrajPos, ps::kWeightTrajDir, ps::kWeightPastPos, ps::kWeightPastDir,
-                                             ps::kWeightFootPos, ps::kWeightFootVel, ps::kWeightHipVel };
-        Check(db.weight[d] == weights[g], "a dimension weighs its group's weight");
+        Check(ps::GroupOf(d) >= 0 && ps::GroupOf(d) < ps::kGroups, "GroupOf is in range");
+        Check(ps::WeightGroupOf(d) >= 0 && ps::WeightGroupOf(d) < ps::kWeightGroups, "WeightGroupOf is in range");
     }
+    for (const ps::PoseDatabase& p : db.databases) Check(p.weight == ps::DefaultWeights(), "a database stating no weights weighs the defaults");
 }
 
 /// @brief The per-character Matcher over a small random database: when it searches, and what it plays.
@@ -488,8 +492,7 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 
     const auto request = [&] {
         ps::MatchRequest in;
-        for (auto* a : { &in.x, &in.y, &in.dirX, &in.dirY, &in.pastX, &in.pastY, &in.pastDirX, &in.pastDirY })
-            for (float& v : *a) v = normal(rng);
+        for (ps::TrajectorySample& v : in.samples) v = { normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng) };
         in.desiredX  = 200.0f;
         in.haveQuery = true;
         return in;
@@ -658,6 +661,35 @@ void ChooserInputChecks() {
     Check(named == ps::kChooserColumns.size(), "every column names an input");
 }
 
+void WeightChecks() {
+    Check(ps::WeightGroupName(0) == "position+0.2", "the first group is the first sample's position");
+    Check(ps::WeightGroupName(1 * ps::kChannels + 1) == "facing+0.33", "a sample's label rounds to two places");
+    Check(ps::WeightGroupName(4 * ps::kChannels + 2) == "velocity+1", "and drops trailing zeros");
+    Check(ps::WeightGroupName(5 * ps::kChannels + 3) == "height-0.05", "the past samples are minus");
+    Check(ps::WeightGroupName(F::kSamples * ps::kChannels) == "feet" && ps::WeightGroupName(ps::kWeightGroups - 1) == "pelvisFacing", "then the pose parts");
+    Check(ps::WeightGroupName(ps::kWeightGroups).empty() && ps::WeightGroupName(-1).empty(), "past the end, nothing");
+    for (int g = 0; g < ps::kWeightGroups; ++g) {
+        int dims = 0;
+        for (int d = 0; d < F::kDims; ++d) dims += ps::WeightGroupOf(d) == g;
+        Check(dims > 0, "every group holds a dimension: " + ps::WeightGroupName(g));
+    }
+
+    const auto defaults = ps::DefaultWeights();
+    const int  pos13    = F::SampleAt(1) + F::kSamplePos, pos02 = F::SampleAt(0) + F::kSamplePos;
+    Check(defaults[pos13] == ps::kWeightTrajPos && defaults[pos02] == 0.0f, "by default the classic samples count and the new ones don't");
+    Check(defaults[F::SampleAt(1) + F::kSampleFacing] == ps::kWeightTrajDir && defaults[F::SampleAt(1) + F::kSampleVelocity] == 0.0f, "facing does, velocity doesn't");
+    Check(defaults[F::SampleAt(7) + F::kSamplePos] == ps::kWeightTrajPos && defaults[F::SampleAt(5) + F::kSamplePos] == 0.0f, "back too: 1/3 s does, 0.05 s doesn't");
+    Check(defaults[F::kFootPos] == ps::kWeightFootPos && defaults[F::kFootSpacing] == 0.0f && defaults[F::kPelvisFacing] == 0.0f, "the pose's classic parts count");
+
+    auto       w       = defaults;
+    const auto unknown = ps::ApplyWeights({ { "position+0.2", 10.0f }, { "position", 2.0f }, { "height+", 3.0f }, { "Position", 1.0f }, { "feet", 0.0f } }, w);
+    Check(w[pos02] == 10.0f, "a narrower name wins whatever its order");
+    Check(w[pos13] == 2.0f && w[F::SampleAt(9) + F::kSamplePos] == 2.0f, "a channel alone covers every sample");
+    Check(w[F::SampleAt(2) + F::kSampleHeight] == 3.0f && w[F::SampleAt(6) + F::kSampleHeight] == 0.0f, "a channel with + covers the samples ahead only");
+    Check(w[F::kFootPos] == 0.0f && w[F::kFootVel] == ps::kWeightFootVel, "a pose part, and only it");
+    Check(unknown == std::vector<std::string>{ "Position" }, "a name in the wrong case names nothing");
+}
+
 void MeasureChecks() {
     anim::AnimationDef def;
     def.name          = "t";
@@ -737,6 +769,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     AgreementChecks(reg, tmp);
     MatcherChecks(reg, tmp);
     ChooserInputChecks();
+    WeightChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

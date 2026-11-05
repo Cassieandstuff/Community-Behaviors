@@ -41,7 +41,9 @@ namespace CB::engine::anim {
 
         std::vector<float> Horizons()
         {
-            return { features::kHorizons.begin(), features::kHorizons.end() };
+            std::vector<float> out(features::kAhead.begin(), features::kAhead.end());
+            out.insert(out.end(), features::kBack.begin(), features::kBack.end());
+            return out;
         }
 
     }  // namespace

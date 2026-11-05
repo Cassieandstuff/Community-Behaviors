@@ -32,3 +32,17 @@ namedVariants:
           'MM_Past0': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
           'MM_Past1': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
           'MM_Past2': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_Future3': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_Future4': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_Past3': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_Past4': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_FutureMotion0': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_FutureMotion1': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_FutureMotion2': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_FutureMotion3': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_FutureMotion4': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_PastMotion0': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_PastMotion1': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_PastMotion2': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_PastMotion3': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}
+          'MM_PastMotion4': {type: VARIABLE_TYPE_VECTOR3, value: '(0 0 0 0)'}

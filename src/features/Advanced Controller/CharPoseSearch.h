@@ -38,6 +38,15 @@ namespace CB::feature::controller::motion {
     };
     static_assert(sizeof(PoseSearchChild) == 32, "PoseSearchChild size (schema: 32)");
 
+    /// @brief CBPoseSearchWeight: how much one part of a frame counts in a database.
+    struct PoseSearchWeight {
+        HK_DECLARE_POD_TYPE();
+
+        ::hkStringPtr m_group;    ///< +0x00
+        ::hkReal      m_weight;   ///< +0x08
+    };
+    static_assert(sizeof(PoseSearchWeight) == 16, "PoseSearchWeight size (schema: 16)");
+
     /// @brief CBPoseSearchDatabase: a dance card, named by its children, with Unreal's per-database cost biases
     ///        (condition expressions) and its tags.
     /// @note  Declared POD to hkArray: the elements live in the loaded file, so an array never constructs or destroys
@@ -52,8 +61,9 @@ namespace CB::feature::controller::motion {
         ::hkArray<::hkStringPtr> m_tags;          ///< +0x20
         ::hkStringPtr          m_standingCandidate;        ///< +0x30
         ::hkStringPtr          m_movingCandidate;          ///< +0x38
+        ::hkArray<PoseSearchWeight> m_weights;             ///< +0x40
     };
-    static_assert(sizeof(PoseSearchDatabase) == 64, "PoseSearchDatabase size (schema: 64)");
+    static_assert(sizeof(PoseSearchDatabase) == 80, "PoseSearchDatabase size (schema: 80)");
 
     /// @brief CBPoseSearchChooserRow: a condition expression and the databases it selects.
     struct PoseSearchChooserRow {
