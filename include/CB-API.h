@@ -81,6 +81,7 @@
 #include "locomotion/Movement.h"
 #include "locomotion/Horse.h"
 #include "locomotion/Slope.h"
+#include "locomotion/Pogo.h"
 #include "locomotion/DeadBlend.h"
 #include "codec/resource/PathKey.h"
 
@@ -176,6 +177,7 @@ namespace anim {
     using CB::engine::anim::AnimCompressionParams;
     using CB::engine::anim::AnimCurveKey;            ///< one curve key (time, value, interpolation)
     using CB::engine::anim::AnimCurveDef;            ///< a named curve over the clip
+    using CB::engine::anim::SampleCurve;             ///< a curve → its value at a time
     using CB::engine::anim::EmitAnimCurvesYaml;      ///< curves → the unit's `curves:` block
     using CB::engine::anim::EmitAnimationYaml;       ///< Def → the unit's text (CBAnimation, through the schema)
 
@@ -273,6 +275,7 @@ namespace mm {
     using CB::engine::locomotion::kGroups;                     ///< how many groups Candidate::groupCost holds
     using CB::engine::locomotion::kIgnoreSurrounding;          ///< frames around the playing row that are the playing row
     using CB::engine::locomotion::kForceMoving;                ///< below this request the search gates on standing
+    using CB::engine::locomotion::kRunSprint;                  ///< game units/s: a speed band's start, sprint's
     using CB::engine::locomotion::kRowStanding;                ///< SearchDatabase::rowGates bits
     using CB::engine::locomotion::kRowMoving;
     using CB::engine::locomotion::kFlagDisableReselection;     ///< SearchClip::flags bits (kMmDisableReselection's values)
@@ -343,6 +346,7 @@ namespace locomotion {
     using CB::engine::locomotion::RungSpeed;               ///< a rung's speed from walk + run speeds
     using CB::engine::locomotion::WrapPi;
     using CB::engine::locomotion::SpringDamperExact;       ///< exact critically damped spring
+    using CB::engine::locomotion::GroundVelocityStep;      ///< the body's velocity following the model's
     using CB::engine::locomotion::SlopeRise;
     using CB::engine::locomotion::SlopeSpeedScale;
     using CB::engine::locomotion::SlideStep;
