@@ -207,17 +207,27 @@ namespace CB {
         g_armCv.notify_all();
     }
 
-    // Block until the adsf/setdata redirects are armed (or a generous timeout — never hang the engine's
-    // load forever if arming somehow fails; on timeout the open falls through to vanilla, same as a
-    // pre-Ready passthrough). Called by the animationdata/animationsetdata detours after they kick the
-    // gate. Fast-path acquire, then a bounded wait, same shape as ProjectRedirect's redirect wait.
+    /// @brief Block until the adsf/setdata redirects are armed, or the ArmThread has exited without arming them.
+    /// @note No time limit: the engine reads the adsf once per launch, so an open let through early serves vanilla's
+    ///       file for the whole session (every CB clip record lost). A projection's length grows with the clip count
+    ///       (39 s for ~2,100 clips on 2026-11-05), so any fixed limit is one load order away from that.
+    /// @note The ArmThread signals on every path it returns by; its exit is checked too, so a thread that dies
+    ///       unsignalled releases the open (vanilla) instead of hanging the game.
     void WaitAdsfArmed()
     {
         if (g_adsfArmed.load(std::memory_order_acquire)) return;
+        const auto t0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(g_armMutex);
-        if (!g_armCv.wait_for(lk, std::chrono::seconds(120),
-                              [] { return g_adsfArmed.load(std::memory_order_acquire); }))
-            LOG_WARN("Community Behaviors: adsf/setdata arm timed out (120s) — serving vanilla for this open.");
+        while (!g_armCv.wait_for(lk, std::chrono::seconds(15), [] { return g_adsfArmed.load(std::memory_order_acquire); })) {
+            const HANDLE h = g_compileThread;
+            if (h && WaitForSingleObject(h, 0) == WAIT_OBJECT_0) {
+                LOG_ERROR("Community Behaviors: the arm thread exited without arming the adsf/setdata — serving vanilla "
+                          "for this open.");
+                return;
+            }
+            LOG_INFO("Community Behaviors: the engine's animation data open is waiting on the adsf projection ({:.0f} s).",
+                     std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        }
     }
 
     // adsf + setdata serve/arm.
