@@ -41,7 +41,7 @@ namespace CB::feature::controller::motion {
     /// @brief CBPoseSearchDatabase: a dance card, named by its children, with Unreal's per-database cost biases
     ///        (condition expressions) and its tags.
     /// @note  Declared POD to hkArray: the elements live in the loaded file, so an array never constructs or destroys
-    ///        them (a block-copied node's destructor must not tear down the template's data).
+    ///        them (a clone shares them through m_children's copy, and its destructor must not tear down the template's data).
     struct PoseSearchDatabase {
         HK_DECLARE_POD_TYPE();
 
@@ -80,10 +80,9 @@ namespace CB::feature::controller::motion {
     class PoseSearchGenerator : public ::hkbGenerator {
     public:
         /// @note Each row's child holds a reference (raw pointers: the constructors and the destructor count them by hand).
-        /// @warning No member may own memory: Skyrim instances a character's graph by block-copying it (only clip
-        ///          controls and a few reference counts are fixed up), so a node-owned pointer is shared by every copy
-        ///          and freed by the first one destroyed. While the dead blend kept its owned state here, random actors
-        ///          vanished (suspected cause, not proven); it now lives in a table keyed by character (generate).
+        /// @note  Each character runs its own clone (cloneNode). Per-character state lives in a table keyed by character
+        ///        (generate) rather than here: while the dead blend kept owned state in the node, random actors vanished
+        ///        (suspected cause, not proven). A pointer the copy constructor copies is shared by every clone.
         ::hkArray<PoseSearchChild>          m_children;       ///< +0x48
         ::hkInt32                           m_selectedIndex;  ///< +0x58, bound to the add-on's MM_Clip
         ::hkInt32                           m_currentIndex;   ///< +0x5c, the child playing, clamped into range

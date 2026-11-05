@@ -2,6 +2,7 @@ name:      hkbBlenderGenerator
 parent:    hkbGenerator
 signature: 0x22df7147
 size:      160
+enums:     [BlenderFlags]   # declared by the class (signature only)
 view:      { kind: blendspace, children: children, parameter: blendParameter, cycleMin: minCyclicBlendParameter, cycleMax: maxCyclicBlendParameter, flags: flags }
 defaults:  { blendParameter: 1, flags: FLAG_PARAMETRIC_BLEND|FLAG_SYNC, indexOfSyncMasterChild: -1, maxCyclicBlendParameter: 1 }
 fields:
@@ -14,8 +15,8 @@ fields:
   - { name: subtractLastChild,            type: bool }
   - { skip: 3 }
   - { name: children,                     type: ptrarray, ref: hkbBlenderGeneratorChild, roster: id, required: true }
-  - { empty: array }
-  - { empty: array }
+  - { name: childrenInternalStates, empty: array }
+  - { name: sortedChildren,         empty: array }
   - { name: endIntervalWeight,  type: float, ignored: true }
   - { name: numActiveChildren,  type: int32, ignored: true }
   - { name: beginIntervalIndex, type: int16, ignored: true }

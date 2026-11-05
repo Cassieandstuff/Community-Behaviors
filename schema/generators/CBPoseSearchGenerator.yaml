@@ -20,7 +20,6 @@ fields:
   - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
   - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
 # `databases` are the dance cards each child names, `chooser` picks which of them are searched.
-# `children` is a slot roster because selectedIndex (MM_Clip) is a position. No member owns runtime memory: Skyrim
-# instances a character's graph by block-copying it, so memory the node owned would be shared by every copy and freed
-# by whichever is destroyed first. The arrays and the chooser are the loaded file's; the dead blend keeps its state per
-# character instead.
+# `children` is a slot roster because selectedIndex (MM_Clip) is a position. No member owns runtime memory: the arrays
+# and the chooser are the loaded file's, each character's clone shares them, and the dead blend keeps its state per
+# character.

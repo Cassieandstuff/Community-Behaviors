@@ -13,5 +13,6 @@ void RunUserSentinelTests(const schema::SchemaRegistry& reg);
 void RunRulesTests(const schema::SchemaRegistry& reg);
 void RunUnitFormatTests(const schema::SchemaRegistry& reg);
 void RunPoseSearchTests(const schema::SchemaRegistry& reg);
+void RunBlendSpaceTests(const schema::SchemaRegistry& reg);
 
 }  // namespace CB::engine::tests

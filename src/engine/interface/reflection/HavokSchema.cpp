@@ -257,6 +257,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.frameCounted = childStr(fn, "count") == "frame";
                     f.hkType       = childStr(fn, "hktype");
                     f.cbAdded      = childStr(fn, "cb") == "true";
+                    f.align16      = childStr(fn, "align16") == "true";
                     if (hasKey(fn, "role")) {
                         auto r = fn[c4::to_csubstr("role")];
                         if (!r.is_map()) { err = out.name + "." + f.name + ": `role` must be a map ({ role: …, flags: […] })"; return false; }
@@ -841,6 +842,7 @@ enum : std::uint8_t {
     kTypeZero = 19, kTypePointer = 20, kTypeArray = 22, kTypeEnum = 24, kTypeStruct = 25, kTypeCString = 29,
     kTypeULong = 30, kTypeFlags = 31, kTypeHalf = 32, kTypeStringPtr = 33,
 };
+constexpr std::uint16_t kAlign16 = 0x100;   ///< hkClassMember::ALIGN_16
 constexpr std::uint16_t kSerializeIgnored = 0x400;
 
 std::uint8_t ScalarType(Scalar s) {
@@ -874,6 +876,7 @@ bool Reflect(const Field& f, ReflectedMember& m) {
     m = ReflectedMember{};
     m.flags = f.ignored ? kSerializeIgnored : 0;
     if (f.count > 1) m.cArraySize = static_cast<std::int16_t>(f.count);
+    if (f.align16) m.flags |= kAlign16;
     switch (f.kind) {
         case FieldKind::Scalar:
             m.type = ScalarType(f.scalar);

@@ -109,6 +109,7 @@ int main(int argc, char** argv) {
     t::RunRulesTests(reg);
     t::RunUnitFormatTests(reg);
     t::RunPoseSearchTests(reg);
+    t::RunBlendSpaceTests(reg);
 
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");

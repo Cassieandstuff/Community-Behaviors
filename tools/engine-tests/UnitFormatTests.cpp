@@ -475,6 +475,29 @@ void PoseSearchRowChecks(const schema::SchemaRegistry& reg, const fs::path& tmp)
           "a row is referenced by position and can't be deleted: " + err);
 }
 
+/// @brief A blend space's sample coordinates merge as a child's columns, and vanilla's children, which state none, stay at zero.
+void BlendSpaceChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto child = [](const std::string& key, const std::string& clip, const std::string& place) {
+        return "  '" + key + "':\n    generator: " + clip + "\n    weight: 1\n    worldFromModelWeight: 1\n" + place;
+    };
+    const auto unit = [&](const std::string& cls, const std::string& extra, const std::string& children) {
+        return Files{ { "graph.yaml", kGraph },
+                      { "s.yaml", "id: 0000x0002\nclass: " + cls + "\nuserData: 0\nname: 'Blend'\nreferencePoseWeightThreshold: 0\nblendParameter: 0\n"
+                                  "minCyclicBlendParameter: 0\nmaxCyclicBlendParameter: 1\nindexOfSyncMasterChild: -1\nflags: 0\nsubtractLastChild: false\n" + extra +
+                                  "children:\n" + children },
+                      { "a.yaml", Clip("0000x0003", "A") }, { "b.yaml", Clip("0000x0004", "B") } };
+    };
+    const std::string kPlane = "blendX: 0.25\nblendY: -1\n";
+    const Files base = unit("CBBlendSpace2DGenerator", kPlane, child("0000x0000", "0000x0003", "    x: 1\n    y: 2\n") + child("0000x0001", "0000x0004", "    x: 3\n    y: 4\n"));
+    ShuffleChecks(base, reg, tmp, "blend space");
+    MergesTo(base, { { "p.yaml", "id: 0000x0002\nclass: CBBlendSpace2DGenerator\nchildren:\n  '0000x0001':\n    y: 9\n" } },
+             unit("CBBlendSpace2DGenerator", kPlane, child("0000x0000", "0000x0003", "    x: 1\n    y: 2\n") + child("0000x0001", "0000x0004", "    x: 3\n    y: 9\n")), reg, tmp,
+             "a sample's coordinate patch");
+    const std::vector<std::uint8_t> silent = Bytes(common::DiskUnitSource(WriteUnit(tmp, "silent", unit("hkbBlenderGenerator", "", child("0000x0000", "0000x0003", "")))), reg, "silent");
+    const std::vector<std::uint8_t> zeros  = Bytes(common::DiskUnitSource(WriteUnit(tmp, "zeros", unit("hkbBlenderGenerator", "", child("0000x0000", "0000x0003", "    x: 0\n    y: 0\n")))), reg, "zeros");
+    Check(silent == zeros, "a stock blender's child stating no coordinates serializes as zero");
+}
+
 /// @brief The loader refuses a list that doesn't state how it merges, or a key its element can't give.
 void DeclarationChecks(const fs::path& tmp) {
     const auto refuses = [&](const std::string& field, const std::string& why, const std::string& what) {
@@ -542,6 +565,7 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg) {
     ValueListChecks(reg, tmp);
     ConditionKeyChecks(reg, tmp);
     PoseSearchRowChecks(reg, tmp);
+    BlendSpaceChecks(reg, tmp);
     EditedPatchChecks(reg, tmp);
     BrokenLayerChecks(reg, tmp);
     DeclarationChecks(tmp);

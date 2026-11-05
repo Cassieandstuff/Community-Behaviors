@@ -388,8 +388,7 @@ namespace CB::feature {
             return true;
         }();
 
-        /// @brief One character's matcher, kept apart from the node for the reason the dead blend is: the engine block-copies
-        ///        graphs, so a node owns no memory.
+        /// @brief One character's matcher, kept apart from the node as the dead blend is.
         struct MatchSlot {
             ps::Matcher        matcher;
             const Database*    db    = nullptr;

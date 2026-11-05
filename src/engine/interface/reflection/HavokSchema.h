@@ -111,6 +111,7 @@ struct Field {
     int         roleFlags = 0;           ///< @brief roleFlagNames resolved against the RoleFlags enum by LoadDir, OR'd.
                                          ///< @note Item names are matched exactly (Havok's spelling); an unknown one fails
                                          ///<       the load. A member attribute: no serde, size or signature effect.
+    bool        align16 = false;         ///< @brief `align16: true` — the exe declares this member HK_ALIGN16: no layout effect here, but the flag is in the class's signature.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
     bool         user      = false;      ///< @brief `user: <value>` — the game fills this member at runtime; `<value>` is

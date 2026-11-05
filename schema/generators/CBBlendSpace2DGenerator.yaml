@@ -1,0 +1,14 @@
+name:      CBBlendSpace2DGenerator
+parent:    hkbBlenderGenerator
+size:      168
+defaults:  { flags: FLAG_SYNC, indexOfSyncMasterChild: -1, maxCyclicBlendParameter: 1 }
+runtime:
+  source: self
+# CB's own generator: a stock blender whose children sit on a plane (each child's `x`, `y`) and whose weights come from
+# where blendX, blendY falls among them. Bind those two to variables. Everything but the weights is the blender's own:
+# which children are active, sync, the pose. A child's `weight` is overwritten every update, and
+# FLAG_PARAMETRIC_BLEND is cleared at activation, since it would read `weight` as a position.
+# No `signature:` here on purpose: see CBPoseSearchGenerator.yaml.
+fields:
+  - { name: blendX, type: float }
+  - { name: blendY, type: float }

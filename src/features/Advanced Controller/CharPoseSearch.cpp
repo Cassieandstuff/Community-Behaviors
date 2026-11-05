@@ -63,8 +63,8 @@ namespace CB::feature::controller::motion {
     using namespace detail;
     using loco::DeadBlend;
 
-    /// @brief The dead blend's state per character (hkbContext::m_character), never in the node: the engine block-copies
-    ///        graphs, so node-owned state would be shared across copies and freed by the first destroyed.
+    /// @brief The dead blend's state per character (hkbContext::m_character), never in the node: while the node owned it,
+    ///        random actors vanished (suspected cause, not proven).
     /// @note  Only the player plays the node, so the lock is uncontended.
     struct BlendSlot {
         DeadBlend                             blend;
