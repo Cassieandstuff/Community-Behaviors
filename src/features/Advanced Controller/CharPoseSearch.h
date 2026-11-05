@@ -123,6 +123,8 @@ namespace CB::feature::controller::motion {
         /// @brief Play child `index` at `fraction` of its length, on this character's clone of it.
         /// @note  For a node with no bindings. Two nodes alive through a state's transition would fight over MM_Clip and MM_Time,
         ///        which hold one child of one database. Its effect lands when a binding's would: the children updated before this.
+        /// @brief The next output blends: the matcher moved the playing child to another time.
+        void BlendNextJump();
         void PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction);
 
         /// @return what this node loaded, for its database; nothing when its template cannot be found

@@ -292,7 +292,7 @@ namespace CB::engine::locomotion {
         out->frames       = c.frames;
         out->dt           = c.frameDuration;
         out->duration     = c.duration;
-        const int horizon = static_cast<int>(std::lround(F::kAhead.back() / out->dt));
+        const int horizon = static_cast<int>(std::lround(kIgnoreRangeEnd / out->dt));
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
@@ -713,6 +713,7 @@ namespace CB::engine::locomotion {
         m_interruptActive.clear();
         m_lastSearch = -1.0e9;
         m_lastWantX = m_lastWantY = 0;
+        m_prevWantX = m_prevWantY = 0;
         m_picks.clear();
     }
 
@@ -742,15 +743,20 @@ namespace CB::engine::locomotion {
         const auto due = [&] {
             if (!in.haveQuery) return false;
             const double elapsed = m_clock - m_lastSearch;
-            /// @note Forced: the request jumped since the last search, in speed or (while moving) in direction.
+            /// @note Forced: the request jumped since the last search, in speed or (while moving) in direction, and has settled.
+            ///       Holden forces on the falling edge too: one search for the input it settled on, not one per step of a change.
             const float speed = std::hypot(in.desiredX, in.desiredY), lastSpeed = std::hypot(m_lastWantX, m_lastWantY);
             bool        forced = std::fabs(speed - lastSpeed) > kForceSpeed;
             if (!forced && speed > kForceMoving && lastSpeed > kForceMoving)
                 forced = (in.desiredX * m_lastWantX + in.desiredY * m_lastWantY) / (speed * lastSpeed) < kForceCos;
+            forced = forced && std::hypot(in.desiredX - m_prevWantX, in.desiredY - m_prevWantY) < kSettledSpeed;
             out.trigger = m_interrupt ? "interrupt" : m_searchNow ? "clip end" : elapsed < kSearchInterval ? "forced" : "timer";
             return m_searchNow || m_interrupt || elapsed >= kSearchInterval || (forced && elapsed >= kForcedSpacing);
         };
-        if (due()) {
+        const bool search = due();
+        m_prevWantX = in.desiredX;
+        m_prevWantY = in.desiredY;
+        if (search) {
             /// @note The reselect ban: each pick of the last reselectTime, advanced by the clip time played since (at the
             ///       current rate), bans the rows within kIgnoreSurrounding of where it would be now, as merged row ranges.
             std::erase_if(m_picks, [&](const Pick& p) { return m_clock - p.at > in.reselectTime; });

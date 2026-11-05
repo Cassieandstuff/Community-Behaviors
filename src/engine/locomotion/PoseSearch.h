@@ -25,7 +25,12 @@ namespace CB::engine::decompile { struct ParsedHky; }
 
 namespace CB::engine::locomotion {
 
-    inline constexpr int kIgnoreSurrounding = 20;   ///< frames: a candidate this close in the current clip is the current
+    /// @brief Frames: a candidate this close in the current clip is the current. 1/3 s at 30 fps, as Holden's 20 at 60.
+    inline constexpr int kIgnoreSurrounding = 10;
+    /// @brief Seconds at a clip's end no search cuts into (Holden's ignore_range_end): the samples past the end hold at its last frame.
+    inline constexpr double kIgnoreRangeEnd = 1.0 / 3.0;
+    /// @brief Game units/s per update: a request moving less than this has settled, and a jump in it searches then.
+    inline constexpr float kSettledSpeed = 5.0f;
     inline constexpr float kForceMoving     = 10.0f;   ///< game units/s: a direction counts only above this speed; a request below it stands
     inline constexpr double kSearchInterval = 0.1;     ///< seconds between searches
     /// @brief A jump in the request since the last search searches at once, at most this soon after any search.
@@ -384,6 +389,7 @@ namespace CB::engine::locomotion {
         double            m_clock = 0;
         double            m_lastSearch = -1.0e9;
         float             m_lastWantX = 0, m_lastWantY = 0;
+        float             m_prevWantX = 0, m_prevWantY = 0;   ///< the request one update ago
         std::vector<Pick> m_picks;
     };
 

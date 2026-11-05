@@ -89,14 +89,16 @@ namespace CB::engine::locomotion {
         blending = true;
     }
 
-    bool DeadBlend::Step(Bone* pose, int n, int playing, const DeadBlendTuning& s, BlendFault* fault)
+    bool DeadBlend::Step(Bone* pose, int n, int playing, bool jumped, const DeadBlendTuning& s, BlendFault* fault)
     {
         if (bones != n) {
             Reset(n, playing);
             Record(pose);
             return false;
         }
-        if (child != playing && history >= 2 && s.blendTime > 0.0f) Start();
+        /// @note A jump within one clip pops as surely as a change of clip: both blend (Holden's controller inertializes any
+        ///       frame that isn't the next).
+        if ((child != playing || jumped) && history >= 2 && s.blendTime > 0.0f) Start();
         child = playing;
         if (blending) {
             t += dt;

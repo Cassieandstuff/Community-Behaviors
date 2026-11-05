@@ -110,6 +110,8 @@ namespace CB::feature {
         /// @brief The playback rate's range: a clip plays at most this much slower or faster than authored; past it the
         ///        feet slide rather than the animation visibly slowing or fast-forwarding.
         constexpr float kMinRate = 0.7f, kMaxRate = 1.5f;
+        /// @brief Seconds for the rate to close half its gap to the target.
+        constexpr float kRateHalflife = 0.15f;
         /// @brief Below this asked-for speed (game units/s) the gait's rate stays as it was: standing has no speed to match.
         constexpr float kRateStill = 10.0f;
 
@@ -420,6 +422,7 @@ namespace CB::feature {
             Clock::time_point queryAt{};
             /// @brief The playback rate (clip seconds per second): written by the predictor's Rate, read by the frame hook.
             std::atomic<float> rate{ 1.0f };
+            float              rateVelocity = 0.0f;   ///< the rate's spring, the predictor's alone
             /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
             std::atomic<float> timeToLand{ controller::motion::kNoLanding };
             /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
@@ -808,7 +811,7 @@ namespace CB::feature {
                            c.frames > 0 ? FrameOf(c, p.time) : 0, BlendRemaining(), ago);
     }
 
-    float controller::motion::Rate(RE::FormID actor, const FrameSpeed* frame)
+    float controller::motion::Rate(RE::FormID actor, const FrameSpeed* frame, float dt)
     {
         CharacterMatch& match = MatchOf(actor);
         const Database* db    = nullptr;
@@ -821,7 +824,10 @@ namespace CB::feature {
         if (!db || !frame || frame->gait == Gait::None || frame->full < kRateStill) return last;
         const float clipSpeed = db->gaitSpeed[static_cast<std::size_t>(frame->gait)];
         if (clipSpeed <= 0.0f) return last;
-        const float rate = std::clamp(frame->full / clipSpeed, kMinRate, kMaxRate);
+        const float target = std::clamp(frame->full / clipSpeed, kMinRate, kMaxRate);
+        float       rate   = last;
+        ch::SpringDamperExact(rate, match.rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
+        rate = std::clamp(rate, kMinRate, kMaxRate);
         match.rate.store(rate, std::memory_order_relaxed);
         return rate;
     }
@@ -888,6 +894,8 @@ namespace CB::feature {
         request.biases  = ps::EvaluateBiases(db, s.ctx);
 
         const ps::MatchStep step = s.matcher.Update(db, request, timestep);
+        /// @note A new child blends by itself; a new time in the same one has to be told.
+        if (step.switched && step.clip >= 0 && step.nextClip == step.clip) node.BlendNextJump();
 
         if (request.active != s.lastActive) {
             static std::atomic<int> changes{ 0 };

@@ -73,7 +73,8 @@ namespace CB::engine::locomotion {
         /// @note  A switch (playing != child) starts a blend once two outputs are recorded and blendTime > 0; the
         ///        blend advances by dt. A broken blended bone falls back to the live one (`fault`, when given, names the
         ///        first whose live bone was finite).
-        bool Step(Bone* pose, int n, int playing, const DeadBlendTuning& tuning, BlendFault* fault = nullptr);
+        /// @param jumped the source jumped to another time of the same child this update, which blends as a new child does
+        bool Step(Bone* pose, int n, int playing, bool jumped, const DeadBlendTuning& tuning, BlendFault* fault = nullptr);
 
         /// @brief Seconds left in the blend, 0 when none runs.
         float Remaining(const DeadBlendTuning& tuning) const { return blending ? tuning.blendTime - t : 0.0f; }

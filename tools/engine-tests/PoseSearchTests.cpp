@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <locomotion/ChooserInputs.h>
+#include <locomotion/DeadBlend.h>
 #include <filesystem>
 #include <map>
 #include <process.h>
@@ -240,7 +241,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(db.clipOf[0] == 0 && db.clipOf[60] == 1 && db.clipOf[120] == 3 && db.clipOf[239] == 4, "row -> clip");
     Check(db.clips[1].flags == ps::kFlagDisableReselection && db.clips[4].flags == ps::kFlagLooping, "the row's flags");
 
-    Check(db.searchable[0] && db.searchable[29] && !db.searchable[30] && !db.searchable[59], "a frame's future must lie inside its clip");
+    Check(db.searchable[0] && db.searchable[49] && !db.searchable[50] && !db.searchable[59], "a clip's last third of a second is no candidate");
     const int ranged = db.clips[3].first;
     Check(!db.searchable[ranged + 14] && db.searchable[ranged + 15] && db.searchable[ranged + 24] && !db.searchable[ranged + 25],
           "the range cuts its child");
@@ -285,7 +286,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         Check(ps::Search(db, q).bestRow == ranged + 20, "an in-range row of the ranged child");
         q.samples[1].x = 1028.0f;
         Check(ps::Search(db, q).bestRow == ranged + 24, "past the range, its last row");
-        Check(ps::Search(db, At(1035.0f)).bestRow == 29, "a horizon-cut frame is no candidate: the last searchable row");
+        Check(ps::Search(db, At(1055.0f)).bestRow == 49, "a frame in the clip's end is no candidate: the last searchable row");
     }
     {
         ps::Query q = At(1020.0f);
@@ -661,6 +662,26 @@ void ChooserInputChecks() {
     Check(named == ps::kChooserColumns.size(), "every column names an input");
 }
 
+/// @brief A jump to another time of the playing clip blends from what was shown, as a change of clip does.
+void DeadBlendChecks() {
+    const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
+    const auto                run = [&](bool jumped, int child) {
+        ps::DeadBlend b;
+        b.dt = 1.0f / 60.0f;
+        std::vector<ps::Bone> pose(1);
+        for (int f = 0; f < 3; ++f) {
+            pose[0].t[0] = static_cast<float>(f);
+            b.Step(pose.data(), 1, 0, false, tuning);
+        }
+        pose[0].t[0] = 100.0f;
+        b.Step(pose.data(), 1, child, jumped, tuning);
+        return pose[0].t[0];
+    };
+    Check(run(false, 0) == 100.0f, "playing on in the same clip shows the live pose");
+    Check(run(true, 0) < 10.0f, "a jump within the clip starts from the pose shown: " + std::to_string(run(true, 0)));
+    Check(run(false, 1) < 10.0f, "and so does a change of clip");
+}
+
 void WeightChecks() {
     Check(ps::WeightGroupName(0) == "position+0.2", "the first group is the first sample's position");
     Check(ps::WeightGroupName(1 * ps::kChannels + 1) == "facing+0.33", "a sample's label rounds to two places");
@@ -770,6 +791,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     MatcherChecks(reg, tmp);
     ChooserInputChecks();
     WeightChecks();
+    DeadBlendChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

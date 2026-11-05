@@ -69,6 +69,7 @@ namespace CB::feature::controller::motion {
     struct BlendSlot {
         DeadBlend                             blend;
         std::vector<loco::Bone>               pose;   ///< the output pose, copied out of and back into Havok's
+        bool                                  jumped = false;   ///< the matcher moved the playing clip to another time: the next output blends
         std::chrono::steady_clock::time_point used{};
     };
     struct BlendTable {
@@ -195,6 +196,13 @@ namespace CB::feature::controller::motion {
             rootBehavior->m_updateActiveNodes  = true;
         }
         RunMatcher(context, *this, timestep, false);
+    }
+
+    void PoseSearchGenerator::BlendNextJump()
+    {
+        BlendTable&      table = Blends();
+        std::scoped_lock lock(table.lock);
+        if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.jumped = true;
     }
 
     void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
@@ -376,7 +384,8 @@ namespace CB::feature::controller::motion {
         }
         const loco::DeadBlendTuning& s = Tuning();
         loco::BlendFault             fault;
-        if (!b.Step(pose.data(), bones, m_currentIndex, s, &fault)) return;
+        const bool jumped = std::exchange(slot.jumped, false);
+        if (!b.Step(pose.data(), bones, m_currentIndex, jumped, s, &fault)) return;
         if (fault.bone >= 0 && !g_outputLogged.exchange(true)) {
             const loco::Bone& live = fault.blended;
             const loco::Bone& in   = fault.live;

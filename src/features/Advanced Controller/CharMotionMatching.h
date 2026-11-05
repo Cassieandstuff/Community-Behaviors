@@ -38,7 +38,9 @@ namespace CB::feature::controller::motion {
     /// @note  Why the clips' gait speed and not the speed alone: they were authored slower than Skyrim moves (run 284
     ///        against 370), so the raw speed matched sprint clips at a run. Played at this rate they cover the ground
     ///        the controller covers, and the query samples the prediction at horizon / rate to compare like with like.
-    float Rate(RE::FormID actor, const FrameSpeed* frame);
+    /// @param dt the step's seconds: the rate eases toward its target over kRateHalflife rather than stepping, so a gait change
+    ///        moves the clip speed and the query's sample times together and smoothly.
+    float Rate(RE::FormID actor, const FrameSpeed* frame, float dt);
 
     /// @brief `actor`'s latest query, which the frame hook writes to its graph's variables.
     /// @note  Called by the predictor each step.
