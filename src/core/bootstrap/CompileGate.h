@@ -26,7 +26,8 @@ namespace CB {
     // once. Every later call — and any reentrant call on the doing thread — returns immediately.
     void EnsureCompiledAndArmed();
 
-    // Block until the adsf/setdata redirects are armed (bounded timeout, then vanilla passthrough).
+    // Block until the adsf/setdata redirects are armed (no time limit; vanilla passthrough only if the ArmThread
+    // exits without arming them).
     // Called by the animationdata/animationsetdata detours after they kick the gate. Fast on warm.
     void WaitAdsfArmed();
 
