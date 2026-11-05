@@ -69,7 +69,7 @@ bool IsNodeClass(const std::string& className) {
     ///       still consumes a tagfile id but gets no file.
     static const std::unordered_set<std::string> kNodes = {
         "hkRootLevelContainer", "hkbStateMachine", "hkbStateMachineStateInfo", "hkbClipGenerator",
-        "hkbTransitionEffect", "hkbBlendingTransitionEffect", "hkbManualSelectorGenerator", "CBPoseSearchGenerator",
+        "hkbTransitionEffect", "hkbBlendingTransitionEffect", "hkbManualSelectorGenerator", "CBPoseSearchGenerator", "CBBlendSpace2DGenerator",
         "hkbBehaviorReferenceGenerator", "BSiStateTaggingGenerator", "hkbBlenderGenerator",
         "BSCyclicBlendTransitionGenerator", "BSBoneSwitchGenerator", "BSOffsetAnimationGenerator",
         "BSSynchronizedClipGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",

@@ -3,6 +3,7 @@
 
 #include "TestSupport.h"
 
+#include <decompile/BehaviorDecompile.h>
 #include <locomotion/BlendSpace.h>
 
 #include <array>
@@ -65,6 +66,10 @@ void SchemaChecks(const schema::SchemaRegistry& reg) {
 
     const schema::ClassSchema* cls = reg.Find("CBBlendSpace2DGenerator");
     Check(cls && cls->signature != 0, "the class has a derived signature");
+
+    for (const auto& [name, c] : reg.All())
+        if (name.rfind("CB", 0) == 0 && (reg.Derives(name, "hkbGenerator") || reg.Derives(name, "hkbModifier")))
+            Check(decompile::IsNodeClass(name), name + " is a generator or modifier but no node class: a new one never reaches a canvas");
 
     const schema::ClassSchema* child = reg.Find("hkbBlenderGeneratorChild");
     Check(child && child->vanillaSignature == 0xe2b384b0u, "without x and y the child hashes to the exe's own signature");
