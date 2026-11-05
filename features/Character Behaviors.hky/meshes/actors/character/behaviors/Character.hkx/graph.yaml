@@ -1,0 +1,16 @@
+id: 0000x0001
+class: hkRootLevelContainer
+namedVariants:
+  'hkbBehaviorGraph':
+    className: 'hkbBehaviorGraph'
+    variant:
+      class: hkbBehaviorGraph
+      userData: 0
+      name: 'Character.hkb'
+      variableMode: VARIABLE_MODE_DISCARD_WHEN_INACTIVE
+      rootGenerator: 0000x0002
+      data:
+        variables: {}
+        characterProperties: {}
+        events: {}
+        attributes: {}

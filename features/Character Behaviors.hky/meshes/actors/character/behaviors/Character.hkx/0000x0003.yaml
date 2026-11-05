@@ -1,0 +1,7 @@
+id: 0000x0003
+class: hkbStateMachineStateInfo
+generator: 0000x0004
+name: 'Idle'
+stateId: 0
+probability: 1
+enable: true

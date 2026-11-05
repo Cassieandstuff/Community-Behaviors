@@ -1,0 +1,7 @@
+{
+    "name": "Character Behaviors",
+    "version": "0.1.0",
+    "author": "Cassieandstuff",
+    "description": "Skyrim's humanoid character behaviors, rebuilt from scratch. Points DefaultMale and DefaultFemale at Behaviors\\Character.hkx in place of Behaviors\\0_Master.hkx; vanilla's graphs stay in the load order, unreached. Hide this bundle and vanilla comes back. Not a playable game yet: anything the new graph doesn't answer does nothing.",
+    "masters": []
+}

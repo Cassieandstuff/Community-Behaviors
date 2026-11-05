@@ -1,0 +1,7 @@
+id: 0001x000b
+class: hkRootLevelContainer
+namedVariants:
+  'hkbCharacterData':
+    variant:
+      stringData:
+        behaviorFilename: 'Behaviors\Character.hkx'

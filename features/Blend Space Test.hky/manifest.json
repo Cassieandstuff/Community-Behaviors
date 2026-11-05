@@ -1,7 +1,0 @@
-{
-    "name": "Blend Space Test",
-    "version": "0.2.0",
-    "author": "Cassieandstuff",
-    "description": "Plays H2H_1HM_Direction_Blend, one-handed and unarmed locomotion with a weapon drawn, as one CBBlendSpace2DGenerator over the same clips. Remove this bundle to compare with vanilla.",
-    "masters": []
-}
