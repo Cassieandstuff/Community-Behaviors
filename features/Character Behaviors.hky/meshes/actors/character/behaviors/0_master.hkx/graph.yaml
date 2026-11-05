@@ -1,0 +1,6 @@
+id: 0001x0036
+class: hkRootLevelContainer
+namedVariants:
+  'hkbBehaviorGraph':
+    variant:
+      rootGenerator: 0000x0002
