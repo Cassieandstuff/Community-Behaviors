@@ -476,6 +476,8 @@ namespace CB::feature {
             /// @brief The node's current clip, for the frame hook and Describe.
             std::mutex        shownLock;
             Playback          shown;
+            /// @note `shown.clip` indexes this and no other: characters run different nodes, and g_db is whichever the player ran last.
+            const Database*   shownDb = nullptr;
             /// @brief The predictor's latest query, which the frame hook turns into graph variables.
             std::mutex        queryLock;
             ch::motion::Query query;
@@ -779,13 +781,15 @@ namespace CB::feature {
             }
             if (player) CB_PLOT("MM rate", match.rate.load(std::memory_order_relaxed));
 
-            Playback p;
+            Playback        p;
+            const Database* playing = nullptr;
             {
                 std::scoped_lock lock(match.shownLock);
-                p = match.shown;
+                p       = match.shown;
+                playing = match.shownDb;
             }
-            const int playingDb = p.clip >= 0 ? db->clips[p.clip].database : -1;
-            ComputeInputs(actor, match, deltaTime, playingDb >= 0 && db->databases[playingDb].pivots, match.inputs);
+            const int playingDb = playing && p.clip >= 0 ? playing->clips[p.clip].database : -1;
+            ComputeInputs(actor, match, deltaTime, playingDb >= 0 && playing->databases[playingDb].pivots, match.inputs);
             WriteInputs(actor, match.inputs);
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
@@ -873,15 +877,16 @@ namespace CB::feature {
 
     std::string controller::motion::Describe()
     {
-        const Database* db = g_db.load(std::memory_order_acquire);
-        if (!db) return "no database";
+        if (!g_db.load(std::memory_order_acquire)) return "no database";
         CharacterMatch& match = MatchOf(ch::move::kPlayerId);
         Playback        p;
+        const Database* db = nullptr;
         {
             std::scoped_lock lock(match.shownLock);
-            p = match.shown;
+            p  = match.shown;
+            db = match.shownDb;
         }
-        if (p.clip < 0) return "no clip chosen yet";
+        if (!db || p.clip < 0) return "no clip chosen yet";
         const Clip&      c    = db->clips[p.clip];
         const Clock::rep at   = g_lastSwitch.load(std::memory_order_relaxed);
         const double     ago  = at ? std::chrono::duration<double>(Clock::now() - Clock::time_point(Clock::duration(at))).count() : -1.0;
@@ -893,7 +898,12 @@ namespace CB::feature {
     float controller::motion::Rate(RE::FormID actor, const FrameSpeed* frame)
     {
         CharacterMatch& match = MatchOf(actor);
-        const Database* db    = g_db.load(std::memory_order_acquire);
+        const Database* db    = nullptr;
+        {
+            std::scoped_lock lock(match.shownLock);
+            db = match.shownDb;
+        }
+        if (!db) db = g_db.load(std::memory_order_acquire);
         const float     last  = match.rate.load(std::memory_order_relaxed);
         if (!db || !frame || frame->gait == Gait::None || frame->full < kRateStill) return last;
         const float clipSpeed = db->gaitSpeed[static_cast<std::size_t>(frame->gait)];
@@ -1032,7 +1042,8 @@ namespace CB::feature {
         {
             CharacterMatch&  match = MatchOf(actor->GetFormID());
             std::scoped_lock lock(match.shownLock);
-            match.shown = { step.clip, step.time };
+            match.shown   = { step.clip, step.time };
+            match.shownDb = &db;
         }
         if (step.nextClip < 0) return -1;
         /// @note Through the graph's own bindings: the engine copies these into this node and every child before their
