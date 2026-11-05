@@ -278,6 +278,7 @@ namespace mm {
     using CB::engine::locomotion::GroupOf;                     ///< a feature dimension → its group
     using CB::engine::locomotion::kGroups;                     ///< how many groups Candidate::groupCost holds
     using CB::engine::locomotion::kWeightGroups;               ///< the parts a database weighs
+    using CB::engine::locomotion::kChannels;                   ///< weight groups per trajectory sample: position, facing, velocity, height
     using CB::engine::locomotion::WeightGroupOf;
     using CB::engine::locomotion::WeightGroupName;             ///< a weight group's name ("position+0.2", "feet")
     using CB::engine::locomotion::DefaultWeights;

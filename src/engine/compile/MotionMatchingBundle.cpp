@@ -159,6 +159,12 @@ namespace CB::engine::compile {
                 d->FieldRef("tags").strs = db.tags;
                 d->Str("standingCandidate")      = db.standingCandidate;
                 d->Str("movingCandidate")        = db.movingCandidate;
+                for (const auto& [group, weight] : db.weights) {
+                    auto w = Make(edit, "CBPoseSearchWeight");
+                    w->Str("group") = group;
+                    w->SetFloat("weight", weight);
+                    d->FieldRef("weights").objs.push_back(w);
+                }
                 dbs.push_back(d);
                 for (const auto& c : db.clips) {
                     const std::string stem = FileName(c.path);
