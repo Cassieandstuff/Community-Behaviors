@@ -15,6 +15,7 @@ namespace CB::feature::blendspace {
     public:
         ::hkReal m_blendX;   ///< +0xa0, usually bound to a variable
         ::hkReal m_blendY;   ///< +0xa4, usually bound to a variable
+        ::hkBool m_grid;     ///< +0xa8, rows along x as vanilla's nested blenders; else gradient bands
 
         /// @brief The finish constructor: the vtable on loaded bytes; serialized members stay as loaded.
         explicit BlendSpace2DGenerator(::hkFinishLoadedObjectFlag flag);
@@ -34,6 +35,6 @@ namespace CB::feature::blendspace {
         /// @note  The children are this clone's own, so another character's blend never sees these writes.
         void computeWeights();
     };
-    static_assert(sizeof(BlendSpace2DGenerator) == 168, "BlendSpace2DGenerator size (schema: 168)");
+    static_assert(sizeof(BlendSpace2DGenerator) == 176, "BlendSpace2DGenerator size (schema: 176)");
 
 }  // namespace CB::feature::blendspace

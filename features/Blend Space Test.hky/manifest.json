@@ -1,0 +1,9 @@
+{
+    "name": "Blend Space Test",
+    "version": "0.1.0",
+    "author": "Cassieandstuff",
+    "description": "Starts MM_Enable at 2, so MM_Gate plays MT_Direction_BlendSpace (MT_Direction_Blend converted to one node) wherever motion matching isn't running. Remove this bundle to compare with vanilla.",
+    "masters": [
+        "Motion Matching Wiring"
+    ]
+}

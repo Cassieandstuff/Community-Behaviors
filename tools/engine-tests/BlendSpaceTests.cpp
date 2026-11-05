@@ -59,9 +59,63 @@ void WeightChecks() {
     Weights({}, 0.0f, 0.0f);
 }
 
+/// @brief What vanilla's blender of blenders gives, from computeBlendInterval's own rules, against the grid in one call.
+void GridChecks() {
+    // MT_Direction_Blend's first rows: forward at 0, forward right at .125 with five speeds, right at .25 with four.
+    const std::vector<loco::BlendSample> mt{
+        { 0.25f, 8.0f },   { 0.0f, 80.0f },   { 0.125f, 8.0f },   { 0.875f, 10.0f },  { 0.0f, 8.0f },    { 0.125f, 80.0f },
+        { 0.0f, 140.0f },  { 0.125f, 140.0f }, { 0.25f, 80.0f },  { 0.25f, 350.0f },  { 0.875f, 100.0f }, { 0.0f, 350.0f },
+    };
+    const auto weights = [&](float x, float y) {
+        std::vector<float> out(mt.size(), -1.0f);
+        loco::GridWeights(mt, x, y, true, 0.0f, 1.0f, out);
+        return out;
+    };
+    const auto at = [&](const std::vector<float>& w, float x, float y) {
+        for (std::size_t i = 0; i < mt.size(); ++i)
+            if (mt[i].x == x && mt[i].y == y) return w[i];
+        Check(false, "no such sample");
+        return 0.0f;
+    };
+
+    const std::vector<float> between = weights(0.0625f, 44.0f);
+    Check(Near(at(between, 0.0f, 8.0f), 0.25f) && Near(at(between, 0.0f, 80.0f), 0.25f), "halfway between rows and speeds, the first row's pair");
+    Check(Near(at(between, 0.125f, 8.0f), 0.25f) && Near(at(between, 0.125f, 80.0f), 0.25f), "and the second row's");
+    Check(Near(Sum(between), 1.0f), "the grid's weights sum to 1");
+
+    const std::vector<float> uneven = weights(0.1875f, 110.0f);
+    Check(Near(at(uneven, 0.125f, 80.0f), 0.25f) && Near(at(uneven, 0.125f, 140.0f), 0.25f), "a row of three blends over its own speeds");
+    Check(Near(at(uneven, 0.25f, 80.0f), 0.5f * (1.0f - 30.0f / 270.0f)), "and a row without 140 over its own");
+
+    const std::vector<float> wrap = weights(0.95f, 50.0f);
+    const float past = 0.075f / 0.125f;
+    Check(Near(at(wrap, 0.0f, 8.0f) + at(wrap, 0.0f, 80.0f), past), "past the last row the blend wraps to the first");
+    Check(Near(at(wrap, 0.875f, 10.0f) + at(wrap, 0.875f, 100.0f), 1.0f - past), "and leaves the last");
+
+    const std::vector<float> end = weights(1.0f, 8.0f);
+    Check(Near(at(end, 0.0f, 8.0f), 1.0f), "the cycle's end reads as its start, as vanilla's does");
+    const std::vector<float> below = weights(-0.5f, 8.0f);
+    Check(Near(at(below, 0.0f, 8.0f), 1.0f), "below the cycle reads as its start, not wrapped");
+
+    const std::vector<float> slow = weights(0.0f, 1.0f);
+    Check(Near(at(slow, 0.0f, 8.0f), 1.0f), "below a row's speeds clamps to its first");
+    const std::vector<float> fast = weights(0.0f, 9000.0f);
+    Check(Near(at(fast, 0.0f, 350.0f), 1.0f), "above them to its last");
+
+    std::vector<float> open(mt.size(), -1.0f);
+    loco::GridWeights(mt, 2.0f, 8.0f, false, 0.0f, 0.0f, open);
+    Check(Near(at(open, 0.875f, 10.0f), 1.0f), "a grid that doesn't wrap clamps to its last row");
+
+    std::vector<float> one(1, -1.0f);
+    const std::vector<loco::BlendSample> single{ { 3.0f, 3.0f } };
+    loco::GridWeights(single, 0.0f, 0.0f, false, 0.0f, 0.0f, one);
+    Check(Near(one[0], 1.0f), "one sample always has all the weight");
+    loco::GridWeights({}, 0.0f, 0.0f, true, 0.0f, 1.0f, {});
+}
+
 void SchemaChecks(const schema::SchemaRegistry& reg) {
     std::string err;
-    Check(reg.ComputeSize("CBBlendSpace2DGenerator", &err) == 168, "the class is the blender and two floats: " + err);
+    Check(reg.ComputeSize("CBBlendSpace2DGenerator", &err) == 176, "the class is the blender, two floats and the grid flag: " + err);
     Check(reg.ComputeSize("hkbBlenderGeneratorChild", &err) == 80, "x and y sit in the child's padding, its size unchanged: " + err);
 
     const schema::ClassSchema* cls = reg.Find("CBBlendSpace2DGenerator");
@@ -87,6 +141,7 @@ void SchemaChecks(const schema::SchemaRegistry& reg) {
 
 void RunBlendSpaceTests(const schema::SchemaRegistry& reg) {
     WeightChecks();
+    GridChecks();
     SchemaChecks(reg);
 }
 

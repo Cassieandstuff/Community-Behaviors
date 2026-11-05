@@ -22,9 +22,8 @@ namespace CB::feature::blendspace {
 
         constexpr const char* kClassName = "CBBlendSpace2DGenerator";
 
-        /// @brief The most samples a blend space weighs: the weights live on the stack, and more than this on one plane
-        ///        would be a table, not a blend. isValid refuses more; past it a child keeps weight 0.
-        constexpr int kMaxSamples = 64;
+        /// @note More than this on one plane would be a table, not a blend. isValid refuses more; past it a child keeps weight 0.
+        constexpr int kMaxSamples = loco::kMaxBlendSamples;
 
         void Finish(void* object)
         {
@@ -78,7 +77,8 @@ namespace CB::feature::blendspace {
     BlendSpace2DGenerator::BlendSpace2DGenerator(const BlendSpace2DGenerator& other) :
         hkbBlenderGenerator(other),
         m_blendX(other.m_blendX),
-        m_blendY(other.m_blendY)
+        m_blendY(other.m_blendY),
+        m_grid(other.m_grid)
     {
         const int x = XOffset();
         const int y = YOffset();
@@ -105,7 +105,10 @@ namespace CB::feature::blendspace {
         std::array<loco::BlendSample, kMaxSamples> samples;
         std::array<float, kMaxSamples>             weights;
         for (int i = 0; i < count; ++i) samples[i] = { Coordinate(m_children[i], x), Coordinate(m_children[i], y) };
-        loco::GradientBandWeights(std::span(samples.data(), count), m_blendX, m_blendY, std::span(weights.data(), count));
+        const std::span<const loco::BlendSample> placed(samples.data(), count);
+        const std::span<float>                   out(weights.data(), count);
+        if (m_grid) loco::GridWeights(placed, m_blendX, m_blendY, (m_flags & FLAG_IS_PARAMETRIC_BLEND_CYCLIC) != 0, m_minCyclicBlendParameter, m_maxCyclicBlendParameter, out);
+        else loco::GradientBandWeights(placed, m_blendX, m_blendY, out);
 
         for (int i = 0; i < m_children.getSize(); ++i) m_children[i]->m_weight = i < count ? weights[i] : 0.0f;
     }
