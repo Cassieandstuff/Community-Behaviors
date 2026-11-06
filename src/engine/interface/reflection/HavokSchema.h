@@ -101,6 +101,9 @@ struct Field {
                                          ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
                                          ///<        here carries no enum reference). Signature only; no serde effect.
+    std::string enumByField;             ///< @brief `enumby: { field: <f>, <value>: <Enum>, ... }` — a metadata scalar reads by the enum its
+    std::map<std::string, std::string> enumBy;   ///< sibling `<f>` picks (by that sibling's exact text), e.g. a gate bound by its
+                                         ///<        variable. A reader's hint: no serde effect; a value not listed reads as a number.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
                                          ///<        the exe reflects a plain scalar (no enum in the signature).
     std::string roleName;                ///< @brief `role: { role: <Role item> }` — what the member is for, as Havok's
