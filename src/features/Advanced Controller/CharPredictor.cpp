@@ -3,6 +3,7 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+#include "CharLoad.h"
 
 #include <memory>
 #include <unordered_map>
@@ -98,6 +99,26 @@ namespace CB::feature {
         /// @brief How often the gate reports and the full trajectory is dumped, in simulated seconds.
         constexpr double kReportPeriod = 5.0;
         constexpr double kDumpPeriod   = 3.0;
+
+        /// @brief An NPC farther than `within` game units from the player predicts at most every `every` seconds.
+        /// @note  Why: a prediction is about 9 legs of 3 floor footprints (9 rays each) and up to 4 sweeps, every step, so
+        ///        the controller's casts grew with every managed NPC near the player (a session's log: about 2800 floor
+        ///        rays a frame). `every` stays under motion matching's query lifetime (kQueryStale, 0.25 s), so a far
+        ///        NPC's query is always fresh; the search runs every 0.1 s anyway. 0 predicts every step.
+        struct NpcRate {
+            float within = 0.0f;
+            float every = 0.0f;
+        };
+        const NpcRate& NpcPredictRate()
+        {
+            static const NpcRate rate = [] {
+                NpcRate r{ (std::max)(0.0f, ch::SettingFloat("fNpcPredictNear", 1500.0f)),
+                           std::clamp(ch::SettingFloat("fNpcPredictEvery", 0.1f), 0.0f, 0.2f) };
+                LOG_INFO("predictor: NPCs beyond {:.0f} game units of the player predict every {:.2f} s", r.within, r.every);
+                return r;
+            }();
+            return rate;
+        }
         /// @brief The predictor's whole log budget (lines), so a long session cannot flood the log.
         constexpr std::uint32_t kMaxLines = 4000;
 
@@ -195,6 +216,7 @@ namespace CB::feature {
             std::int32_t                   lastIState = -1;
             bool                           lastBlocked = false;
             bool                           lastWindup  = false;
+            double                         lastPredict = -1.0e9;   ///< clock of the last trajectory (NpcPredictRate)
         };
 
         /// @brief Each managed controller's prediction. Only the thread stepping a controller touches its State, so the lock
@@ -209,6 +231,18 @@ namespace CB::feature {
             std::unique_ptr<State>& state = g_states[ctrl];
             if (!state) state = std::make_unique<State>();
             return *state;
+        }
+
+        /// @return whether `npc` predicts this step (NpcPredictRate); the player always does.
+        bool NpcDue(State& s, const RE::Actor& npc)
+        {
+            const NpcRate& rate = NpcPredictRate();
+            if (rate.every > 0.0f && s.clock - s.lastPredict < rate.every) {
+                const auto* player = RE::PlayerCharacter::GetSingleton();
+                if (!player || npc.GetPosition().GetSquaredDistance(player->GetPosition()) > rate.within * rate.within) return false;
+            }
+            s.lastPredict = s.clock;
+            return true;
         }
         std::atomic<std::uint32_t> g_lines{ 0 };
 
@@ -772,6 +806,12 @@ namespace CB::feature {
             s.clock = here.t;
             if (s.historyCount) Score(s, s.history[s.historyHead], here);
             PushHistory(s, here);
+            if (npc && !NpcDue(s, *actor)) {
+                ch::CountLoad(ch::LoadCounter::PredictNpcSkipped);
+                return;
+            }
+            ch::CountLoad(npc ? ch::LoadCounter::PredictNpc : ch::LoadCounter::PredictPlayer);
+            const ch::LoadTimer timer;
 
             ::hkVector4 v;
             self->GetLinearVelocityImpl(v);
@@ -928,6 +968,16 @@ namespace CB::feature {
             s.lastWindup  = tr.jumpIn >= 0.0f;
             if (!npc) Report(s);
         }
+
+    }  // namespace
+
+    std::size_t controller::PredictorStateCount()
+    {
+        std::scoped_lock lock(g_lock);
+        return g_states.size();
+    }
+
+    namespace {
 
         [[maybe_unused]] const bool s_predictor =
             CheckSupport::Subscribe(&OnCheckSupport, platform::hooks::Priority::First, "CharPredictor", "char_predictor");

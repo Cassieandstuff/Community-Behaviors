@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharGround.h"
+#include "CharLoad.h"
 
 #include <Common/Base/hkBase.h>
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
@@ -164,6 +165,16 @@ namespace CB::feature::controller {
         if (!ctrl || !g_anyNpc.load(std::memory_order_acquire)) return false;
         std::shared_lock read(g_npcLock);
         return g_npcs.contains(static_cast<const void*>(ctrl));
+    }
+
+    void NpcCounts(std::size_t& managed, std::size_t& entries)
+    {
+        std::shared_lock read(g_npcLock);
+        const double     now = Now();
+        managed              = 0;
+        entries              = g_npcs.size();
+        for (const auto& [ctrl, e] : g_npcs)
+            if (now - e.at.load(std::memory_order_acquire) <= kNpcStale) ++managed;
     }
 
     void PublishRiddenHorse(RE::Actor* horse)
@@ -404,6 +415,7 @@ namespace CB::feature::controller {
         {
             const std::uint64_t rings = ring ? g_rings.fetch_add(1, std::memory_order_relaxed) + 1 : g_rings.load(std::memory_order_relaxed);
             const std::uint64_t n     = g_footprints.fetch_add(1, std::memory_order_relaxed) + 1;
+            CountLoad(LoadCounter::Rays, ring ? 9 : 1);
             if ((n & (n - 1)) == 0 && n >= 1024)
                 LOG_INFO("floor query: {} footprints, {} cast the ring ({:.1f}%), {} rays in all", n, rings, 100.0 * static_cast<double>(rings) / n,
                          n + 8 * rings);

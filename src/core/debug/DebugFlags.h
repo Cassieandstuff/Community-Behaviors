@@ -233,6 +233,11 @@ namespace CB::core::debug {
           "its error against where the player actually went. Under bMovementModel it runs the movement model itself "
           "from the player's current velocity and facing, the stick held; walking off a ledge or jumping predicts the fall and where it "
           "lands. Observes only. Unproven in game." },
+        { "char_load_report", FlagKind::IniBool, "Debug", "bLoadReport", true, true,
+          "Controller load report",
+          "Every 30 s, log the frame time beside what the Advanced Controller did per frame: player and NPC trajectory "
+          "predictions and the time they took, floor rays and shape sweeps, and how many NPCs it manages. With bTracy, the same "
+          "numbers plot every frame. Off = no present hook of its own." },
         { "char_motion_matching", FlagKind::IniBool, "Character", "bMotionMatching", false, false,
           "Motion matching (prototype)",
           "Needs the Motion Matching add-on (Motion Matching.hky, the clips, and Motion Matching Wiring.hky, which switches "
