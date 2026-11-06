@@ -401,6 +401,15 @@ namespace CB::engine::locomotion {
         return out;
     }
 
+    float ClipTakeoff(const std::vector<float>& rootPositions, int frames, double dt)
+    {
+        if (frames < 1 || rootPositions.size() < static_cast<std::size_t>(frames) * 3) return -1.0f;
+        const float z0 = rootPositions[2];
+        for (int f = 1; f < frames; ++f)
+            if (rootPositions[static_cast<std::size_t>(f) * 3 + 2] - z0 > kTakeoffRise) return static_cast<float>(f * dt);
+        return -1.0f;
+    }
+
     std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds)
     {
         auto out          = std::make_unique<Measured>();
@@ -416,6 +425,7 @@ namespace CB::engine::locomotion {
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
         out->schemaRows = c.schemaRows;
         out->speed = WindowedRootSpeeds(c.rootPositions, c.frames, out->dt);
+        out->takeoff = ClipTakeoff(c.rootPositions, c.frames, out->dt);
         out->curves = c.curves;
         return out;
     }
@@ -787,6 +797,7 @@ namespace CB::engine::locomotion {
             c.frames   = m->frames;
             c.dt       = m->dt;
             c.duration = m->duration;
+            c.takeoff  = m->takeoff;
             if (m->looping) c.flags |= kFlagLooping;
             for (std::size_t sp = 0; sp < db->spaces.size(); ++sp) {
                 if (!used[sp]) continue;

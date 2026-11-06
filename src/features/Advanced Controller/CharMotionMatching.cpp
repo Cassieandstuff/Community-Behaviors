@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharGround.h"
+#include "CharJumpTakeoff.h"
 #include "CharMotionMatching.h"
 #include <locomotion/ChooserInputs.h>
 #include "CharMovementModel.h"
@@ -433,6 +434,7 @@ namespace CB::feature {
             float              rate = 1.0f, rateVelocity = 0.0f;   ///< the node's own playback rate, while its speed is bound
             int                playingClip = -1;
             double             playingTime = 0;
+            std::uint32_t      windupClipGen = 0;   ///< the jump wind-up (ch::takeoff::Generation) the playing clip was switched to for
         };
         constexpr float  kDatabaseRetry = 1.0f;   ///< seconds between asking for a database not built yet
         constexpr double kSlotStale     = 0.5;    ///< seconds unused before a slot starts over
@@ -550,7 +552,9 @@ namespace CB::feature {
             /// @note CB's own launch (CharStateWrapper) commits InAir, never Jumping, and marks the controller kJumping until
             ///       it lands: without that bit the jump waited out kAirDebounce and entered the jump starts past their takeoff.
             const auto* body    = reinterpret_cast<const ::bhkCharacterController*>(cc);
-            const bool  jumping = cc && (cc->context.currentState == RE::hkpCharacterStateType::kJumping || (body->m_flags & ch::kJumping) != 0);
+            /// @note A pending wind-up counts too (the player's): the jump starts then play from their first frame.
+            const bool  jumping = cc && (cc->context.currentState == RE::hkpCharacterStateType::kJumping || (body->m_flags & ch::kJumping) != 0 ||
+                                        (player->IsPlayerRef() && ch::takeoff::Pending()));
             m.airFor            = in.airborne ? m.airFor + dt : 0.0f;
             const bool air      = jumping || (in.airborne && (m.airFor >= kAirDebounce || vz <= -kFallingSpeed));
             io[kMovementMode]   = air ? 1 : 0;
@@ -1016,6 +1020,17 @@ namespace CB::feature {
         const ps::MatchStep step = s.matcher.Update(db, request, timestep);
         s.playingClip            = step.clip;
         s.playingTime            = step.time;
+        /// @note The wind-up launches once the clip switched to for it (a search made with the chooser airborne) reaches
+        ///       its takeoff; a clip that never takes off (an in-air one) launches at once, since waiting shows nothing.
+        if (isPlayer) {
+            const std::uint32_t gen = ch::takeoff::Generation();
+            if (gen == 0) s.windupClipGen = 0;
+            else if (step.switched && in[kMovementMode] == 1) s.windupClipGen = gen;
+            if (gen != 0 && s.windupClipGen == gen && s.playingClip >= 0 && s.playingClip < static_cast<int>(db.clips.size())) {
+                const Clip& c = db.clips[s.playingClip];
+                if (c.takeoff < 0.0f || s.playingTime >= c.takeoff) ch::takeoff::Ready(gen);
+            }
+        }
         /// @note A new child blends by itself; a new time in the same one has to be told.
         if (step.switched && step.clip >= 0 && step.nextClip == step.clip) node.BlendNextJump();
 

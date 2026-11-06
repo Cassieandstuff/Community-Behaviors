@@ -726,6 +726,18 @@ void SpeedProfileChecks() {
           "the factor is wanted over record, 1 when either is unset");
 }
 
+/// @brief A clip's takeoff: the first frame its root rises past kTakeoffRise, -1 when it stays on the ground.
+void TakeoffChecks() {
+    std::vector<float> ground, jump;
+    for (int f = 0; f < 30; ++f) {
+        ground.insert(ground.end(), { 0.0f, f * 10.0f, 0.0f });
+        jump.insert(jump.end(), { 0.0f, f * 10.0f, f < 8 ? 0.0f : (f - 7) * 6.0f });
+    }
+    Check(ps::ClipTakeoff(ground, 30, 1.0 / 30.0) < 0.0f, "a clip on the ground never takes off");
+    Check(std::fabs(ps::ClipTakeoff(jump, 30, 1.0 / 30.0) - 8.0f / 30.0f) < 1.0e-5f, "a jump start takes off on the first frame its root rises");
+    Check(ps::ClipTakeoff(jump, 40, 1.0 / 30.0) < 0.0f, "too few positions for the frames reads as none");
+}
+
 /// @brief The clip speed the rate trims against: a stride's average, not a step's.
 void ClipSpeedChecks() {
     const int          frames = 60;
@@ -1097,6 +1109,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     DeadBlendChecks();
     SpeedProfileChecks();
     ClipSpeedChecks();
+    TakeoffChecks();
     LoopFitChecks();
     LoopFitReport();
     SchemaMeasureChecks();

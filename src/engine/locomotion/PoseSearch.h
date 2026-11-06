@@ -111,6 +111,7 @@ namespace CB::engine::locomotion {
         std::uint8_t flags    = 0;    ///< kFlag* bits
         float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd]
         float        rangeEnd   = 0;  ///< <= 0 = the clip's end
+        float        takeoff    = -1; ///< seconds: when the root first rises kTakeoffRise above its start (ClipTakeoff), -1 = never
     };
 
     /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
@@ -195,7 +196,18 @@ namespace CB::engine::locomotion {
         int                           frames   = 0;
         double                        dt       = 1.0 / 30.0;
         double                        duration = 0;
+        float                         takeoff  = -1;   ///< ClipTakeoff's
     };
+
+    /// @brief How far (game units) the root must rise above its first frame for the clip to have taken off.
+    constexpr float kTakeoffRise = 1.0f;
+
+    /// @brief When a clip leaves the ground: the time of the first frame whose root height is kTakeoffRise above frame 0's.
+    /// @return -1 when it never does (or `rootPositions` holds under `frames` x (x, y, z)).
+    /// @note  Why: a jump start spends its first beat on the ground (GASP's run starts 0.27-0.37 s, its stand and walk
+    ///        starts up to 0.7 s), and the controller launches when the playing clip reaches this (the animation-led
+    ///        jump wind-up).
+    float ClipTakeoff(const std::vector<float>& rootPositions, int frames, double dt);
 
     /// @brief A clip's curves at one frame, as the variables a candidate gate reads (GraphVar("Speed")).
     /// @note  A curve the clip lacks is not this source's: GraphVar then reads 0 (the build has no actor).
