@@ -660,6 +660,29 @@ void ChooserInputChecks() {
     Check(inputs(300.0f, 30.0f, true)[ps::kIsPivoting] == 0, "30 does not");
     Check(inputs(300.0f, 0.0f, false)[ps::kMovementState] == 0, "no stick is idle at any speed");
 
+    {
+        ps::State s;
+        ps::Input in;
+        in.gait        = ps::Gait::Run;
+        in.haveStick   = true;
+        in.turnInPlace = true;
+        in.stickX = 1.0f, in.stickY = 0.0f;   // 90 degrees right
+        ps::ChooserInputs io = ps::InitialChooserInputs();
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, 1.5707963f, false, io);
+        Check(io[ps::kMovementState] == 0, "a light stick is not moving");
+        for (int i = 0; i < 15; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
+        Check(std::hypot(s.vx, s.vy) < 1.0e-3f, "it never gains a velocity");
+        Check(s.yaw > 0.0f && s.yaw <= profile.turnInPlaceRate * 0.25f + 1.0e-4f, "it turns toward the stick, no faster than the cap");
+        for (int i = 0; i < 120; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
+        Check(std::fabs(s.yaw - 1.5707963f) < 0.02f, "and comes to face it");
+
+        ps::State run;
+        run.vy = 300.0f;
+        in.stickX = 0.0f, in.stickY = 1.0f;
+        for (int i = 0; i < 60; ++i) ps::Step(run, in, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
+        Check(run.vy < 1.0f, "from a run, a light stick brakes to a stop");
+    }
+
     ps::ChooserInputs     spinning = ps::InitialChooserInputs();
     ps::State             backward;
     backward.vy = -200.0f;

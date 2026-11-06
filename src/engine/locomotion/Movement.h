@@ -66,6 +66,7 @@ namespace CB::engine::locomotion {
         float facingHalflife = 0.1f;          ///< GASP's Offset Root Bone rotation halflife, now the facing's
         float airTurnRate    = 3.4906585f;    ///< 200 deg/s: GASP's falling RotationRate, the facing's cap in the air
         float facingMinSpeed = 10.0f;         ///< below this speed the facing holds (no direction to chase)
+        float turnInPlaceRate = 2.0943951f;   ///< 120 deg/s: the facing's cap while turning in place (Input::turnInPlace)
         float sprintCone     = 0.87266463f;   ///< 50 deg: strafing sprints only within this of the facing (CanSprint)
 
         /// @brief Traction (the horse's dig-in turns, spec H5); every value 0 = off, as for the player.
@@ -109,6 +110,9 @@ namespace CB::engine::locomotion {
         bool  airborne  = false;   ///< the ground states' Airborne: the velocity is the air control's, only the facing steps
         bool  haveStick = false;
         float stickX = 0.0f, stickY = 0.0f;   ///< the direction asked for: world, unit length (fixed-speed stick)
+        /// @brief The stick asks for a facing only (a light deflection): no velocity, so the body brakes, then turns toward
+        ///        the stick at Profile::turnInPlaceRate once it has stopped.
+        bool  turnInPlace = false;
         bool  haveTarget = false;
         float targetX = 0.0f, targetY = 0.0f;   ///< strafe: the lock target's world position
     };
@@ -135,7 +139,8 @@ namespace CB::engine::locomotion {
     ///        stick's acceleration, clamped to the cap; then the profile's traction, when it has one (grip, dig-in
     ///        braking). Airborne leaves the velocity alone. Then the facing: a spring (facingHalflife) toward the
     ///        velocity's heading (strafe: toward the target from (px, py); digging in: toward the stick, with
-    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed.
+    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed, or with
+    ///        Input::turnInPlace turns toward the stick, its rate capped at turnInPlaceRate.
     void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt);
 
     /// @brief Whether the direction allows sprinting: always when orienting to movement; when strafing, only while the

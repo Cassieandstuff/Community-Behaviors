@@ -574,7 +574,9 @@ namespace CB::feature {
             } else if (m.haveStickYaw) {
                 intent = m.stickYaw;
             }
-            if (wasMoving && !moving && std::fabs(ch::WrapPi(intent - s.yaw)) >= kTurnInPlace) m.turnHold = static_cast<float>(ps::kSearchInterval);
+            /// @note A light stick (mv::Input::turnInPlace) raises it too while standing: the body turns toward the stick.
+            const bool askedTurn = !moving && (wasMoving || in.turnInPlace);
+            if (askedTurn && std::fabs(ch::WrapPi(intent - s.yaw)) >= kTurnInPlace) m.turnHold = static_cast<float>(ps::kSearchInterval);
             else m.turnHold = (std::max)(0.0f, m.turnHold - dt);
             io[kShouldTurnInPlace] = m.turnHold > 0.0f;
 

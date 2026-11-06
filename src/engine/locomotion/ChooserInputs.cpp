@@ -41,7 +41,7 @@ namespace CB::engine::locomotion {
                         bool playingPivots, ChooserInputs& io)
     {
         const float speed  = std::hypot(s.vx, s.vy);
-        const bool  moving = speed > kMovingEpsilon && in.haveStick;
+        const bool  moving = speed > kMovingEpsilon && in.haveStick && !in.turnInPlace;
         const bool  strafe = in.mode == Mode::Strafe;
         const float velYaw = std::atan2(s.vx, s.vy);
 

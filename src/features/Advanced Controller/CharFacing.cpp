@@ -140,7 +140,18 @@ namespace CB::feature::controller {
             return CB::engine::locomotion::StickHeadingOf(stick.x, stick.y, cameraYaw, heading);
         }
 
-        /// @brief While CB holds the player, the move input is CB's to rewrite: forward, at the stick's length.
+        /// @brief settings.ini `[Character] fStickMoveThreshold`: the stick length (0..1) from which the player moves, at full
+        ///        input; below it (past kStickDeadzone) the stick only turns them in place.
+        /// @note  Why fixed speed: the clips cover each gait at one speed, so a slower stick slid (GASP's own advice is its
+        ///        Fixed Speed stick mode). Variable speed waits on distance matching.
+        float StickMoveThreshold()
+        {
+            static const float threshold = std::clamp(SettingFloat("fStickMoveThreshold", 0.5f), kStickDeadzone, 1.0f);
+            return threshold;
+        }
+
+        /// @brief While CB holds the player, the move input is CB's to rewrite: forward at full length, or none for a light
+        ///        stick (StickMoveThreshold), which only turns the player.
         /// @note Why: the engine then computes a native forward frame (forward direction, forward MOVT speed with every
         ///       multiplier), which is the model's cap; the direction is the model's, written after. The player-controls
         ///       agents read PlayerControls::data.moveInputVec while computing this frame, so it is rewritten before
@@ -151,7 +162,7 @@ namespace CB::feature::controller {
         {
             const float len = std::sqrt(raw.x * raw.x + raw.y * raw.y);
             if (len < kStickDeadzone) return;
-            controls->data.moveInputVec = RE::NiPoint2(0.0f, (std::min)(1.0f, len));
+            controls->data.moveInputVec = RE::NiPoint2(0.0f, len < StickMoveThreshold() ? 0.0f : 1.0f);
         }
 
         /// @brief Whether the player is doing something aimed (an attack or a bow, blocking, casting): then the body
@@ -468,6 +479,7 @@ namespace CB::feature::controller {
             in.airborne  = Airborne(player);
             in.haveStick = haveStick;
             if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
+            in.turnInPlace = haveStick && std::hypot(raw.x, raw.y) < StickMoveThreshold();
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
