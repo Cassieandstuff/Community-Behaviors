@@ -121,6 +121,10 @@ namespace CB::engine::locomotion {
     ///        step), integrated directly, without the predictor's velocity spring, collisions, floors or falls.
     float FutureSpeed(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py);
 
+    /// @brief The future velocity FutureSpeed measures (GASP's Trj_FutureVelocity: the displacement from 0.4 to 0.5 s
+    ///        ahead), world x and y, game units/s.
+    void FutureVelocity(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float& vx, float& vy);
+
     /// @brief The inputs a frame's movement decides: mode, rotation, state, gait, starting, pivoting, spin and speed.
     /// @param stickYaw the stick's latest heading, held after its release
     /// @param playingPivots the playing child's database is tagged "Pivots": IsStarting and spins stay false

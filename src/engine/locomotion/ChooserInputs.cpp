@@ -24,7 +24,7 @@ namespace CB::engine::locomotion {
         return false;
     }
 
-    float FutureSpeed(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py)
+    void FutureVelocity(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float& vx, float& vy)
     {
         float     ax = px, ay = py;
         const int from = static_cast<int>(std::lround(kFutureFrom / kFutureStep));
@@ -34,10 +34,18 @@ namespace CB::engine::locomotion {
             Step(s, in, caps, profile, px, py, kFutureStep);
             px += s.vx * kFutureStep, py += s.vy * kFutureStep;
         }
-        return std::hypot(px - ax, py - ay) / (kFutureTo - kFutureFrom);
+        vx = (px - ax) / (kFutureTo - kFutureFrom);
+        vy = (py - ay) / (kFutureTo - kFutureFrom);
     }
 
-    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float stickYaw,
+    float FutureSpeed(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py)
+    {
+        float vx = 0.0f, vy = 0.0f;
+        FutureVelocity(s, in, caps, profile, px, py, vx, vy);
+        return std::hypot(vx, vy);
+    }
+
+    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, [[maybe_unused]] float stickYaw,
                         bool playingPivots, ChooserInputs& io)
     {
         const float speed  = std::hypot(s.vx, s.vy);
@@ -50,8 +58,15 @@ namespace CB::engine::locomotion {
         io[kMovementState] = moving ? 1 : 0;
         if (in.gait != Gait::None) io[kGait] = static_cast<int>(in.gait) - 1;
 
-        io[kIsStarting] = moving && !playingPivots && FutureSpeed(s, in, caps, profile, px, py) >= speed + kStartGain;
-        io[kIsPivoting] = moving && std::fabs(WrapPi(stickYaw - velYaw)) >= (strafe ? kPivotStrafe : kPivotOrient);
+        float futureX = 0.0f, futureY = 0.0f;
+        if (moving) FutureVelocity(s, in, caps, profile, px, py, futureX, futureY);
+        const float futureSpeed = std::hypot(futureX, futureY);
+        io[kIsStarting] = moving && !playingPivots && futureSpeed >= speed + kStartGain;
+        /// @note GASP's IsPivoting: Get_TrajectoryTurnAngle, the yaw from the velocity to the trajectory's future velocity.
+        ///       The stick's own angle off the velocity read every quick camera turn as a pivot (chained 90-180 degree
+        ///       pivot clips, abandoned every half second); the future velocity has turned only as far as the model will.
+        io[kIsPivoting] = moving && futureSpeed > kMovingEpsilon &&
+                          std::fabs(WrapPi(std::atan2(futureX, futureY) - velYaw)) >= (strafe ? kPivotStrafe : kPivotOrient);
         io[kShouldSpinTransition] = !playingPivots && speed >= kSpinSpeed && std::fabs(WrapPi(velYaw - s.yaw)) >= kSpinAngle;
         io.real[kSpeed2D]         = speed;
     }
