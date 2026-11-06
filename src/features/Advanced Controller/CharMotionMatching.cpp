@@ -238,7 +238,7 @@ namespace CB::feature {
             std::vector<ea::MmCachedClip> fresh;
             std::size_t                   cacheHits  = 0;
             bool                          cacheDirty = false;
-            const auto clipOf = [&](const std::string& name) -> const ea::MmCachedClip& {
+            const auto clipOf = [&](const std::string& name, const ps::ClipNeeds&) -> const ea::MmCachedClip& {
                 bool hit = false;
                 fresh.push_back(MeasureOrCached(reader, name, compiler, cache, hit));
                 if (hit) ++cacheHits;
@@ -246,7 +246,7 @@ namespace CB::feature {
                 return fresh.back();
             };
             ps::BuildReport report;
-            auto db = ps::BuildDatabase(spec, clipOf, [](const std::string& message) { LOG_WARN("motion matching: {}", message); }, &report);
+            auto db = ps::BuildDatabase(spec, nullptr, clipOf, [](const std::string& message) { LOG_WARN("motion matching: {}", message); }, &report);
 
             if (first && fresh.size() != cache.size()) cacheDirty = true;
             if (first) cache.clear();

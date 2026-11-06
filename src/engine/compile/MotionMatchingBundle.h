@@ -48,8 +48,6 @@ namespace CB::engine::compile {
         ///        evaluated once per row when the plugin builds the database; empty = every row.
         std::string              standingCandidate;
         std::string              movingCandidate;
-        /// @brief (a weight group's name, its weight), written as CBPoseSearchWeight rows; unstated parts keep the defaults.
-        std::vector<std::pair<std::string, float>> weights;
     };
 
     /// @brief A chooser row: when `when` holds, its databases join the searched set.

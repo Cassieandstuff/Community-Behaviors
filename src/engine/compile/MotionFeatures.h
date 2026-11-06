@@ -3,6 +3,7 @@
 #include "interface/AnimationDef.h"
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -163,6 +164,13 @@ namespace CB::engine::anim {
     int SchemaDims(const SchemaSpec& s);
     /// @brief Each dim's weight: the feature's weight, times the sample part's for a trajectory.
     std::vector<float> SchemaWeights(const SchemaSpec& s);
+
+    /// @brief `schema` as canonical text: equal for two schemas exactly when they measure and weigh the same.
+    std::string SchemaText(const SchemaSpec& schema);
+    /// @brief What a schema's rows depend on (its text and, without its weights, the rig's bones), hashed: rows measured
+    ///        under one key serve every graph whose schema and rig hash to it.
+    /// @note  Weights are left out: they scale the cost, never the rows.
+    std::uint64_t SchemaKey(const SchemaSpec& schema, const Rig& rig);
 
     /// @brief `def` measured against `schema` through `rig`: one row (SchemaDims floats) per frame.
     /// @param loopFrames the clip's loop period (LoopPeriod), 0 = no loop: a loop's trajectory samples wrap into its next

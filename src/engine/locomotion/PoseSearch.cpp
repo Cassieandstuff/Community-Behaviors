@@ -37,52 +37,120 @@ namespace CB::engine::locomotion {
             return f ? f->str : std::string();
         }
 
-        /// @brief The normalized query vector and the playing row.
-        struct Prepared {
-            std::array<float, F::kDims> qv{};
-            int                         curRow = -1;
-        };
-
-        /// @note The query: the trajectory ahead and back from the caller, the pose from the frame playing now.
-        Prepared Prepare(const Database& db, const Query& q)
-        {
-            Prepared p;
-            std::array<float, F::kDims>& qv = p.qv;
-            for (int s = 0; s < F::kSamples; ++s) {
-                const TrajectorySample& t = q.samples[s];
-                const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
-                for (int j = 0; j < F::kPerSample; ++j) {
-                    const int d = F::SampleAt(s) + j;
-                    qv[d]       = (raw[j] - db.mean[d]) / db.scale[d];
+        /// @brief The question in each space, normalized, made the first time a candidate needs it, and the playing row.
+        /// @note  The trajectory comes from the caller (each dim from its nearest query sample), the pose from the frame
+        ///        playing now, read in the same space.
+        class Prepared {
+        public:
+            Prepared(const Database& db, const Query& q) : m_db(db), m_q(q), m_qv(db.spaces.size())
+            {
+                if (q.currentClip >= 0 && db.clips[q.currentClip].frames > 0) {
+                    const Clip& c = db.clips[q.currentClip];
+                    curRow        = c.first + FrameOf(c, q.currentTime);
                 }
             }
-            if (q.currentClip >= 0 && db.clips[q.currentClip].frames > 0) {
-                const Clip& c = db.clips[q.currentClip];
-                p.curRow      = c.first + FrameOf(c, q.currentTime);
-                std::copy_n(db.rows.data() + static_cast<std::size_t>(p.curRow) * F::kDims + F::kFootPos, F::kDims - F::kFootPos,
-                            qv.data() + F::kFootPos);
+            const std::vector<float>& In(int space)
+            {
+                std::vector<float>& qv = m_qv[space];
+                if (!qv.empty()) return qv;
+                const SchemaSpace& sp = m_db.spaces[space];
+                qv.assign(static_cast<std::size_t>(sp.dims), 0.0f);
+                for (int d = 0; d < sp.dims; ++d) {
+                    if (sp.querySample[d] >= 0) {
+                        const TrajectorySample& t = m_q.samples[sp.querySample[d]];
+                        const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
+                        qv[d] = (raw[sp.queryPart[d]] - sp.mean[d]) / sp.scale[d];
+                    } else if (curRow >= 0) {
+                        qv[d] = sp.rows[static_cast<std::size_t>(curRow) * sp.dims + d];
+                    }
+                }
+                return qv;
             }
-            return p;
-        }
+            int curRow = -1;
 
-        /// @brief The database weighing nothing in particular: the defaults.
-        const PoseDatabase& Unweighted()
-        {
-            static const PoseDatabase d = [] {
-                PoseDatabase out;
-                for (int k = 0; k < F::kDims; ++k)
-                    if (out.weight[k] > 0.0f) out.dims.push_back(k);
-                return out;
-            }();
-            return d;
-        }
+        private:
+            const Database&                 m_db;
+            const Query&                    m_q;
+            std::vector<std::vector<float>> m_qv;
+        };
 
-        /// @return the weights a candidate of `clip` is scored with
-        const PoseDatabase& WeighingOf(const Database& db, int clip)
+        /// @return the space a candidate of `clip` is weighed in
+        int SpaceOf(const Database& db, int clip)
         {
             const int d = db.clips[clip].database;
-            return d >= 0 ? db.databases[d] : Unweighted();
+            return d >= 0 ? db.databases[d].space : 0;
         }
+
+        /// @brief Row `r`'s cost in `sp` against `qv`: the weighted sum of squared differences, cut short past `bound`.
+        /// @note  Weight times the square, as Unreal's schemas mean their weights.
+        float CostIn(const SchemaSpace& sp, const std::vector<float>& qv, std::size_t r, float bound)
+        {
+            if (sp.rows.empty()) return 1.0e30f;
+            const float* row = sp.rows.data() + r * sp.dims;
+            float        sum = 0;
+            for (const int d : sp.active) {
+                if (!(sum < bound)) break;
+                const float e = qv[d] - row[d];
+                sum += sp.weight[d] * e * e;
+            }
+            return sum;
+        }
+
+        /// @brief The classic layout's space: anim::AppendClipFeatures' rows, DefaultWeights, the trajectory from the query's
+        ///        samples one to one.
+        SchemaSpace ClassicSpace()
+        {
+            SchemaSpace sp;
+            sp.classic = true;
+            sp.dims    = F::kDims;
+            const auto w = DefaultWeights();
+            sp.weight.assign(w.begin(), w.end());
+            for (int d = 0; d < F::kDims; ++d) {
+                const bool path = d < F::kFootPos;
+                sp.querySample.push_back(path ? d / F::kPerSample : -1);
+                sp.queryPart.push_back(path ? d % F::kPerSample : 0);
+                sp.group.push_back(GroupOf(d));
+            }
+            return sp;
+        }
+
+        /// @brief A typed schema's space: its weights, each trajectory sample read from the query sample nearest its time,
+        ///        each dim's cost summed into its feature.
+        SchemaSpace TypedSpace(const anim::SchemaSpec& spec, const anim::Rig& rig)
+        {
+            SchemaSpace sp;
+            sp.classic = false;
+            sp.spec    = spec;
+            sp.key     = anim::SchemaKey(spec, rig);
+            sp.dims    = anim::SchemaDims(spec);
+            sp.weight  = anim::SchemaWeights(spec);
+            for (std::size_t k = 0; k < spec.features.size(); ++k) {
+                const anim::FeatureSpec& f = spec.features[k];
+                if (f.kind == anim::FeatureKind::Trajectory) {
+                    for (const auto& smp : f.samples) {
+                        int nearest = 0;
+                        for (int s = 1; s < F::kSamples; ++s)
+                            if (std::fabs(F::SampleTime(s) - smp.time) < std::fabs(F::SampleTime(nearest) - smp.time)) nearest = s;
+                        for (int j = 0; j < F::kPerSample; ++j) {
+                            sp.querySample.push_back(nearest);
+                            sp.queryPart.push_back(j);
+                            sp.group.push_back(static_cast<int>(k));
+                        }
+                    }
+                    continue;
+                }
+                for (int j = 0; j < anim::FeatureDims(f); ++j) {
+                    sp.querySample.push_back(-1);
+                    sp.queryPart.push_back(0);
+                    sp.group.push_back(static_cast<int>(k));
+                }
+            }
+            return sp;
+        }
+
+        /// @brief The normalization groups in `sp`: the classic layout's NormGroupOf; a typed schema's per trajectory
+        ///        channel and direction within each trajectory feature, and per other feature.
+        std::vector<int> NormGroupsOf(const SchemaSpace& sp);
 
         /// @brief The normalization groups: per direction (ahead, back) each channel, then each pose part.
         int NormGroupOf(int d)
@@ -95,6 +163,30 @@ namespace CB::engine::locomotion {
             return 2 * kChannels + (WeightGroupOf(d) - F::kSamples * kChannels);
         }
         constexpr int kNormGroups = 2 * kChannels + 5;
+
+        std::vector<int> NormGroupsOf(const SchemaSpace& sp)
+        {
+            std::vector<int> out(static_cast<std::size_t>(sp.dims), 0);
+            if (sp.classic) {
+                for (int d = 0; d < sp.dims; ++d) out[d] = NormGroupOf(d);
+                return out;
+            }
+            int d = 0;
+            for (std::size_t k = 0; k < sp.spec.features.size(); ++k) {
+                const anim::FeatureSpec& f = sp.spec.features[k];
+                const int                base = static_cast<int>(k) * 2 * kChannels;
+                if (f.kind != anim::FeatureKind::Trajectory) {
+                    for (int j = 0; j < anim::FeatureDims(f); ++j) out[d++] = base;
+                    continue;
+                }
+                for (const auto& smp : f.samples)
+                    for (int j = 0; j < F::kPerSample; ++j) {
+                        const int channel = j < F::kSampleFacing ? 0 : j < F::kSampleVelocity ? 1 : j < F::kSampleHeight ? 2 : 3;
+                        out[d++] = base + (smp.time < 0 ? kChannels : 0) + channel;
+                    }
+            }
+            return out;
+        }
 
         constexpr const char* kChannelNames[kChannels] = { "position", "facing", "velocity", "height" };
         constexpr const char* kPoseNames[5]            = { "feet", "feetVelocity", "hipVelocity", "footSpacing", "pelvisFacing" };
@@ -317,6 +409,7 @@ namespace CB::engine::locomotion {
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
+        out->schemaRows = c.schemaRows;
         out->speed = WindowedRootSpeeds(c.rootPositions, c.frames, out->dt);
         out->curves = c.curves;
         return out;
@@ -347,9 +440,11 @@ namespace CB::engine::locomotion {
         for (const SpecDatabase& d : databases) {
             text(d.name), text(d.baseCostBias), text(d.continuingPoseCostBias), text(d.loopingCostBias);
             text(d.standingCandidate), text(d.movingCandidate);
-            for (const auto& [group, weight] : d.weights) text(group), bits(weight);
+            out += std::to_string(d.schema) + '\x1f';
             out += d.pivots ? "1\x1e" : "0\x1e";
         }
+        out += '\x1d';
+        for (const anim::SchemaSpec& s : schemas) text(anim::SchemaText(s));
         out += haveChooser ? "\x1d" "1" : "\x1d" "0";
         for (const SpecChooserRow& r : rows) {
             text(r.when);
@@ -361,9 +456,48 @@ namespace CB::engine::locomotion {
         return out;
     }
 
+    anim::SchemaSpec SchemaSpecOf(const SchemaObject& schema, const WarnFn& warn)
+    {
+        anim::SchemaSpec out;
+        out.name     = StrOr(schema, "name");
+        out.rootBone = StrOr(schema, "rootBone");
+        for (const auto& o : schema.Children("features")) {
+            const auto* f = dynamic_cast<const SchemaObject*>(o.get());
+            if (!f) continue;
+            const std::string_view cls = f->ClassName();
+            anim::FeatureSpec      spec;
+            spec.weight = f->GetFloat("weight");
+            if (cls == "CBPoseSearchTrajectory") {
+                spec.kind = anim::FeatureKind::Trajectory;
+                for (const auto& so : f->Children("samples"))
+                    if (const auto* s = dynamic_cast<const SchemaObject*>(so.get()))
+                        spec.samples.push_back({ s->GetFloat("time"), s->GetFloat("position"), s->GetFloat("facing"), s->GetFloat("velocity"),
+                                                 s->GetFloat("height") });
+            } else if (cls == "CBPoseSearchPosition" || cls == "CBPoseSearchVelocity") {
+                spec.kind   = cls == "CBPoseSearchPosition" ? anim::FeatureKind::Position : anim::FeatureKind::Velocity;
+                spec.bone   = StrOr(*f, "bone");
+                spec.origin = StrOr(*f, "origin");
+            } else if (cls == "CBPoseSearchHeading") {
+                spec.kind = anim::FeatureKind::Heading;
+                spec.bone = StrOr(*f, "bone");
+                spec.axis = static_cast<int>(f->GetInt("axis"));
+            } else if (cls == "CBPoseSearchCurve") {
+                spec.kind  = anim::FeatureKind::Curve;
+                spec.curve = StrOr(*f, "curve");
+            } else {
+                Warn(warn, std::format("schema '{}' holds a {}, which is no feature - ignored", out.name, cls));
+                continue;
+            }
+            out.features.push_back(std::move(spec));
+        }
+        return out;
+    }
+
     DatabaseSpec SpecOf(const SchemaObject& selector)
     {
         DatabaseSpec spec;
+        /// @note A schema shared by several databases is read once: databases name it by its object.
+        std::vector<const SchemaObject*> schemaObjects;
         if (const auto* field = selector.HasField("databases") ? selector.FindField("databases") : nullptr)
             for (const auto& o : field->objs) {
                 const auto* d = dynamic_cast<const SchemaObject*>(o.get());
@@ -377,9 +511,14 @@ namespace CB::engine::locomotion {
                 p.movingCandidate        = StrOr(*d, "movingCandidate");
                 if (const auto* tags = d->FindField("tags"))
                     p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
-                if (const auto* weights = d->FindField("weights"))
-                    for (const auto& wo : weights->objs)
-                        if (const auto* w = dynamic_cast<const SchemaObject*>(wo.get())) p.weights.emplace_back(StrOr(*w, "group"), w->GetFloat("weight"));
+                if (const SchemaObject* s = d->HasField("schema") ? d->Child("schema") : nullptr) {
+                    const auto it = std::find(schemaObjects.begin(), schemaObjects.end(), s);
+                    p.schema      = static_cast<int>(it - schemaObjects.begin());
+                    if (it == schemaObjects.end()) {
+                        schemaObjects.push_back(s);
+                        spec.schemas.push_back(SchemaSpecOf(*s));
+                    }
+                }
                 spec.databases.push_back(std::move(p));
             }
         for (const auto& o : selector.Children("children")) {
@@ -425,14 +564,7 @@ namespace CB::engine::locomotion {
             p.standing   = CompileExpression(d.standingCandidate, "database '" + p.name + "' standingCandidate", "no row is a standing candidate", warn);
             p.moving     = CompileExpression(d.movingCandidate, "database '" + p.name + "' movingCandidate", "no row is a moving candidate", warn);
             p.pivots     = d.pivots;
-            for (const std::string& unknown : ApplyWeights(d.weights, p.weight))
-                Warn(warn, std::format("database '{}' weighs '{}', which names nothing - ignored", p.name, unknown));
             db.databases.push_back(std::move(p));
-        }
-        for (PoseDatabase& p : db.databases) {
-            p.dims.clear();
-            for (int d = 0; d < F::kDims; ++d)
-                if (p.weight[d] > 0.0f) p.dims.push_back(d);
         }
         for (std::size_t i = 0; i < spec.children.size(); ++i) {
             const SpecChild& row = spec.children[i];
@@ -474,12 +606,14 @@ namespace CB::engine::locomotion {
         db.fallback = DatabasesNamed(db, spec.fallback, "fallback", warn);
     }
 
-    std::unique_ptr<Database> BuildDatabase(const SchemaObject& selector, const ClipSource& clips, const WarnFn& warn, BuildReport* report)
+    std::unique_ptr<Database> BuildDatabase(const SchemaObject& selector, const anim::Rig* rig, const ClipSource& clips, const WarnFn& warn,
+                                            BuildReport* report)
     {
-        return BuildDatabase(SpecOf(selector), clips, warn, report);
+        return BuildDatabase(SpecOf(selector), rig, clips, warn, report);
     }
 
-    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const ClipSource& clips, const WarnFn& warn, BuildReport* report)
+    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const anim::Rig* rig, const ClipSource& clips, const WarnFn& warn,
+                                            BuildReport* report)
     {
         auto        db       = std::make_unique<Database>();
         const auto& children = spec.children;
@@ -487,10 +621,39 @@ namespace CB::engine::locomotion {
         ReadDatabases(spec, *db, warn);
         ReadChooser(spec, *db, warn);
 
+        /// @note The spaces: [0] the classic layout, then each typed schema a database points at (through the rig).
+        db->spaces.push_back(ClassicSpace());
+        std::vector<int> spaceOfSchema(spec.schemas.size(), 0);
+        for (std::size_t k = 0; k < spec.schemas.size(); ++k) {
+            if (!rig) {
+                Warn(warn, std::format("schema '{}' cannot be measured without the character's rig - its databases weigh the classic layout",
+                                       spec.schemas[k].name));
+                continue;
+            }
+            spaceOfSchema[k] = static_cast<int>(db->spaces.size());
+            db->spaces.push_back(TypedSpace(spec.schemas[k], *rig));
+        }
+        for (std::size_t d = 0; d < spec.databases.size(); ++d) {
+            const int schema = spec.databases[d].schema;
+            if (schema >= 0 && static_cast<std::size_t>(schema) < spaceOfSchema.size()) db->databases[d].space = spaceOfSchema[schema];
+        }
+        std::vector<char> used(db->spaces.size(), 0);
+        for (const PoseDatabase& p : db->databases) used[p.space] = 1;
+        ClipNeeds needs;
+        needs.rig = rig;
+        for (std::size_t sp = 1; sp < db->spaces.size(); ++sp)
+            if (used[sp]) needs.schemas.push_back(db->spaces[sp].spec), needs.keys.push_back(db->spaces[sp].key);
+
         /// @note Keyed by the exact animationName: case is never folded (a differently cased name is its own clip).
         std::map<std::string, std::unique_ptr<Measured>> measured;
         std::vector<const Measured*>                     of(children.size(), nullptr);
         std::array<std::vector<float>, 4>                gaitSpeeds;
+        const auto rowsIn = [&](const Measured& m, std::size_t sp) -> const std::vector<float>* {
+            if (db->spaces[sp].classic) return &m.rows;
+            for (const auto& b : m.schemaRows)
+                if (b.key == db->spaces[sp].key) return &b.rows;
+            return nullptr;
+        };
         for (std::size_t i = 0; i < children.size(); ++i) {
             if (children[i].clip.empty()) {
                 Warn(warn, std::format("selector child {} is not a clip generator - never chosen", i));
@@ -502,49 +665,73 @@ namespace CB::engine::locomotion {
             if (it == measured.end()) {
                 std::unique_ptr<Measured> m;
                 try {
-                    m = MeasuredFrom(clips(c.name), gaitSpeeds);
+                    m = MeasuredFrom(clips(c.name, needs), gaitSpeeds);
                 } catch (const std::exception& e) {
                     Warn(warn, std::format("clip {} '{}' not measured ({}) - never chosen", i, c.name, e.what()));
+                }
+                /// @note A clip lacking a used space's rows (a bone that schema names is missing) cannot be weighed there,
+                ///       nor its pose read there when it plays: it is never chosen.
+                for (std::size_t sp = 0; m && sp < db->spaces.size(); ++sp) {
+                    if (!used[sp]) continue;
+                    const std::vector<float>* rows = rowsIn(*m, sp);
+                    if (rows && rows->size() == static_cast<std::size_t>(m->frames) * db->spaces[sp].dims) continue;
+                    Warn(warn, std::format("clip {} '{}' has no rows under schema '{}' - never chosen", i, c.name, db->spaces[sp].spec.name));
+                    m.reset();
                 }
                 it = measured.emplace(c.name, std::move(m)).first;
             }
             of[i] = it->second.get();
         }
 
-        /// @note Holden's normalization: each dimension centred on its mean, then each GROUP divided by its mean
-        ///       spread, so a group's dimensions keep their relative sizes and every group weighs in comparably.
-        ///       Taken over the distinct clips, so a clip listed in several databases does not weigh more.
-        std::array<double, F::kDims> mean{}, var{};
-        std::size_t                  distinctRows = 0, measuredClips = 0;
+        /// @note Holden's normalization, per space: each dimension centred on its mean, then each GROUP divided by its mean
+        ///       spread, so a group's dimensions keep their relative sizes and every group weighs in comparably. Taken over
+        ///       the distinct clips, so a clip listed in several databases does not weigh more.
+        std::size_t distinctRows = 0, measuredClips = 0;
         for (const auto& [name, m] : measured) {
             if (!m) continue;
             ++measuredClips;
             distinctRows += static_cast<std::size_t>(m->frames);
-            for (std::size_t k = 0; k < m->rows.size(); ++k) mean[k % F::kDims] += m->rows[k];
         }
         if (distinctRows == 0) return nullptr;
-        for (auto& m : mean) m /= static_cast<double>(distinctRows);
-        for (const auto& [name, m] : measured) {
-            if (!m) continue;
-            for (std::size_t k = 0; k < m->rows.size(); ++k) {
-                const double x = m->rows[k] - mean[k % F::kDims];
-                var[k % F::kDims] += x * x;
+        for (std::size_t sp = 0; sp < db->spaces.size(); ++sp) {
+            SchemaSpace& space = db->spaces[sp];
+            space.mean.assign(static_cast<std::size_t>(space.dims), 0.0f);
+            space.scale.assign(static_cast<std::size_t>(space.dims), 1.0f);
+            space.active.clear();
+            for (int d = 0; d < space.dims; ++d)
+                if (space.weight[d] > 0.0f) space.active.push_back(d);
+            if (!used[sp]) continue;
+            const int           dims = space.dims;
+            std::vector<double> mean(static_cast<std::size_t>(dims), 0.0), var(static_cast<std::size_t>(dims), 0.0);
+            for (const auto& [name, m] : measured) {
+                if (!m) continue;
+                const auto& rows = *rowsIn(*m, sp);
+                for (std::size_t k = 0; k < rows.size(); ++k) mean[k % dims] += rows[k];
             }
-        }
-        std::array<double, kNormGroups> groupSpread{}, groupDims{};
-        for (int d = 0; d < F::kDims; ++d) {
-            groupSpread[NormGroupOf(d)] += std::sqrt(var[d] / static_cast<double>(distinctRows));
-            groupDims[NormGroupOf(d)] += 1;
-        }
-        for (int d = 0; d < F::kDims; ++d) {
-            const double spread = groupSpread[NormGroupOf(d)] / groupDims[NormGroupOf(d)];
-            db->mean[d]  = static_cast<float>(mean[d]);
-            db->scale[d] = static_cast<float>(spread > 1.0e-6 ? spread : 1.0);
+            for (auto& v : mean) v /= static_cast<double>(distinctRows);
+            for (const auto& [name, m] : measured) {
+                if (!m) continue;
+                const auto& rows = *rowsIn(*m, sp);
+                for (std::size_t k = 0; k < rows.size(); ++k) {
+                    const double x = rows[k] - mean[k % dims];
+                    var[k % dims] += x * x;
+                }
+            }
+            const std::vector<int> groups = NormGroupsOf(space);
+            const int              count  = groups.empty() ? 0 : *std::max_element(groups.begin(), groups.end()) + 1;
+            std::vector<double>    spread(static_cast<std::size_t>(count), 0.0), members(static_cast<std::size_t>(count), 0.0);
+            for (int d = 0; d < dims; ++d) spread[groups[d]] += std::sqrt(var[d] / static_cast<double>(distinctRows)), members[groups[d]] += 1;
+            for (int d = 0; d < dims; ++d) {
+                const double s = spread[groups[d]] / members[groups[d]];
+                space.mean[d]  = static_cast<float>(mean[d]);
+                space.scale[d] = static_cast<float>(s > 1.0e-6 ? s : 1.0);
+            }
         }
 
         std::size_t total = 0;
         for (const Measured* m : of) total += m ? static_cast<std::size_t>(m->frames) : 0;
-        db->rows.reserve(total * F::kDims);
+        for (std::size_t sp = 0; sp < db->spaces.size(); ++sp)
+            if (used[sp]) db->spaces[sp].rows.reserve(total * db->spaces[sp].dims);
         db->clipOf.reserve(total);
         db->searchable.reserve(total);
         db->rowGates.reserve(total);
@@ -559,16 +746,21 @@ namespace CB::engine::locomotion {
         };
         for (std::size_t i = 0; i < db->clips.size(); ++i) {
             Clip& c = db->clips[i];
-            c.first = static_cast<int>(db->rows.size() / F::kDims);
+            c.first = static_cast<int>(db->clipOf.size());
             const Measured* m = of[i];
             if (!m) continue;
             c.frames   = m->frames;
             c.dt       = m->dt;
             c.duration = m->duration;
             if (m->looping) c.flags |= kFlagLooping;
-            for (std::size_t k = 0; k < m->rows.size(); ++k) {
-                const int d = static_cast<int>(k % F::kDims);
-                db->rows.push_back((m->rows[k] - db->mean[d]) / db->scale[d]);
+            for (std::size_t sp = 0; sp < db->spaces.size(); ++sp) {
+                if (!used[sp]) continue;
+                SchemaSpace& space = db->spaces[sp];
+                const auto&  rows  = *rowsIn(*m, sp);
+                for (std::size_t k = 0; k < rows.size(); ++k) {
+                    const int d = static_cast<int>(k % space.dims);
+                    space.rows.push_back((rows[k] - space.mean[d]) / space.scale[d]);
+                }
             }
             db->clipOf.insert(db->clipOf.end(), static_cast<std::size_t>(m->frames), static_cast<int>(i));
             db->searchable.insert(db->searchable.end(), m->searchable.begin(), m->searchable.end());
@@ -653,32 +845,25 @@ namespace CB::engine::locomotion {
 
     SearchResult Search(const Database& db, const Query& q)
     {
-        const Prepared p      = Prepare(db, q);
-        const auto&    qv     = p.qv;
-        const int      curRow = p.curRow;
+        Prepared  p(db, q);
+        const int curRow = p.curRow;
 
-        /// @note Each candidate is weighed by its own database: GASP's schema per database.
-        const auto cost = [&](std::size_t r, const PoseDatabase& by, float bound) {
-            const float* row = db.rows.data() + r * F::kDims;
-            float        sum = 0;
-            for (const int d : by.dims) {
-                if (!(sum < bound)) break;
-                const float e = by.weight[d] * (qv[d] - row[d]);
-                sum += e * e;
-            }
-            return sum;
+        /// @note Each candidate is weighed in its own database's space: Unreal's schema per database.
+        const auto cost = [&](std::size_t r, int clip, float bound) {
+            const int space = SpaceOf(db, clip);
+            return CostIn(db.spaces[space], p.In(space), r, bound);
         };
 
         /// @note The playing row (the continuing pose) carries its database's continuing bias on top of a candidate's.
-        const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), WeighingOf(db, q.currentClip), 1.0e30f) +
-                                                BiasOf(db, q, q.currentClip) + BiasesOf(q, db.clips[q.currentClip].database).continuing
+        const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), q.currentClip, 1.0e30f) + BiasOf(db, q, q.currentClip) +
+                                                BiasesOf(q, db.clips[q.currentClip].database).continuing
                                           : 1.0e30f;
         float       best     = 1.0e30f;
         int         bestRow  = -1;
         std::size_t searched = 0;
         ForEachCandidate(db, q, curRow, [&](int ci, int r, float b) {
             ++searched;
-            const float f = cost(static_cast<std::size_t>(r), WeighingOf(db, ci), best - b);
+            const float f = cost(static_cast<std::size_t>(r), ci, best - b);
             if (f + b < best) best = f + b, bestRow = r;
         });
 
@@ -700,17 +885,22 @@ namespace CB::engine::locomotion {
     {
         std::vector<Candidate> out;
         if (n == 0) return out;
-        const Prepared p = Prepare(db, q);
-        const auto     better = [](const Candidate& a, const Candidate& b) { return a.total < b.total || (a.total == b.total && a.row < b.row); };
+        Prepared   p(db, q);
+        const auto better = [](const Candidate& a, const Candidate& b) { return a.total < b.total || (a.total == b.total && a.row < b.row); };
         ForEachCandidate(db, q, p.curRow, [&](int ci, int r, float b) {
-            const float*        row = db.rows.data() + static_cast<std::size_t>(r) * F::kDims;
-            const PoseDatabase& by  = WeighingOf(db, ci);
-            Candidate           c;
-            float               sum = 0;
-            for (const int d : by.dims) {
-                const float e = by.weight[d] * (p.qv[d] - row[d]);
-                sum += e * e;
-                c.groupCost[GroupOf(d)] += e * e;
+            const int                 space = SpaceOf(db, ci);
+            const SchemaSpace&        sp    = db.spaces[space];
+            const std::vector<float>& qv    = p.In(space);
+            const float*              row   = sp.rows.data() + static_cast<std::size_t>(r) * sp.dims;
+            Candidate                 c;
+            if (!sp.classic) c.featureCost.assign(sp.spec.features.size(), 0.0f);
+            float sum = 0;
+            for (const int d : sp.active) {
+                const float e    = qv[d] - row[d];
+                const float part = sp.weight[d] * e * e;
+                sum += part;
+                if (sp.classic) c.groupCost[sp.group[d]] += part;
+                else c.featureCost[sp.group[d]] += part;
             }
             c.row   = r;
             c.clip  = ci;

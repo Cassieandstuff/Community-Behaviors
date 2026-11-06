@@ -162,8 +162,8 @@ using Clips = std::map<std::string, anim::MmCachedClip>;
 std::unique_ptr<ps::Database> Built(const Unit& unit, const Clips& clips, std::vector<std::string>* warned = nullptr, ps::BuildReport* report = nullptr) {
     std::map<std::string, int> asked;
     auto db = ps::BuildDatabase(
-        *unit.selector,
-        [&](const std::string& name) -> const anim::MmCachedClip& {
+        *unit.selector, nullptr,
+        [&](const std::string& name, const ps::ClipNeeds&) -> const anim::MmCachedClip& {
             ++asked[name];
             const auto it = clips.find(name);
             if (it == clips.end()) throw std::runtime_error("no such clip");
@@ -243,7 +243,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(report.distinctClips == 4 && report.measuredClips == 3 && report.frames == 240, "the report's counts");
     Check(db.clips[0].first == 0 && db.clips[1].first == 60 && db.clips[2].frames == 0 && db.clips[3].first == 120 && db.clips[4].first == 180,
           "children lay out in order; the unmeasured one takes no rows");
-    Check(db.rows.size() == 240u * F::kDims && db.clipOf.size() == 240 && db.searchable.size() == 240 && db.rowGates.size() == 240 && db.rowGait.size() == 240,
+    Check(db.spaces.size() == 1 && db.spaces[0].rows.size() == 240u * F::kDims && db.clipOf.size() == 240 && db.searchable.size() == 240 && db.rowGates.size() == 240 && db.rowGait.size() == 240,
           "every per-row array covers every row");
     Check(db.clipOf[0] == 0 && db.clipOf[60] == 1 && db.clipOf[120] == 3 && db.clipOf[239] == 4, "row -> clip");
     Check(db.clips[1].flags == ps::kFlagDisableReselection && db.clips[4].flags == ps::kFlagLooping, "the row's flags");
@@ -469,7 +469,9 @@ void AgreementChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         Check(ps::GroupOf(d) >= 0 && ps::GroupOf(d) < ps::kGroups, "GroupOf is in range");
         Check(ps::WeightGroupOf(d) >= 0 && ps::WeightGroupOf(d) < ps::kWeightGroups, "WeightGroupOf is in range");
     }
-    for (const ps::PoseDatabase& p : db.databases) Check(p.weight == ps::DefaultWeights(), "a database stating no weights weighs the defaults");
+    for (const ps::PoseDatabase& p : db.databases) Check(p.space == 0, "a database stating no schema weighs the classic layout");
+    const auto defaults = ps::DefaultWeights();
+    Check(std::equal(defaults.begin(), defaults.end(), db.spaces[0].weight.begin()), "the classic layout weighs the defaults");
 }
 
 /// @brief The per-character Matcher over a small random database: when it searches, and what it plays.
@@ -834,6 +836,74 @@ void SchemaMeasureChecks() {
     Check(!anim::MeasureSchema(def, rig, schema, 0, err) && err.find("Hand") != std::string::npos, "a bone the rig lacks is refused by name");
 }
 
+/// @brief A database pointing at a typed schema: its candidates are weighed in that schema's rows, a database stating none
+///        in the classic layout, and the playing frame's pose is read in whichever space a candidate is weighed in.
+void TypedSpaceChecks() {
+    anim::Rig rig;
+    rig.bones.push_back({ "Root", -1, {}, {} });
+    anim::SchemaSpec schema;
+    schema.name = "Curve only";
+    anim::FeatureSpec curve;
+    curve.kind  = anim::FeatureKind::Curve;
+    curve.curve = "Lean";
+    schema.features.push_back(curve);
+    const std::uint64_t key = anim::SchemaKey(schema, rig);
+    Check(key == anim::SchemaKey(schema, rig), "a schema's key is stable");
+    anim::SchemaSpec heavier = schema;
+    heavier.features[0].weight = 5;
+    Check(anim::SchemaKey(heavier, rig) == key, "a weight is no part of the key: it never changes the rows");
+    anim::Rig moved = rig;
+    moved.bones[0].translation.z = 1;
+    Check(anim::SchemaKey(schema, moved) != key, "the rig is");
+
+    ps::DatabaseSpec spec;
+    spec.schemas.push_back(schema);
+    ps::SpecDatabase typed, classic;
+    typed.name     = "Typed";
+    typed.schema   = 0;
+    classic.name   = "Classic";
+    spec.databases = { typed, classic };
+    for (int i = 0; i < 2; ++i) {
+        ps::SpecChild c;
+        c.clip     = "c" + std::to_string(i);
+        c.database = i == 0 ? "Typed" : "Classic";
+        spec.children.push_back(c);
+    }
+    std::map<std::string, anim::MmCachedClip> clips;
+    for (int i = 0; i < 2; ++i) {
+        anim::MmCachedClip c = LineClip("c" + std::to_string(i), 30, 1000.0f * (i + 1), 0.0f);
+        anim::MmCachedClip::SchemaRows block;
+        block.key = key;
+        for (int f = 0; f < 30; ++f) block.rows.push_back(static_cast<float>(f + 100 * i));
+        c.schemaRows.push_back(block);
+        clips[c.name] = c;
+    }
+    std::vector<std::string> warned;
+    ps::ClipNeeds            seen;
+    const auto source = [&](const std::string& name, const ps::ClipNeeds& needs) -> const anim::MmCachedClip& {
+        seen = needs;
+        return clips.at(name);
+    };
+    const auto db = ps::BuildDatabase(spec, &rig, source, [&](const std::string& m) { warned.push_back(m); });
+    Check(db != nullptr, "the database builds");
+    if (!db) return;
+    Check(seen.keys.size() == 1 && seen.keys[0] == key && seen.rig == &rig, "the clip source is asked for the typed schema's rows");
+    Check(db->spaces.size() == 2 && !db->spaces[1].classic && db->databases[0].space == 1 && db->databases[1].space == 0,
+          "the typed database weighs its schema, the other the classic layout");
+    Check(db->spaces[1].rows.size() == 60 && db->spaces[0].rows.size() == 60u * F::kDims, "every row has a row in every space in use");
+
+    const auto noRig = ps::BuildDatabase(spec, nullptr, source, [&](const std::string& m) { warned.push_back(m); });
+    Check(noRig && noRig->databases[0].space == 0, "without a rig the typed database falls back to the classic layout");
+    Check(std::any_of(warned.begin(), warned.end(), [](const std::string& m) { return m.find("rig") != std::string::npos; }), "and says why");
+
+    clips["c0"].schemaRows.clear();
+    warned.clear();
+    const auto missing = ps::BuildDatabase(spec, &rig, source, [&](const std::string& m) { warned.push_back(m); });
+    Check(missing && missing->clips[0].frames == 0, "a clip without the schema's rows is never chosen");
+    Check(std::any_of(warned.begin(), warned.end(), [](const std::string& m) { return m.find("Curve only") != std::string::npos; }),
+          "and is warned of by the schema's name");
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -968,6 +1038,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     LoopFitChecks();
     LoopFitReport();
     SchemaMeasureChecks();
+    TypedSpaceChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

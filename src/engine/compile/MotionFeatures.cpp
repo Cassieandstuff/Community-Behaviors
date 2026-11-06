@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <format>
 #include <unordered_map>
 
 namespace CB::engine::anim {
@@ -702,6 +704,38 @@ namespace CB::engine::anim {
             }
         }
         return rows;
+    }
+
+    std::string SchemaText(const SchemaSpec& schema)
+    {
+        std::string out = "root=" + schema.rootBone + "\x1e";
+        const auto  num = [&](double v) { out += std::format("{:.6g}", v), out += '\x1f'; };
+        for (const auto& f : schema.features) {
+            out += std::to_string(static_cast<int>(f.kind)) + '\x1f' + f.bone + '\x1f' + f.origin + '\x1f' + f.curve + '\x1f';
+            out += std::to_string(f.axis) + '\x1f';
+            num(f.weight);
+            for (const auto& smp : f.samples) num(smp.time), num(smp.position), num(smp.facing), num(smp.velocity), num(smp.height);
+            out += '\x1e';
+        }
+        return out;
+    }
+
+    std::uint64_t SchemaKey(const SchemaSpec& schema, const Rig& rig)
+    {
+        std::string text = "root=" + schema.rootBone + "\x1e";
+        for (const auto& f : schema.features) {
+            text += std::to_string(static_cast<int>(f.kind)) + '\x1f' + f.bone + '\x1f' + f.origin + '\x1f' + f.curve + '\x1f' +
+                    std::to_string(f.axis) + '\x1f';
+            for (const auto& smp : f.samples) text += std::format("{:.6g}\x1f", smp.time);
+            text += '\x1e';
+        }
+        text += '\x1d';
+        for (const auto& b : rig.bones)
+            text += std::format("{}\x1f{}\x1f{:.6g} {:.6g} {:.6g}\x1f{:.6g} {:.6g} {:.6g} {:.6g}\x1e", b.name, b.parent, b.translation.x,
+                                b.translation.y, b.translation.z, b.rotation.x, b.rotation.y, b.rotation.z, b.rotation.w);
+        std::uint64_t h = 1469598103934665603ull;
+        for (const unsigned char ch : text) h = (h ^ ch) * 1099511628211ull;
+        return h;
     }
 
 }  // namespace CB::engine::anim

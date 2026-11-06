@@ -135,9 +135,25 @@ namespace CB::engine::locomotion {
         ///        that does not compile: no row).
         Expression  standing, moving;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
-        /// @brief How much each dimension of its candidates counts.
-        std::array<float, anim::features::kDims> weight = DefaultWeights();
-        std::vector<int> dims;   ///< the dimensions weighted above 0, which alone the search reads
+        int         space  = 0;       ///< the row space its candidates are measured and weighed in (Database::spaces)
+    };
+
+    /// @brief One way of measuring and weighing a frame: a typed schema (CBPoseSearchSchema), or the classic layout
+    ///        (anim::AppendClipFeatures weighed by DefaultWeights) for a database stating none.
+    /// @note  Every row of the database has a row in every space a database uses, so the playing frame's pose can be read
+    ///        in whichever space the candidate is weighed in.
+    struct SchemaSpace {
+        bool             classic = true;
+        anim::SchemaSpec spec;        ///< a typed schema's
+        std::uint64_t    key  = 0;    ///< anim::SchemaKey, typed only
+        int              dims = anim::features::kDims;
+        std::vector<float> rows;      ///< every row of the database, normalized, `dims` wide; empty when no database uses it
+        std::vector<float> mean, scale, weight;   ///< per dim; a candidate's cost is the weighted sum of squared differences
+        std::vector<int>   active;    ///< the dims weighted above 0, which alone the search reads
+        /// @brief Per dim: the query trajectory sample it is read from (the nearest in time) and the part of it (x, y, facing
+        ///        x, facing y, velocity x, velocity y, height); -1 = the playing frame's own row (the pose).
+        std::vector<int>   querySample, queryPart;
+        std::vector<int>   group;     ///< per dim: what Candidate's costs sum it into (GroupOf classic, the feature typed)
     };
 
     /// @brief One chooser row (CBPoseSearchChooserRow).
@@ -149,13 +165,12 @@ namespace CB::engine::locomotion {
     /// @brief The database: one row of kDims floats per child frame, normalized (mean, per-group spread) but unweighted.
     struct Database {
         std::vector<Clip>         clips;
-        std::vector<float>        rows;
+        std::vector<SchemaSpace>  spaces;       ///< [0] is the classic layout
         std::vector<int>          clipOf;       ///< row -> clip
         std::vector<char>         searchable;   ///< row's whole future lies inside its clip, and the row inside its child's range
         std::vector<std::uint8_t> rowGates;     ///< the frame's kRow* bits (the search's gates)
         std::vector<std::uint8_t> rowGait;      ///< the frame's Gait from its Speed curve (None standing); the logs' label only
         std::vector<float>        rowSpeed;     ///< the frame's clip root speed, game units/s, averaged over kClipSpeedWindow
-        std::array<float, anim::features::kDims> mean{}, scale{};
         /// @brief The clips' own speed per gait (game units/s, indexed by Gait), 0 where no clip has one: the median
         ///        root speed of the steady forward frames in that gait's Speed band (CollectGaitSpeeds).
         std::array<float, 4>      gaitSpeed{};
@@ -173,6 +188,7 @@ namespace CB::engine::locomotion {
         std::vector<std::uint8_t>     gait;     ///< per frame, a Gait from the Speed curve's band
         std::vector<float>            speed;    ///< per frame, the root's horizontal speed averaged over kClipSpeedWindow
         bool                          looping = false;   ///< the clip loops (anim::FitLoop): its features wrap, its playback too
+        std::vector<anim::MmCachedClip::SchemaRows> schemaRows;   ///< the clip under each typed schema it was measured for
         std::vector<anim::AnimCurveDef> curves;   ///< the clip's curves, which its databases' gates read per row
         int                           frames   = 0;
         double                        dt       = 1.0 / 30.0;
@@ -193,10 +209,17 @@ namespace CB::engine::locomotion {
 
     /// @brief Receives what a build would warn of (a bad expression, an unknown database, a clip not measured).
     using WarnFn = std::function<void(const std::string& message)>;
-    /// @brief The clip an animationName (byte-exact) names, measured or from a cache.
+    /// @brief What a build needs of each clip besides its classic measurement: its rows under these typed schemas.
+    struct ClipNeeds {
+        const anim::Rig*              rig = nullptr;
+        std::vector<anim::SchemaSpec> schemas;
+        std::vector<std::uint64_t>    keys;   ///< anim::SchemaKey of each, through `rig`
+    };
+    /// @brief The clip an animationName (byte-exact) names, measured or from a cache, with rows for every one of `needs`'
+    ///        keys it can be measured under (anim::MeasureMmClip).
     /// @warning Throws std::exception when it cannot be had: that child is warned of and never chosen.
     /// @note  The reference need only hold until the next call; each distinct name is asked for once.
-    using ClipSource = std::function<const anim::MmCachedClip&(const std::string& animationName)>;
+    using ClipSource = std::function<const anim::MmCachedClip&(const std::string& animationName, const ClipNeeds& needs)>;
 
     /// @brief One child of a selector, as a database reads it.
     struct SpecChild {
@@ -209,7 +232,7 @@ namespace CB::engine::locomotion {
     struct SpecDatabase {
         std::string name, baseCostBias, continuingPoseCostBias, loopingCostBias, standingCandidate, movingCandidate;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact)
-        std::vector<std::pair<std::string, float>> weights;   ///< (a weight group's name, its weight), as stated
+        int         schema = -1;      ///< its DatabaseSpec::schemas entry; -1 = none stated, the classic layout
     };
     /// @brief One CBPoseSearchChooserRow.
     struct SpecChooserRow {
@@ -219,8 +242,9 @@ namespace CB::engine::locomotion {
     /// @brief What a database is built from, whoever holds the selector: a parsed unit (SpecOf) or a node loaded from a
     ///        compiled graph, which state the same thing.
     struct DatabaseSpec {
-        std::vector<SpecChild>      children;
-        std::vector<SpecDatabase>   databases;   ///< empty: one implicit database over every child
+        std::vector<SpecChild>        children;
+        std::vector<SpecDatabase>     databases;   ///< empty: one implicit database over every child
+        std::vector<anim::SchemaSpec> schemas;     ///< the schemas the databases point at, each once
         bool                        haveChooser = false;
         std::vector<SpecChooserRow> rows;
         std::vector<std::string>    fallback;
@@ -273,11 +297,15 @@ namespace CB::engine::locomotion {
     /// @return null when no clip could be measured.
     /// @pre    The relay roster is registered: expressions compile against it, and one calling a function it lacks
     ///         counts as not compiling (RegisterCoreBuiltins offline: only GraphVar).
-    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const ClipSource& clips, const WarnFn& warn,
+    /// @param rig what typed schemas are measured through; null: a database pointing at one is warned of and weighed in
+    ///        the classic layout instead
+    std::unique_ptr<Database> BuildDatabase(const DatabaseSpec& spec, const anim::Rig* rig, const ClipSource& clips, const WarnFn& warn,
                                             BuildReport* report = nullptr);
     /// @brief BuildDatabase over a parsed selector.
-    std::unique_ptr<Database> BuildDatabase(const codec::io::SchemaObject& selector, const ClipSource& clips, const WarnFn& warn,
-                                            BuildReport* report = nullptr);
+    std::unique_ptr<Database> BuildDatabase(const codec::io::SchemaObject& selector, const anim::Rig* rig, const ClipSource& clips,
+                                            const WarnFn& warn, BuildReport* report = nullptr);
+    /// @brief The schema a parsed CBPoseSearchSchema states, its features read by class (names byte-exact).
+    anim::SchemaSpec SchemaSpecOf(const codec::io::SchemaObject& schema, const WarnFn& warn = {});
 
     /// @return the frame of `c` nearest `time`, clamped to the clip
     /// @pre    `c.frames > 0`.
@@ -343,7 +371,8 @@ namespace CB::engine::locomotion {
         int   frame = 0;
         float total = 0;   ///< the biased cost
         float bias  = 0;   ///< the part of `total` from the biases
-        std::array<float, kGroups> groupCost{};   ///< the feature cost per GroupOf, weighted
+        std::array<float, kGroups> groupCost{};   ///< a classic candidate's cost per GroupOf, weighted
+        std::vector<float>         featureCost;   ///< a typed candidate's cost per feature of its schema, weighted
     };
 
     /// @brief The `n` best candidates, best first (ties to the lower row), through the same gates and bans as Search.

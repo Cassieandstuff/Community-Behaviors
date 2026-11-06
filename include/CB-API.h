@@ -260,6 +260,7 @@ namespace mm {
     using Candidate        = CB::engine::locomotion::Candidate;    ///< one row as TopCandidates scored it
     using BuildReport      = CB::engine::locomotion::BuildReport;
     using ClipSource       = CB::engine::locomotion::ClipSource;   ///< animationName → its measurement
+    using ClipNeeds        = CB::engine::locomotion::ClipNeeds;    ///< the typed schemas (and rig) a build needs each clip measured under
     using WarnFn           = CB::engine::locomotion::WarnFn;
 
     using CB::engine::anim::MeasureMmClip;                     ///< an animation unit's text → its CachedClip

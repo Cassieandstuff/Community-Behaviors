@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compile/MotionFeatures.h"
 #include "interface/AnimationDef.h"
 
 #include <cstdint>
@@ -24,6 +25,15 @@ namespace CB::engine::anim {
         std::vector<float>        rootPositions; ///< frames × (x, y, z)
         std::vector<AnimCurveDef> curves;
         int                       loopFrames = 0;   ///< anim::AppendClipFeatures' loop period, 0 = no loop
+        /// @brief The clip under each schema it was measured for (anim::MeasureSchema), keyed by anim::SchemaKey.
+        struct SchemaRows {
+            std::uint64_t      key = 0;
+            std::vector<float> rows;
+        };
+        std::vector<SchemaRows> schemaRows;
+
+        /// @return the rows measured under `key`, null when none were
+        [[nodiscard]] const std::vector<float>* RowsFor(std::uint64_t key) const;
     };
 
     /// @return the fingerprint of an animation unit's text, as MmCachedClip::fingerprint stores it
@@ -34,7 +44,10 @@ namespace CB::engine::anim {
     /// @param path where the text came from, for errors
     /// @warning Throws std::exception when the text is no clip, it cannot be measured, or it lacks the humanoid leg chains.
     /// @pre   The shared schema registry is available: the loader parses through it.
-    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint);
+    /// @param rig, schemas the pose search schemas to measure it under too (anim::MeasureSchema, through `rig`); a schema it
+    ///        cannot be measured under is left out of schemaRows, so a database reading it finds no rows.
+    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint,
+                               const Rig* rig = nullptr, const std::vector<SchemaSpec>& schemas = {});
 
     /// @brief `clips` as the cache packfile.
     /// @return false with `err` set when the schema lacks a cache class.

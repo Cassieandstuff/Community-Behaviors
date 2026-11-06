@@ -53,7 +53,15 @@ namespace CB::engine::anim {
         return image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(unitText.data()), unitText.size());
     }
 
-    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint)
+    const std::vector<float>* MmCachedClip::RowsFor(std::uint64_t key) const
+    {
+        for (const auto& s : schemaRows)
+            if (s.key == key) return &s.rows;
+        return nullptr;
+    }
+
+    MmCachedClip MeasureMmClip(const std::string& name, const std::string& path, const std::string& unitText, std::uint64_t fingerprint,
+                               const Rig* rig, const std::vector<SchemaSpec>& schemas)
     {
         const auto  def = AnimationYamlLoader::LoadFromString(unitText, path);
         std::string err;
@@ -74,6 +82,11 @@ namespace CB::engine::anim {
             c.rootPositions.push_back(static_cast<float>(r.z));
         }
         c.curves = def.curves;
+        if (rig)
+            for (const SchemaSpec& s : schemas) {
+                std::string serr;
+                if (auto rows = MeasureSchema(def, *rig, s, c.loopFrames, serr)) c.schemaRows.push_back({ SchemaKey(s, *rig), std::move(*rows) });
+            }
         return c;
     }
 
@@ -97,6 +110,15 @@ namespace CB::engine::anim {
                 clip->SetFloat("frameDuration", c.frameDuration);
                 clip->SetFloat("duration", c.duration);
                 clip->SetInt("loopFrames", c.loopFrames);
+                auto& blocks = clip->FieldRef("schemaRows").objs;
+                for (const auto& b : c.schemaRows) {
+                    auto block = Make(*reg, "CBMotionSchemaRows");
+                    auto& key  = block->FieldRef("key").raw;
+                    key.resize(sizeof b.key);
+                    std::memcpy(key.data(), &b.key, sizeof b.key);
+                    PutFloats(block->FieldRef("rows"), b.rows);
+                    blocks.push_back(std::move(block));
+                }
                 PutFloats(clip->FieldRef("features"), c.features);
                 PutFloats(clip->FieldRef("rootPositions"), c.rootPositions);
                 auto& curves = clip->FieldRef("curves").objs;
@@ -153,6 +175,11 @@ namespace CB::engine::anim {
                 c.frameDuration = o->GetFloat("frameDuration");
                 c.duration      = o->GetFloat("duration");
                 c.loopFrames    = static_cast<int>(o->GetInt("loopFrames"));
+                for (const auto& bp : o->FieldRef("schemaRows").objs) {
+                    auto* b = dynamic_cast<io::SchemaObject*>(bp.get());
+                    if (!b) { err = "a schema block of '" + c.name + "' is not an inline CBMotionSchemaRows"; return false; }
+                    c.schemaRows.push_back({ static_cast<std::uint64_t>(b->GetInt("key")), GetFloats(b->FieldRef("rows")) });
+                }
                 c.features      = GetFloats(o->FieldRef("features"));
                 c.rootPositions = GetFloats(o->FieldRef("rootPositions"));
                 if (c.frames < 0 || c.features.size() != static_cast<std::size_t>(c.frames) * features::kDims ||
