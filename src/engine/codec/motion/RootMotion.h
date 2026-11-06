@@ -85,6 +85,8 @@ UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::eng
 
 /// @brief The unit's actor motion: its explicit record; nothing for `motion: none`; else extracted from the root,
 ///        which is stripped of it (so a compile of `def` afterwards serves the clean root).
+/// @post A motionMatching clip that is neither explicit nor `motion: none` leaves its root at identity on every frame;
+///       any other stripped root holds its frame-0 pose.
 std::optional<CB::engine::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack = 0);
 
 } // namespace CB::engine::anim
