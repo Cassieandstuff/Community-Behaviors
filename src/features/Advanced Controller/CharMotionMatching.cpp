@@ -442,9 +442,6 @@ namespace CB::feature {
             ch::motion::Query query;
             bool              queryValid = false;
             Clock::time_point queryAt{};
-            /// @brief The playback rate (clip seconds per second): written by the predictor's Rate, read by the frame hook.
-            std::atomic<float> rate{ 1.0f };
-            float              rateVelocity = 0.0f;   ///< the rate's spring, the predictor's alone
             /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
             std::atomic<float> timeToLand{ controller::motion::kNoLanding };
             /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
@@ -602,7 +599,6 @@ namespace CB::feature {
         bool WriteQuery(RE::Actor* player, CharacterMatch& match)
         {
             const QueryNames& names = QueryVariables();
-            player->SetGraphVariableFloat(names.rate, match.rate.load(std::memory_order_relaxed));
             ch::motion::Query q;
             bool              have = false;
             {
@@ -723,17 +719,9 @@ namespace CB::feature {
                 if (match.enabled) actor->SetGraphVariableInt(enableName, 0), match.enabled = false;
                 return;
             }
-            if (player) CB_PLOT("MM rate", match.rate.load(std::memory_order_relaxed));
 
-            Playback        p;
-            const Database* playing = nullptr;
-            {
-                std::scoped_lock lock(match.shownLock);
-                p       = match.shown;
-                playing = match.shownDb;
-            }
-            const int playingDb = playing && p.clip >= 0 ? playing->clips[p.clip].database : -1;
-            ComputeInputs(actor, match, deltaTime, playingDb >= 0 && playing->databases[playingDb].pivots, match.inputs);
+            /// @note The node masks what a Pivots database's playing frame rules out (NodeInputs): the controller never reads it.
+            ComputeInputs(actor, match, deltaTime, false, match.inputs);
             WriteInputs(actor, match.inputs);
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
@@ -839,33 +827,6 @@ namespace CB::feature {
                            c.frames > 0 ? FrameOf(c, p.time) : 0, BlendRemaining(), ago);
     }
 
-    float controller::motion::Rate(RE::FormID actor, const FrameSpeed* frame, float dt)
-    {
-        CharacterMatch& match = MatchOf(actor);
-        const Database* db    = nullptr;
-        Playback        p;
-        {
-            std::scoped_lock lock(match.shownLock);
-            db = match.shownDb;
-            p  = match.shown;
-        }
-        const float last = match.rate.load(std::memory_order_relaxed);
-        /// @note The playing frame's own speed (its stride, kClipSpeedWindow), not a per-gait figure: the search chose that
-        ///       clip for the speed the query asked, so the rate only trims the difference, and a slow frame (standing,
-        ///       turning in place) plays at 1.
-        float target = 1.0f;
-        if (db && frame && frame->speed >= kRateStill && p.clip >= 0 && p.clip < static_cast<int>(db->clips.size())) {
-            const Clip& c         = db->clips[p.clip];
-            const int   row       = c.first + (c.frames > 0 ? FrameOf(c, p.time) : 0);
-            const float clipSpeed = row >= 0 && row < static_cast<int>(db->rowSpeed.size()) ? db->rowSpeed[row] : 0.0f;
-            if (clipSpeed >= kRateClipStill) target = std::clamp(frame->speed / clipSpeed, kMinRate, kMaxRate);
-        }
-        float rate = last;
-        ch::SpringDamperExact(rate, match.rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
-        rate = std::clamp(rate, kMinRate, kMaxRate);
-        match.rate.store(rate, std::memory_order_relaxed);
-        return rate;
-    }
 
     void controller::motion::Publish(RE::FormID actor, const Query& q)
     {
@@ -970,6 +931,11 @@ namespace CB::feature {
         /// @note Everything the node asks of the character arrives as the graph's variables, which whoever drives it set.
         Inputs in = InitialInputs();
         ReadInputs(actor, in);
+        /// @note GASP's rule: while a Pivots database plays, nothing is starting and no spin transition is due.
+        if (s.playingClip >= 0 && s.playingClip < static_cast<int>(db.clips.size())) {
+            const int playing = db.clips[s.playingClip].database;
+            if (playing >= 0 && db.databases[playing].pivots) in[kIsStarting] = 0, in[kShouldSpinTransition] = 0;
+        }
         const bool       inputsChanged = InputsInterrupt(s.before, in);
         s.before                       = in;
         ps::MatchRequest request;

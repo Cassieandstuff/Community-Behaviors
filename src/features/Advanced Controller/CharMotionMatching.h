@@ -20,9 +20,9 @@ namespace CB::feature::controller::motion {
 
     class PoseSearchGenerator;
 
-    /// @brief The predictor's query: where the character will be and face when the clip playing at Rate() reaches the
-    ///        database's horizons (engine::anim::features::kHorizons / rate, real seconds), and where they were and
-    ///        faced that long ago, in the current root space (x right, y forward), game units.
+    /// @brief The predictor's query: where the character will be and face at the database's sample times ahead
+    ///        (engine::anim::features::kAhead, real seconds), and where they were and faced that long ago (kBack), in the
+    ///        current root space (x right, y forward), game units.
     struct Query {
         CB::engine::locomotion::QueryTrajectory samples{};
         /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
@@ -31,16 +31,6 @@ namespace CB::feature::controller::motion {
 
     /// @brief Whether motion matching runs (char_motion_matching); the predictor builds no query otherwise.
     bool On();
-
-    /// @brief The playback rate for the movement model's latest frame, and the rate the clips play at from now on: the
-    ///        asked-for speed over the clips' own speed for the gait, clamped to [0.7, 1.5]; null (no frame), no gait,
-    ///        standing, or a gait no clip has keeps the last rate (1 at first).
-    /// @note  Why the clips' gait speed and not the speed alone: they were authored slower than Skyrim moves (run 284
-    ///        against 370), so the raw speed matched sprint clips at a run. Played at this rate they cover the ground
-    ///        the controller covers, and the query samples the prediction at horizon / rate to compare like with like.
-    /// @param dt the step's seconds: the rate eases toward its target over kRateHalflife rather than stepping, so a gait change
-    ///        moves the clip speed and the query's sample times together and smoothly.
-    float Rate(RE::FormID actor, const FrameSpeed* frame, float dt);
 
     /// @brief `actor`'s latest query, which the frame hook writes to its graph's variables.
     /// @note  Called by the predictor each step.

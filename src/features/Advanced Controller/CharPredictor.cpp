@@ -825,7 +825,6 @@ namespace CB::feature {
             ///       for the playing clip's own speed whatever the speed, so no gait change could ever win.
             std::array<float, kQuerySamples> queryTimes{}, pastTimes{};
             if (matches && ch::motion::On()) {
-                ch::motion::Rate(actorId, haveSpeed ? &fs : nullptr, dt);
                 for (int k = 0; k < kQuerySamples; k++) {
                     queryTimes[k] = static_cast<float>(CB::engine::anim::features::kAhead[k]);
                     pastTimes[k]  = static_cast<float>(CB::engine::anim::features::kBack[k]);
