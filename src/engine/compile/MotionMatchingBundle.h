@@ -37,7 +37,6 @@ namespace CB::engine::compile {
     struct MmDatabase {
         std::string              name;   ///< byte-exact, unique: chooser rows and mods name the database by it
         std::vector<MmClip>      clips;
-        int                      schema = -1;   ///< its MmBundleSpec::schemas entry, written as a CBPoseSearchSchema; -1 = none (classic)
         /// @brief Condition expressions evaluated to a float once per search (a literal such as "-0.05" is one);
         ///        empty = 0.
         /// @note  Written as given: the plugin owns the expression language's vocabulary, so it compiles them, not this
@@ -50,6 +49,7 @@ namespace CB::engine::compile {
         ///        evaluated once per row when the plugin builds the database; empty = every row.
         std::string              standingCandidate;
         std::string              movingCandidate;
+        int                      schema = -1;   ///< its MmBundleSpec::schemas entry, written as a CBPoseSearchSchema; -1 = none (classic)
     };
 
     /// @brief A chooser row: when `when` holds, its databases join the searched set.
