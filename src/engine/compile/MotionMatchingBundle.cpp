@@ -53,6 +53,8 @@ namespace CB::engine::compile {
                 if (db.name.empty()) throw std::runtime_error("a database has no name");
                 if (!names.insert(db.name).second) throw std::runtime_error("database '" + db.name + "' is named twice");
                 if (db.clips.empty()) throw std::runtime_error("database '" + db.name + "' holds no clips");
+                if (db.schema < -1 || db.schema >= static_cast<int>(spec.schemas.size()))
+                    throw std::runtime_error("database '" + db.name + "' points at schema " + std::to_string(db.schema) + ", which the spec lacks");
                 for (const auto& c : db.clips) {
                     if (MmAnimationName(c.path, spec.rosterRoot).empty())
                         throw std::runtime_error("database '" + db.name + "': '" + c.path + "' is not a .hkx file below '" +
@@ -69,6 +71,8 @@ namespace CB::engine::compile {
             std::vector<MmVariable> vars{ { spec.clipVariable, "VARIABLE_TYPE_INT32", 0 }, { spec.timeVariable, "VARIABLE_TYPE_REAL", 0 } };
             for (const auto& v : kMmChooserVariables) vars.push_back({ std::string(v.name), std::string(v.type), 0 });
             vars.insert(vars.end(), spec.extraVariables.begin(), spec.extraVariables.end());
+            if (!spec.speedVariable.empty() && std::none_of(vars.begin(), vars.end(), [&](const MmVariable& v) { return v.name == spec.speedVariable; }))
+                vars.push_back({ spec.speedVariable, "VARIABLE_TYPE_REAL", 0 });
             return vars;
         }
 
@@ -101,17 +105,64 @@ namespace CB::engine::compile {
             return o;
         }
 
-        Obj Binding(dc::GraphEdit& edit, const char* member, std::size_t variable)
+        /// @brief A binding set binding each (member path, variable index).
+        Obj Bindings(dc::GraphEdit& edit, const std::vector<std::pair<const char*, std::size_t>>& members)
         {
             auto set = Make(edit, "hkbVariableBindingSet");
-            auto b   = Make(edit, "hkbVariableBindingSetBinding");
-            b->Str("memberPath") = member;
-            b->SetInt("variableIndex", static_cast<std::int64_t>(variable));
-            b->SetInt("bitIndex", -1);
-            b->SetInt("bindingType", EnumValue("BindingType", "BINDING_TYPE_VARIABLE"));
-            set->FieldRef("bindings").objs.push_back(b);
+            for (const auto& [member, variable] : members) {
+                auto b = Make(edit, "hkbVariableBindingSetBinding");
+                b->Str("memberPath") = member;
+                b->SetInt("variableIndex", static_cast<std::int64_t>(variable));
+                b->SetInt("bitIndex", -1);
+                b->SetInt("bindingType", EnumValue("BindingType", "BINDING_TYPE_VARIABLE"));
+                set->FieldRef("bindings").objs.push_back(b);
+            }
             set->SetInt("indexOfBindingToEnable", -1);
             return set;
+        }
+        Obj Binding(dc::GraphEdit& edit, const char* member, std::size_t variable) { return Bindings(edit, { { member, variable } }); }
+
+        /// @brief `schema` as a CBPoseSearchSchema and its feature objects (class per kind, fields as stated).
+        Obj SchemaObjectOf(dc::GraphEdit& edit, const CB::engine::anim::SchemaSpec& schema)
+        {
+            using Kind = CB::engine::anim::FeatureKind;
+            auto out          = Make(edit, "CBPoseSearchSchema");
+            out->Str("name")     = schema.name;
+            out->Str("rootBone") = schema.rootBone;
+            for (const auto& f : schema.features) {
+                const char* cls = f.kind == Kind::Trajectory ? "CBPoseSearchTrajectory"
+                                : f.kind == Kind::Position   ? "CBPoseSearchPosition"
+                                : f.kind == Kind::Velocity   ? "CBPoseSearchVelocity"
+                                : f.kind == Kind::Heading    ? "CBPoseSearchHeading"
+                                                             : "CBPoseSearchCurve";
+                auto feature = Make(edit, cls);
+                feature->SetFloat("weight", f.weight);
+                switch (f.kind) {
+                case Kind::Trajectory:
+                    for (const auto& s : f.samples) {
+                        auto sample = Make(edit, "CBPoseSearchTrajectorySample");
+                        sample->SetFloat("time", s.time);
+                        sample->SetFloat("position", s.position);
+                        sample->SetFloat("facing", s.facing);
+                        sample->SetFloat("velocity", s.velocity);
+                        sample->SetFloat("height", s.height);
+                        feature->FieldRef("samples").objs.push_back(sample);
+                    }
+                    break;
+                case Kind::Position:
+                case Kind::Velocity:
+                    feature->Str("bone")   = f.bone;
+                    feature->Str("origin") = f.origin;
+                    break;
+                case Kind::Heading:
+                    feature->Str("bone") = f.bone;
+                    feature->SetInt("axis", f.axis);
+                    break;
+                case Kind::Curve: feature->Str("curve") = f.curve; break;
+                }
+                out->FieldRef("features").objs.push_back(feature);
+            }
+            return out;
         }
 
         /// @brief The graph, as a SchemaObject graph, serialized.
@@ -145,7 +196,11 @@ namespace CB::engine::compile {
             auto selector = Make(edit, "CBPoseSearchGenerator");
             graph->FieldRef("rootGenerator").obj = selector;
             selector->Str("name")                     = spec.selectorName;
-            selector->FieldRef("variableBindingSet").obj = Binding(edit, "selectedIndex", clipIndex);
+            std::vector<std::pair<const char*, std::size_t>> selectorBindings{ { "selectedIndex", clipIndex } };
+            if (!spec.speedVariable.empty()) selectorBindings.push_back({ "speed", *edit.VariableIndex(spec.speedVariable) });
+            selector->FieldRef("variableBindingSet").obj = Bindings(edit, selectorBindings);
+            std::vector<Obj> schemaObjects;
+            for (const auto& s : spec.schemas) schemaObjects.push_back(SchemaObjectOf(edit, s));
 
             auto& children = selector->FieldRef("children").objs;
             auto& dbs      = selector->FieldRef("databases").objs;
@@ -159,6 +214,7 @@ namespace CB::engine::compile {
                 d->FieldRef("tags").strs = db.tags;
                 d->Str("standingCandidate")      = db.standingCandidate;
                 d->Str("movingCandidate")        = db.movingCandidate;
+                if (db.schema >= 0 && static_cast<std::size_t>(db.schema) < schemaObjects.size()) d->FieldRef("schema").obj = schemaObjects[db.schema];
                 dbs.push_back(d);
                 for (const auto& c : db.clips) {
                     const std::string stem = FileName(c.path);

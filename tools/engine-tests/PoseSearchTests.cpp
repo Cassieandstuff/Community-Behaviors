@@ -904,6 +904,45 @@ void TypedSpaceChecks() {
           "and is warned of by the schema's name");
 }
 
+/// @brief The bundle generator writes a database's schema with its features, and binds the selector's speed: parsed back,
+///        the spec states them as written.
+void SchemaBundleChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    cmp::MmBundleSpec spec = LineSpec();
+    anim::SchemaSpec  schema;
+    schema.name     = "Run";
+    schema.rootBone = "NPC Root [Root]";
+    anim::FeatureSpec traj;
+    traj.kind    = anim::FeatureKind::Trajectory;
+    traj.samples = { { 0.35f, 1, 1, 1, 0 }, { -0.1f, 0.3f, 0, 1, 0 } };
+    anim::FeatureSpec foot;
+    foot.kind   = anim::FeatureKind::Position;
+    foot.bone   = "NPC L Foot [Lft ]";
+    foot.origin = "NPC R Foot [Rft ]";
+    foot.weight = 0.5f;
+    schema.features    = { traj, foot };
+    spec.schemas       = { schema };
+    spec.databases[1].schema = 0;
+    Unit unit;
+    ParseUnit(spec, reg, tmp / "schema-bundle", unit);
+    if (!unit.selector) return;
+    const ps::DatabaseSpec back = ps::SpecOf(*unit.selector);
+    Check(back.schemas.size() == 1 && back.databases.size() == 2 && back.databases[0].schema == -1 && back.databases[1].schema == 0,
+          "the schema is written once and the database points at it");
+    if (back.schemas.size() != 1) return;
+    Check(anim::SchemaText(back.schemas[0]) == anim::SchemaText(schema) && back.schemas[0].name == "Run",
+          "its features read back as written, byte-exact");
+    bool speed = false;
+    if (const auto* set = unit.selector->Child("variableBindingSet"))
+        for (const auto& o : set->Children("bindings"))
+            if (const auto* bd = dynamic_cast<const codec::io::SchemaObject*>(o.get()); bd && bd->Str("memberPath") == "speed") speed = true;
+    Check(speed, "the selector's speed is bound");
+
+    spec.databases[1].schema = 3;
+    cmp::MmFiles files;
+    std::string  err;
+    Check(!cmp::BuildMotionMatchingBehavior(spec, reg, files, err) && err.find("schema 3") != std::string::npos, "a schema index past the spec is refused");
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -1039,6 +1078,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     LoopFitReport();
     SchemaMeasureChecks();
     TypedSpaceChecks();
+    SchemaBundleChecks(reg, tmp);
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

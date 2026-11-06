@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compile/MotionFeatures.h>
 #include <interface/reflection/HavokSchema.h>
 
 #include <array>
@@ -36,6 +37,7 @@ namespace CB::engine::compile {
     struct MmDatabase {
         std::string              name;   ///< byte-exact, unique: chooser rows and mods name the database by it
         std::vector<MmClip>      clips;
+        int                      schema = -1;   ///< its MmBundleSpec::schemas entry, written as a CBPoseSearchSchema; -1 = none (classic)
         /// @brief Condition expressions evaluated to a float once per search (a literal such as "-0.05" is one);
         ///        empty = 0.
         /// @note  Written as given: the plugin owns the expression language's vocabulary, so it compiles them, not this
@@ -130,6 +132,11 @@ namespace CB::engine::compile {
         /// @brief {character unit path, its root container's FormID (e.g. "0001x000b")}: one roster patch each.
         std::vector<std::pair<std::string, std::string>> characters;
         std::vector<MmVariable>   extraVariables;   ///< declared after kMmChooserVariables
+        /// @brief The schemas the databases point at, each written once as a CBPoseSearchSchema with its features.
+        std::vector<CB::engine::anim::SchemaSpec> schemas;
+        /// @brief REAL, bound to the generator's speed (the node trims its playback rate to it); empty = left unbound.
+        /// @note  "Speed" is the variable the engine sets to the character's speed in every Skyrim character graph.
+        std::string speedVariable = "Speed";
     };
 
     /// @brief path -> file text, unit-relative paths prefixed by their unit's path.
