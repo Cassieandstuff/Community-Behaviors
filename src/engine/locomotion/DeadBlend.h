@@ -32,9 +32,17 @@ namespace CB::engine::locomotion {
     struct DeadBlendTuning {
         float blendTime = 0.2f;   ///< seconds the cross-fade takes; 0 switches blending off
         float decay     = 0.1f;   ///< halflife (s) of the coasting pose's velocity
+        /// @brief Each bone's blend keeps to the side of the rotation it took last output (Holden's quat_slerp_via, UE's
+        ///        DeadBlending node); off, it takes the shortest arc each output.
+        /// @note  The coasting pose can turn past half a turn from the live one, and there the shortest arc flips and the
+        ///        blended bone with it. Off only to measure against.
+        bool keepSide = true;
     };
 
     /// @brief Caps on a coasting bone's velocity, so one bad frame cannot fling it.
+    /// @note  Measured on GASP's clips (engine-tests' dead blend report), UE's tighter caps (360 deg/s, 500 cm/s) and its
+    ///        per-axis fitted halflives bought nothing: the coasting pose's velocity, clipped, no longer matches the one
+    ///        shown, and the clip shows as a jolt.
     constexpr float kMaxAngular = 20.0f;     ///< rad/s
     constexpr float kMaxLinear  = 2000.0f;   ///< pose units/s
     /// @brief A blended bone further than this from the live source's (pose units) is taken as broken.
@@ -62,6 +70,7 @@ namespace CB::engine::locomotion {
         float                     t        = 0.0f;         ///< seconds into the blend
         std::vector<Bone>         last, prev, from;
         std::vector<BoneVelocity> vel;
+        std::vector<Quat>         side;   ///< per bone, the coasting rotation's offset from the live one last output
 
         void Reset(int n, int playing);
         void Record(const Bone* pose);

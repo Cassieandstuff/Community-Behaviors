@@ -13,10 +13,12 @@ namespace CB::engine::locomotion {
             return { a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
                      a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
         }
-        inline Quat Conj(const Quat& q) { return { -q.x, -q.y, -q.z, q.w }; }
-        inline Quat Normalize(const Quat& q)
+        inline Quat  Conj(const Quat& q) { return { -q.x, -q.y, -q.z, q.w }; }
+        inline Quat  Neg(const Quat& q) { return { -q.x, -q.y, -q.z, -q.w }; }
+        inline float Dot(const Quat& a, const Quat& b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+        inline Quat  Normalize(const Quat& q)
         {
-            const float n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+            const float n = std::sqrt(Dot(q, q));
             return n > 1.0e-8f ? Quat{ q.x / n, q.y / n, q.z / n, q.w / n } : Quat{};
         }
         /// @brief The rotation by |(x, y, z)| radians about (x, y, z).
@@ -27,16 +29,13 @@ namespace CB::engine::locomotion {
             const float s = std::sin(0.5f * angle) / angle;
             return { x * s, y * s, z * s, std::cos(0.5f * angle) };
         }
-        /// @brief Shortest-path slerp from `a` to `b`.
-        inline Quat Slerp(const Quat& a, Quat b, float t)
+        /// @brief `q` raised to `k`, along the arc `q` names: a q with w < 0 is the long way round, and stays so.
+        inline Quat Pow(const Quat& q, float k)
         {
-            float d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-            if (d < 0.0f) b = { -b.x, -b.y, -b.z, -b.w }, d = -d;
-            if (d > 0.9995f)
-                return Normalize({ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t });
-            const float th = std::acos(d), s = std::sin(th);
-            const float wa = std::sin((1.0f - t) * th) / s, wb = std::sin(t * th) / s;
-            return { a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb, a.w * wa + b.w * wb };
+            const float sn = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z);
+            if (sn < 1.0e-7f) return q.w < 0.0f ? Normalize(Neg(q)) : Quat{};
+            const float half = std::atan2(sn, q.w) * k, s = std::sin(half) / sn;
+            return { q.x * s, q.y * s, q.z * s, std::cos(half) };
         }
         /// @brief How far a velocity decaying with `halflife` carries over `t`: the integral of e^(-lambda s) on [0, t].
         inline float Coast(float t, float halflife)
@@ -72,12 +71,13 @@ namespace CB::engine::locomotion {
     {
         from = last;
         vel.assign(static_cast<std::size_t>(bones), BoneVelocity{});
+        side.assign(static_cast<std::size_t>(bones), Quat{});
         const float inv = dt > 1.0e-5f ? 1.0f / dt : 60.0f;
         for (int i = 0; i < bones; i++) {
             BoneVelocity& v = vel[i];
             for (int a = 0; a < 3; a++) v.t[a] = std::clamp((last[i].t[a] - prev[i].t[a]) * inv, -kMaxLinear, kMaxLinear);
             Quat dq = Mul(last[i].q, Conj(prev[i].q));
-            if (dq.w < 0.0f) dq = { -dq.x, -dq.y, -dq.z, -dq.w };
+            if (dq.w < 0.0f) dq = Neg(dq);
             const float sn    = std::sqrt(dq.x * dq.x + dq.y * dq.y + dq.z * dq.z);
             const float angle = 2.0f * std::atan2(sn, dq.w);
             float       rate  = angle * inv;
@@ -113,15 +113,19 @@ namespace CB::engine::locomotion {
                     Bone       live = in;
                     Bone       src  = from[i];
                     for (int a = 0; a < 3; a++) src.t[a] += vel[i].t[a] * k;
-                    Quat dq = FromScaledAxis(vel[i].w[0] * k, vel[i].w[1] * k, vel[i].w[2] * k);
-                    src.q   = Mul(dq, src.q);
+                    src.q = Mul(FromScaledAxis(vel[i].w[0] * k, vel[i].w[1] * k, vel[i].w[2] * k), src.q);
                     for (int a = 0; a < 3; a++) live.t[a] = src.t[a] + (live.t[a] - src.t[a]) * alpha;
-                    live.q = Slerp(src.q, live.q, alpha);
+                    /// @note The output is the live rotation turned (1 - alpha) of the way back to the coasting one, along
+                    ///       the side of that offset the last output took (the shortest arc, at the blend's first output).
+                    Quat off = Mul(src.q, Conj(live.q));
+                    if (Dot(off, s.keepSide ? side[i] : Quat{}) < 0.0f) off = Neg(off);
+                    side[i] = off;
+                    live.q  = Normalize(Mul(Pow(off, 1.0f - alpha), live.q));
                     /// @note The output guard: a non-finite or flung blended bone falls back to the live source's.
-                    const float off = std::sqrt((live.t[0] - in.t[0]) * (live.t[0] - in.t[0]) + (live.t[1] - in.t[1]) * (live.t[1] - in.t[1]) +
-                                                (live.t[2] - in.t[2]) * (live.t[2] - in.t[2]));
-                    if (!FiniteBone(live) || !(off <= kMaxBlendOffset)) {
-                        if (fault && fault->bone < 0 && FiniteBone(in)) *fault = BlendFault{ i, live, in, off };
+                    const float d = std::sqrt((live.t[0] - in.t[0]) * (live.t[0] - in.t[0]) + (live.t[1] - in.t[1]) * (live.t[1] - in.t[1]) +
+                                              (live.t[2] - in.t[2]) * (live.t[2] - in.t[2]));
+                    if (!FiniteBone(live) || !(d <= kMaxBlendOffset)) {
+                        if (fault && fault->bone < 0 && FiniteBone(in)) *fault = BlendFault{ i, live, in, d };
                         live = in;
                     }
                     pose[i] = live;

@@ -1068,10 +1068,14 @@ namespace CB::feature {
                 static constexpr const char* kGaits[3] = { "walk", "run", "sprint" };
                 static constexpr const char* kFrameGaits[4] = { "none", "walk", "run", "sprint" };
                 if (LogBudget())
+                    /// @note Which node switched, from what it played and over what timestep: the wiring holds the graph in
+                    ///       several behaviors (mt_behavior's locomotion and Sprint_State blend into each other), so two nodes
+                    ///       of one actor can run at once, each writing the clip and time variables.
                     LOG_INFO("motion matching: -> clip {} '{}' in '{}' frame {} x{:.2f} (cost {:.2f}, was {:.2f}; {}; gait {} / frame {}; "
-                             "{} of {} rows in {:.2f} ms)",
+                             "{} of {} rows in {:.2f} ms; node {} played clip {} at {:.3f} s, dt {:.4f})",
                              step.nextClip, c.name, dbName, frame, request.rate, r.best, r.playing, step.trigger, kGaits[std::clamp(in[kGait], 0, 2)],
-                             kFrameGaits[db.rowGait[r.bestRow] & 3], r.searched, db.clipOf.size(), step.searchMs);
+                             kFrameGaits[db.rowGait[r.bestRow] & 3], r.searched, db.clipOf.size(), step.searchMs, static_cast<const void*>(&node),
+                             step.clip, step.time, timestep);
             }
             if (!isPlayer || !ch::hud::On()) return;
             ch::hud::Matching h;

@@ -8,6 +8,7 @@
 #include <compile/MotionFeatures.h>
 #include <compile/MotionMatchingBundle.h>
 #include <compile/MotionMatchingCache.h>
+#include <decompile/AnimationDecompiler.h>
 #include <decompile/BehaviorDecompile.h>
 #include <disk/Disk.h>
 #include <locomotion/PoseSearch.h>
@@ -27,6 +28,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace CB::engine::tests {
@@ -997,6 +999,289 @@ void DeadBlendChecks() {
     Check(run(false, 1) < 10.0f, "and so does a change of clip");
 }
 
+/// @brief Real clips decoded for the dead blend's measurements: one binding's worth, frame-major local poses.
+struct BlendClip {
+    std::string           name;
+    int                   frames = 0;
+    float                 frameDt = 1.0f / 30.0f;
+    std::vector<ps::Bone> poses;   ///< frames * bones
+};
+
+ps::Quat QMul(const ps::Quat& a, const ps::Quat& b) {
+    return { a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+             a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
+}
+/// @brief The shortest rotation from `b` to `a` (a b^-1) as a scaled axis.
+std::array<float, 3> QDelta(const ps::Quat& a, const ps::Quat& b) {
+    ps::Quat d = QMul(a, { -b.x, -b.y, -b.z, b.w });
+    if (d.w < 0) d = { -d.x, -d.y, -d.z, -d.w };
+    const float sn = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    const float k  = sn < 1e-7f ? 2.0f : 2.0f * std::atan2(sn, d.w) / sn;
+    return { d.x * k, d.y * k, d.z * k };
+}
+float Len3(const std::array<float, 3>& v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+
+/// @brief Holden's "switching sides": a bone coasting toward half a turn from the live pose. The shortest arc to it flips as
+///        the coasting rotation passes 180 degrees, and the blended bone jumps by alpha of a whole turn (mid-blend, half
+///        a turn); kept to its side it never does.
+void DeadBlendSideChecks() {
+    const auto worstStep = [](bool keepSide) {
+        ps::DeadBlendTuning s;
+        s.keepSide = keepSide;
+        ps::DeadBlend b;
+        b.dt              = 1.0f / 60.0f;
+        constexpr float w = 18.0f, a0 = 1.84f;   ///< rad/s about z, from 105 degrees off: past half a turn mid-blend
+        const auto      rotZ = [](float a) {
+            ps::Bone bone;
+            bone.q = { 0.0f, 0.0f, std::sin(0.5f * a), std::cos(0.5f * a) };
+            return bone;
+        };
+        for (int f = 0; f < 3; ++f) {
+            ps::Bone p = rotZ(a0 - static_cast<float>(2 - f) * w / 60.0f);
+            b.Step(&p, 1, 0, false, s);
+        }
+        float    worst = 0.0f;
+        ps::Quat shown = b.last[0].q;
+        for (int f = 0; f < 12; ++f) {
+            ps::Bone p = rotZ(0.0f);
+            b.Step(&p, 1, 1, false, s);
+            worst = (std::max)(worst, Len3(QDelta(p.q, shown)));
+            shown = p.q;
+        }
+        return worst;
+    };
+    const float flips = worstStep(false), kept = worstStep(true);
+    Check(flips > 2.0f, "the shortest arc flips the bone as the coasting pose passes half a turn: " + std::to_string(flips) + " rad in one output");
+    Check(kept < 0.6f, "kept to its side it turns no faster than it coasts: " + std::to_string(kept) + " rad in one output");
+}
+
+/// @brief One clip's pose at `time` s, frames lerped (rotations nlerped on the near side), as the game's sampler does.
+void SampleClip(const BlendClip& c, int bones, double time, ps::Bone* out) {
+    const double f  = std::clamp(time / c.frameDt, 0.0, static_cast<double>(c.frames - 1));
+    const int    f0 = static_cast<int>(std::floor(f)), f1 = (std::min)(f0 + 1, c.frames - 1);
+    const float  u  = static_cast<float>(f - f0);
+    for (int b = 0; b < bones; ++b) {
+        const ps::Bone& p = c.poses[static_cast<std::size_t>(f0) * bones + b];
+        const ps::Bone& q = c.poses[static_cast<std::size_t>(f1) * bones + b];
+        ps::Bone        o = p;
+        for (int a = 0; a < 3; ++a) o.t[a] = p.t[a] + (q.t[a] - p.t[a]) * u;
+        ps::Quat    qq = q.q;
+        const float d  = p.q.x * qq.x + p.q.y * qq.y + p.q.z * qq.z + p.q.w * qq.w;
+        if (d < 0) qq = { -qq.x, -qq.y, -qq.z, -qq.w };
+        ps::Quat    r = { p.q.x + (qq.x - p.q.x) * u, p.q.y + (qq.y - p.q.y) * u, p.q.z + (qq.z - p.q.z) * u, p.q.w + (qq.w - p.q.w) * u };
+        const float n = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w);
+        o.q           = { r.x / n, r.y / n, r.z / n, r.w / n };
+        out[b]        = o;
+    }
+}
+
+/// @brief What a run of switches did to the output, against what the clips themselves do.
+struct BlendMeasure {
+    double maxAccel = 0, p999Accel = 0;   ///< rad/s^2, every bone, the output
+    double liveMax  = 0;                  ///< rad/s^2, every bone, the live source away from its switches
+    long   excess   = 0;                  ///< bone-frames accelerating past 1.5 x that bone's own live maximum
+    long   pops     = 0;                  ///< bone-frames turning more than 45 degrees in one update
+    long   samples  = 0;
+    int    switches = 0;
+};
+
+/// @brief Play `clips` at `hz`, switching every `interval` s (+ up to `jitter` s) to the clip and frame `pick` names, through the
+///        dead blend with `tuning`, and measure each bone's angular acceleration in the output.
+template <class Pick>
+BlendMeasure RunBlend(const std::vector<BlendClip>& clips, int bones, const ps::DeadBlendTuning& tuning, float hz, double seconds,
+                      double interval, double jitter, unsigned seed, Pick pick) {
+    std::mt19937                          rng(seed);
+    std::uniform_real_distribution<double> unit(0.0, 1.0);
+    const float                           dt = 1.0f / hz;
+    ps::DeadBlend                         blend;
+    blend.dt = dt;
+    std::vector<ps::Bone> live(bones), out(bones), prevOut(bones), prevLive(bones);
+    std::vector<std::array<float, 3>> outVel(bones), liveVel(bones);
+    std::vector<double> liveMaxBone(bones, 0.0);
+    std::vector<std::vector<float>> outAccel(bones);   ///< per bone, every frame's
+    std::vector<int>    outFrameSince;                  ///< frames since the last switch, per frame
+    int                 clip = 0, child = 0, sinceSwitch = 1000;
+    double              tm = 0, nextSwitch = interval;
+    BlendMeasure        m;
+    const int           steps = static_cast<int>(seconds * hz);
+    for (int s = 0; s < steps; ++s) {
+        const double now = s * dt;
+        tm += dt;
+        const BlendClip& c = clips[clip];
+        if (now >= nextSwitch || tm >= (c.frames - 1) * c.frameDt) {
+            std::tie(clip, tm) = pick(rng, out.data());
+            ++child, ++m.switches, sinceSwitch = 0;
+            nextSwitch = now + interval + jitter * unit(rng);
+        } else {
+            ++sinceSwitch;
+        }
+        SampleClip(clips[clip], bones, tm, live.data());
+        out = live;
+        blend.Step(out.data(), bones, child, false, tuning);
+        for (int b = 0; b < bones; ++b) {
+            const auto ov = QDelta(out[b].q, prevOut[b].q), lv = QDelta(live[b].q, prevLive[b].q);
+            if (s >= 2) {
+                const std::array<float, 3> oa{ ov[0] - outVel[b][0], ov[1] - outVel[b][1], ov[2] - outVel[b][2] };
+                const float                acc = Len3(oa) * hz * hz;
+                outAccel[b].push_back(acc);
+                if (Len3(ov) > 0.785398f) ++m.pops;
+                /// @note The live source accelerates on its own only away from a switch (the switch frame and the next
+                ///       difference across two clips).
+                if (sinceSwitch >= 2) {
+                    const std::array<float, 3> la{ lv[0] - liveVel[b][0], lv[1] - liveVel[b][1], lv[2] - liveVel[b][2] };
+                    liveMaxBone[b] = (std::max)(liveMaxBone[b], static_cast<double>(Len3(la) * hz * hz));
+                }
+            }
+            outVel[b] = ov, liveVel[b] = lv;
+        }
+        prevOut = out, prevLive = live;
+    }
+    std::vector<float> all;
+    for (int b = 0; b < bones; ++b) {
+        m.liveMax = (std::max)(m.liveMax, liveMaxBone[b]);
+        for (const float a : outAccel[b]) {
+            all.push_back(a);
+            if (a > 1.5 * liveMaxBone[b] + 1.0) ++m.excess;
+        }
+    }
+    m.samples = static_cast<long>(all.size());
+    if (!all.empty()) {
+        std::sort(all.begin(), all.end());
+        m.maxAccel  = all.back();
+        m.p999Accel = all[static_cast<std::size_t>(0.999 * (all.size() - 1))];
+    }
+    return m;
+}
+
+/// @brief The dead blend over real clips (CB_TEST_DEADBLEND_CLIPS = a folder of compiled .hkx animations on one rig), against a
+///        hard cut and the shortest arc, switching to near poses (as a matcher picks) and far ones, at the dwell's pace and
+///        the forced one's; and each loop's seam. CB_TEST_DEADBLEND_LIST lists the clips, CB_TEST_MM_CACHE a
+///        motion-matching cache's.
+void DeadBlendReport() {
+    if (const char* cache = std::getenv("CB_TEST_MM_CACHE"); cache && *cache) {
+        const auto bytes = disk::ReadBytes(cache);
+        std::vector<anim::MmCachedClip> cached;
+        std::string err;
+        if (bytes && anim::ReadMmCache(*bytes, cached, err))
+            for (const auto& c : cached)
+                std::printf("mmcache %-70s frames %4d frameDt %.5f duration %.4f loop %d\n", c.name.c_str(), c.frames, c.frameDuration, c.duration, c.loopFrames);
+        else
+            std::printf("mmcache: unread (%s)\n", err.c_str());
+    }
+    const char* dir = std::getenv("CB_TEST_DEADBLEND_CLIPS");
+    if (!dir || !*dir) return;
+    std::map<std::vector<std::int16_t>, std::vector<BlendClip>> byBinding;
+    std::map<std::vector<std::int16_t>, int>                    tracksOf;
+    std::error_code                                             ec;
+    for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
+        if (!e.is_regular_file() || e.path().extension() != ".hkx") continue;
+        const auto read = disk::ReadFile(e.path());
+        if (!read) continue;
+        anim::DecodedAnimation a;
+        std::string            err;
+        if (!anim::DecodeAnimation(reinterpret_cast<const std::uint8_t*>(read->data()), read->size(), a, err) || a.numFrames < 4) continue;
+        if (std::getenv("CB_TEST_DEADBLEND_LIST"))
+            std::printf("deadblend clip %-50s frames %4d frameDt %.5f duration %.4f tracks %d\n", e.path().filename().string().c_str(), a.numFrames,
+                        a.frameDuration, a.duration, a.numTracks);
+        BlendClip c;
+        c.name    = e.path().filename().string();
+        c.frames  = a.numFrames;
+        c.frameDt = a.frameDuration > 0 ? a.frameDuration : 1.0f / 30.0f;
+        c.poses.resize(a.poses.size());
+        for (std::size_t i = 0; i < a.poses.size(); ++i) {
+            const auto& p = a.poses[i];
+            ps::Bone&   b = c.poses[i];
+            for (int k = 0; k < 3; ++k) b.t[k] = p.t[k], b.s[k] = p.s[k];
+            b.q = { p.q[0], p.q[1], p.q[2], p.q[3] };
+        }
+        std::vector<std::int16_t> key = a.trackToBone;
+        key.push_back(static_cast<std::int16_t>(a.numTracks));
+        tracksOf[key] = a.numTracks;
+        byBinding[key].push_back(std::move(c));
+    }
+    if (byBinding.empty()) {
+        std::printf("deadblend: no clips under %s\n", dir);
+        return;
+    }
+    auto best = byBinding.begin();
+    for (auto it = byBinding.begin(); it != byBinding.end(); ++it)
+        if (it->second.size() > best->second.size()) best = it;
+    const std::vector<BlendClip>& clips = best->second;
+    const int                     bones = tracksOf[best->first];
+    std::printf("deadblend: %zu clip(s) of %d track(s) (of %zu binding(s))\n", clips.size(), bones, byBinding.size());
+
+    /// @note A loop's seam: the largest bone turn from its last frame to its first, against its largest frame-to-frame turn.
+    {
+        int seams = 0, rough = 0;
+        for (const BlendClip& c : clips) {
+            if (c.name.find("Loop") == std::string::npos) continue;
+            float step = 0, seam = 0;
+            for (int f = 0; f + 1 < c.frames; ++f)
+                for (int b = 0; b < bones; ++b)
+                    step = (std::max)(step, Len3(QDelta(c.poses[static_cast<std::size_t>(f + 1) * bones + b].q, c.poses[static_cast<std::size_t>(f) * bones + b].q)));
+            for (int b = 0; b < bones; ++b)
+                seam = (std::max)(seam, Len3(QDelta(c.poses[b].q, c.poses[static_cast<std::size_t>(c.frames - 1) * bones + b].q)));
+            ++seams;
+            if (seam > 2.0f * step) {
+                ++rough;
+                std::printf("deadblend: loop seam %-48s turns %.3f rad, its frames at most %.3f\n", c.name.c_str(), seam, step);
+            }
+        }
+        std::printf("deadblend: %d of %d loop(s) jump at their seam past twice their own largest step\n", rough, seams);
+    }
+    /// @brief A matcher's pick, crudely: the frame of 48 random clips whose rotations are nearest the pose shown.
+    const auto nearPick = [&](std::mt19937& rng, const ps::Bone* shown) {
+        std::uniform_int_distribution<int> any(0, static_cast<int>(clips.size()) - 1);
+        float                              bestCost = 1e30f;
+        std::pair<int, double>             at{ 0, 0.0 };
+        for (int k = 0; k < 48; ++k) {
+            const int        ci = any(rng);
+            const BlendClip& c  = clips[ci];
+            for (int f = 0; f < c.frames - 2; f += 2) {
+                float cost = 0;
+                for (int b = 0; b < bones && cost < bestCost; ++b) cost += Len3(QDelta(c.poses[static_cast<std::size_t>(f) * bones + b].q, shown[b].q));
+                if (cost < bestCost) bestCost = cost, at = { ci, f * c.frameDt };
+            }
+        }
+        return at;
+    };
+    const auto farPick = [&](std::mt19937& rng, const ps::Bone*) {
+        std::uniform_int_distribution<int> any(0, static_cast<int>(clips.size()) - 1);
+        const int                          ci = any(rng);
+        std::uniform_int_distribution<int> frame(0, clips[ci].frames - 2);
+        return std::pair<int, double>{ ci, frame(rng) * clips[ci].frameDt };
+    };
+
+    ps::DeadBlendTuning kept;   ///< the defaults
+    ps::DeadBlendTuning shortest;
+    shortest.keepSide = false;
+    ps::DeadBlendTuning off;
+    off.blendTime = 0.0f;
+    const struct {
+        const char*                name;
+        const ps::DeadBlendTuning* tuning;
+    } variants[] = { { "cut (no blend)", &off }, { "shortest arc", &shortest }, { "kept side", &kept } };
+    const struct {
+        const char* name;
+        bool        near;
+        double      interval, jitter;
+        float       hz;
+    } scenarios[] = { { "near, dwell 0.3-0.6 s, 60 Hz", true, 0.3, 0.3, 60.0f },
+                      { "near, forced 0.1 s, 60 Hz", true, 0.1, 0.0, 60.0f },
+                      { "near, forced 0.1 s, 144 Hz", true, 0.1, 0.0, 144.0f },
+                      { "far, dwell 0.3-0.6 s, 60 Hz", false, 0.3, 0.3, 60.0f },
+                      { "far, forced 0.1 s, 60 Hz", false, 0.1, 0.0, 60.0f } };
+    for (const auto& sc : scenarios) {
+        std::printf("deadblend: %s\n", sc.name);
+        for (const auto& v : variants) {
+            const BlendMeasure m = sc.near ? RunBlend(clips, bones, *v.tuning, sc.hz, 30.0, sc.interval, sc.jitter, 7u, nearPick)
+                                           : RunBlend(clips, bones, *v.tuning, sc.hz, 30.0, sc.interval, sc.jitter, 7u, farPick);
+            std::printf("deadblend:   %-16s switches %4d  accel max %9.0f p99.9 %7.0f (live max %7.0f)  past 1.5x live %6ld  pops %5ld of %ld\n",
+                        v.name, m.switches, m.maxAccel, m.p999Accel, m.liveMax, m.excess, m.pops, m.samples);
+        }
+    }
+}
+
 void WeightChecks() {
     Check(ps::WeightGroupName(0) == "position+0.2", "the first group is the first sample's position");
     Check(ps::WeightGroupName(1 * ps::kChannels + 1) == "facing+0.33", "a sample's label rounds to two places");
@@ -1107,6 +1392,8 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     ChooserInputChecks();
     WeightChecks();
     DeadBlendChecks();
+    DeadBlendSideChecks();
+    DeadBlendReport();
     SpeedProfileChecks();
     ClipSpeedChecks();
     TakeoffChecks();

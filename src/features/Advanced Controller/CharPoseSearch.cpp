@@ -73,6 +73,7 @@ namespace CB::feature::controller::motion {
         DeadBlend                             blend;
         std::vector<loco::Bone>               pose;   ///< the output pose, copied out of and back into Havok's
         bool                                  jumped = false;   ///< the matcher moved the playing clip to another time: the next output blends
+        bool                                  activated = false;   ///< the node (re)activated: its last outputs are not the pose shown since
         std::chrono::steady_clock::time_point used{};
     };
     struct BlendTable {
@@ -182,6 +183,11 @@ namespace CB::feature::controller::motion {
     ///       writes here reaches the child that first plays.
     void PoseSearchGenerator::activate(const ::hkbContext& context)
     {
+        {
+            BlendTable&      table = Blends();
+            std::scoped_lock lock(table.lock);
+            if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.activated = true;
+        }
         m_currentIndex = computeCurrentIndex();
         if (const int next = RunMatcher(context, *this, 0.0f, true); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
     }
@@ -389,7 +395,10 @@ namespace CB::feature::controller::motion {
         }
         /// @note A slot unused for a while is stale (a reused character address, or a graph that stopped playing the
         ///       node): it starts over instead of blending from another life's pose.
-        if (std::chrono::duration<double>(now - slot.used).count() > kStaleAfter) slot.blend.Reset(0, m_currentIndex);
+        /// @note So is a node that (re)activated since its last output: the graph showed another generator meanwhile, and a
+        ///       blend from this node's last pose (however recent) snaps back to it.
+        if (std::exchange(slot.activated, false) || std::chrono::duration<double>(now - slot.used).count() > kStaleAfter)
+            slot.blend.Reset(0, m_currentIndex);
         slot.used = now;
         if (++table.calls % kPruneEvery == 0)
             std::erase_if(table.slots, [&](const auto& kv) { return std::chrono::duration<double>(now - kv.second.used).count() > kDropAfter; });
