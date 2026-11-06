@@ -196,7 +196,6 @@ namespace CB {
     // adsf/setdata redirects FIRST (instant + Init-independent on a warm cache) and signals this. The
     // engine's animationdata / animationsetdata open then waits ONLY on this — milliseconds on warm —
     // instead of parking the main thread ~50s on the full Init (the freeze + trapped cursor + no bar).
-    // Mirrors the m_redirectReady/m_readyMutex/m_readyCv trio in the Resolver.
     static std::atomic<bool>       g_adsfArmed{ false };
     static std::mutex              g_armMutex;
     static std::condition_variable g_armCv;
@@ -343,7 +342,7 @@ namespace CB {
             [](std::string_view path) { return g_resolver.NativeAnimationText(path); } });
     }
 
-    static unsigned __stdcall ArmThread(void*)
+    static unsigned ArmThreadBody()
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   // never starve the game's threads
@@ -422,6 +421,18 @@ namespace CB {
         t_compileGateInProgress = false;
         return 0;
     }
+
+    /// @brief Set as the arm/compile exits, by any path (inline fallback included); WarmUpFinished reads it.
+    static std::atomic<bool> g_warmUpFinished{ false };
+
+    static unsigned __stdcall ArmThread(void*)
+    {
+        const unsigned rc = ArmThreadBody();
+        g_warmUpFinished.store(true, std::memory_order_release);
+        return rc;
+    }
+
+    bool WarmUpFinished() { return g_warmUpFinished.load(std::memory_order_acquire); }
 
     // The compile gate — see CompileGate.h. One-shot, thread-safe, NON-blocking kick.
     void EnsureCompiledAndArmed()

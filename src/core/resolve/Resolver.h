@@ -220,6 +220,16 @@ namespace CB {
         // published the redirect map. The redirect hook gates on this.
         bool RedirectReady() const { return m_redirectReady.load(std::memory_order_acquire); }
 
+        /// @brief True when ProjectRedirect serves CB's project for this vanilla project path once the cache is armed.
+        /// @note  The same ownership ProjectRedirect and BuildRedirectMap use: CB owns a behavior under the project's folder.
+        bool RedirectsProject(std::string_view vanillaProjectPath) const;
+
+        /// @brief True when a native animation CB compiles lies under `folderRoot` (a path key, e.g.
+        ///        "meshes/actors/character"), so a graph or project served there may bind it.
+        /// @note  RedirectReady() arms BEFORE the native animations are written; a serve under such a root waits for
+        ///        the whole warm-up instead, or the first loaded game binds clips that are missing or a past build's.
+        bool CompilesAnimationsUnder(const std::string& folderRoot) const;
+
         std::size_t SourceCount() const { return m_sources.size(); }
 
         // Count of bundle-authored native animations queued for compile (WriteNativeAnimations). The
@@ -361,6 +371,9 @@ namespace CB {
         };
         /// @brief Collected in Init from opted-in bundles (manifest compile_animations=true). Immutable after Init().
         std::vector<NativeAnim> m_nativeAnims;
+        /// @brief m_nativeAnims' path keys, sorted; built on the first CompilesAnimationsUnder call.
+        mutable std::vector<std::string> m_nativeAnimKeys;
+        mutable std::once_flag           m_nativeAnimKeysOnce;
         // bundle stem (lowercase, e.g. "bfco") -> its parsed manifest.json (identity,
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.
@@ -389,11 +402,6 @@ namespace CB {
         bool                                                               m_failed = false;   ///< written before m_ready's release
         mutable std::mutex                                                 m_initMutex;
         mutable std::condition_variable                                    m_initCv;
-        // Lets an owned actor that loads BEFORE warm-up finishes WAIT for the cache instead of
-        // falling back to vanilla (the redirect has no on-demand path; a master-graph compile
-        // can't run on the load thread's small stack). Signaled once when the cache is armed.
-        std::mutex                                                        m_readyMutex;
-        std::condition_variable                                           m_readyCv;
         // Data root ("<game>/Data") captured at materialize time, so the on-demand project
         // synth writes <dataRoot>/Meshes/community_behaviors_cache/<vanilla project path> (original case).
         std::filesystem::path                                              m_dataRoot;

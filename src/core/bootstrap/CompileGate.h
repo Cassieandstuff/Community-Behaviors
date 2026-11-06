@@ -17,8 +17,8 @@
 //   • byteserve's owned-graph backstop calls WaitForCompile() — those opens are on loader threads, so
 //     parking them until materialize is fine and a graph is never served half-compiled.
 //
-// The first open happens during game-data load — AFTER kDataLoaded — so ProgressHud's present-call
-// hook and the render thread are live; the ArmThread's SetProgress drives the on-screen bar over the (now live) menu.
+// The first open happens during game-data load, before kDataLoaded; the gate installs the bar itself, and the
+// ArmThread's SetProgress drives it over the live menu.
 namespace CB {
 
     // One-shot, thread-safe, NON-blocking KICK. First caller arms the bar and spawns the background
@@ -34,5 +34,11 @@ namespace CB {
     // Block until the background arm/compile has finished and the graph serve is armed (materialize).
     // Called by byteserve before it serves a BR-owned graph, so correctness never depends on the bar.
     void WaitForCompile();
+
+    /// @brief True once the background arm/compile has exited, by any path: graphs materialized AND native
+    ///        animations written (or the arm stood down).
+    /// @note  RedirectReady() arms before the native animations are written, so it does not mean this; ByteServe
+    ///        waits on this for the graphs and projects that may bind those animations.
+    bool WarmUpFinished();
 
 }  // namespace CB
