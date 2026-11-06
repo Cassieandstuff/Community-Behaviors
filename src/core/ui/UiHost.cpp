@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "core/ui/UiHost.h"
+#include "core/ui/UiInput.h"
 
 #include <algorithm>
 #include <atomic>
@@ -87,6 +88,11 @@ namespace CB::core::ui {
 
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
+            ImGuiIO& io = ImGui::GetIO();
+            /// @note The cursor is ImGui's own, drawn only while an overlay holds the input: the position is the Win32
+            ///       backend's poll of the OS cursor, the buttons and keys are the game's events (UiInput).
+            io.MouseDrawCursor = WantsInput();
+            DrainInput(io);
             ImGui::NewFrame();
             for (const Overlay& o : Overlays())
                 if (o.active && o.draw && o.active()) o.draw();
@@ -111,6 +117,13 @@ namespace CB::core::ui {
             platform::game::PresentCall::Subscribe(&OnPresent, platform::hooks::Priority::Normal, "UiHost");
 
     }  // namespace
+
+    bool WantsInput()
+    {
+        for (const Overlay& o : Overlays())
+            if (o.wantsInput && o.active && o.active() && o.wantsInput()) return true;
+        return false;
+    }
 
     void RegisterOverlay(const Overlay& overlay)
     {
