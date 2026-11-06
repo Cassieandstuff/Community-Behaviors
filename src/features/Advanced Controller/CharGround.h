@@ -51,6 +51,8 @@ namespace CB::feature::controller {
     bool IsManagedNpc(const ::bhkCharacterController* ctrl);
     /// @brief Whether `ctrl` has ever been an NPC's, published or not: its per-controller state may need a restart.
     bool WasManagedNpc(const ::bhkCharacterController* ctrl);
+    /// @brief How many NPCs are managed now (IsManagedNpc), and how many controllers the table holds (it never prunes).
+    void NpcCounts(std::size_t& managed, std::size_t& entries);
 
     /// @brief The controllers CB's decision layer runs, on the proxy: the player's, the ridden horse's, and the driven NPCs'.
     inline bool IsManaged(const ::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl) || IsManagedNpc(&ctrl)); }

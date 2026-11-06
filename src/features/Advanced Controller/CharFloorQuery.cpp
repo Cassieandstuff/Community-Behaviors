@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharSweep.h"
+#include "CharLoad.h"
 
 #include <platform/hooks/Override.h>
 #include <Common/Base/hkBase.h>
@@ -93,6 +94,7 @@ namespace CB::feature {
             pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
             pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
             pick.m_rayInput.m_filterInfo = filter;
+            controller::CountLoad(controller::LoadCounter::Rays);
             world->PickObject(pick);
             if (!pick.m_rayOutput.hasHit() || !pick.m_rayOutput.m_rootCollidable) return h;
             h.hit   = true;

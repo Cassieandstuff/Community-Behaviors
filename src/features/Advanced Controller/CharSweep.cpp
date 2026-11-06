@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharSweep.h"
+#include "CharLoad.h"
 
 #include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
 
@@ -114,6 +115,7 @@ namespace CB::feature::controller {
             collector.m_self               = self;
             collector.m_filter             = filter;
 
+            CountLoad(LoadCounter::Sweeps);
             const ::bhkWorldLock lock(world, 0);
             havokWorld->linearCast(castA, reinterpret_cast<const ::hkpLinearCastInput&>(input), reinterpret_cast<::hkpCdPointCollector&>(collector),
                                    nullptr);
