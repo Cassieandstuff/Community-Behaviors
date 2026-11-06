@@ -35,8 +35,9 @@ namespace CB {
     // Called by byteserve before it serves a BR-owned graph, so correctness never depends on the bar.
     void WaitForCompile();
 
-    /// @brief True once the background arm/compile has exited, by any path: graphs materialized AND native
-    ///        animations written (or the arm stood down).
+    /// @brief True once the background arm/compile has exited, by any path: graphs materialized, native animations
+    ///        written, the adsf/setdata armed and the features' warm-up run (or the arm stood down).
+    /// @note  The load gate (LoadGate.h) holds every game load and New Game until this.
     /// @note  RedirectReady() arms before the native animations are written, so it does not mean this; ByteServe
     ///        waits on this for the graphs and projects that may bind those animations.
     bool WarmUpFinished();

@@ -16,4 +16,11 @@ namespace CB::core::bootstrap {
     // Read the latest progress (render/pump thread). Returns whether the compile is still running.
     bool ReadProgress(std::size_t& done, std::size_t& total);
 
+    /// @brief Names the warm-up phase the bar shows (its title line).
+    /// @pre `phase` has static storage: the render thread reads the pointer without a lock.
+    void SetPhase(const char* phase);
+
+    /// @return The phase last set ("compiling behaviors" before any).
+    const char* ReadPhase();
+
 }  // namespace CB::core::bootstrap
