@@ -109,7 +109,15 @@ namespace CB::feature {
 
         /// @brief The playback rate's range: a clip plays at most this much slower or faster than authored; past it the
         ///        feet slide rather than the animation visibly slowing or fast-forwarding.
-        constexpr float kMinRate = 0.7f, kMaxRate = 1.5f;
+        /// @note Narrow (FluidMotion's 0.85-1.2): the search picks the clip whose speed fits, the rate only trims what is left;
+        ///       a wide range let a wrong clip play on at a skating rate.
+        constexpr float kMinRate = 0.85f, kMaxRate = 1.2f;
+        /// @brief Game units/s: a playing frame slower than this (standing, turning in place) plays at rate 1.
+        constexpr float kRateClipStill = 25.0f;
+        /// @brief Seconds airborne before the chooser's movement mode says air: the controller drops into InAir for a frame
+        ///        or two on downslopes and steps, which interrupted the search into a jump. A jump, or a real fall, says air at once.
+        constexpr float kAirDebounce  = 0.15f;
+        constexpr float kFallingSpeed = 250.0f;   ///< game units/s downward: falling, whatever the time
         /// @brief Seconds for the rate to close half its gap to the target.
         constexpr float kRateHalflife = 0.15f;
         /// @brief Below this asked-for speed (game units/s) the gait's rate stays as it was: standing has no speed to match.
@@ -400,6 +408,7 @@ namespace CB::feature {
             float lastZ = 0;
             float airVz = 0;          ///< the vertical speed on the latest airborne frame, game units/s
             bool  wasAirborne = false;
+            float airFor = 0;         ///< seconds the controller has been airborne without a break
             float landedFor = -1;     ///< seconds since touching down, -1 = not landed since the last air time
             bool  heavy = false;
             bool  haveStickYaw = false;
@@ -467,12 +476,18 @@ namespace CB::feature {
             const bool moving = io[kMovementState] == 1;
             io[kStance]       = player->IsSneaking() ? 1 : 0;
 
+            const auto* cc      = player->GetCharController();
+            const bool  jumping = cc && cc->context.currentState == RE::hkpCharacterStateType::kJumping;
+            m.airFor            = in.airborne ? m.airFor + dt : 0.0f;
+            const bool air      = jumping || (in.airborne && (m.airFor >= kAirDebounce || vz <= -kFallingSpeed));
+            io[kMovementMode]   = air ? 1 : 0;
+
             /// @note The landing's vertical speed is the player's height change over the last airborne frame (the
             ///       touch-down frame's own is already cut short by the floor).
-            if (in.airborne) m.airVz = vz, m.landedFor = -1.0f;
+            if (air) m.airVz = vz, m.landedFor = -1.0f;
             else if (m.wasAirborne) m.landedFor = 0.0f, m.heavy = std::fabs(m.airVz) >= kHeavyLandSpeed;
             else if (m.landedFor >= 0.0f) m.landedFor += dt;
-            m.wasAirborne     = in.airborne;
+            m.wasAirborne     = air;
             const bool landed = m.landedFor >= 0.0f && m.landedFor < kLandHold;
             io[kJustLandedLight] = landed && !m.heavy;
             io[kJustLandedHeavy] = landed && m.heavy;
@@ -495,7 +510,7 @@ namespace CB::feature {
 
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
-            io.real[kTimeToLand]      = in.airborne ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
+            io.real[kTimeToLand]      = air ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
             return true;
         }
 
@@ -815,17 +830,24 @@ namespace CB::feature {
     {
         CharacterMatch& match = MatchOf(actor);
         const Database* db    = nullptr;
+        Playback        p;
         {
             std::scoped_lock lock(match.shownLock);
             db = match.shownDb;
+            p  = match.shown;
         }
-        if (!db) db = g_db.load(std::memory_order_acquire);
-        const float     last  = match.rate.load(std::memory_order_relaxed);
-        if (!db || !frame || frame->gait == Gait::None || frame->full < kRateStill) return last;
-        const float clipSpeed = db->gaitSpeed[static_cast<std::size_t>(frame->gait)];
-        if (clipSpeed <= 0.0f) return last;
-        const float target = std::clamp(frame->full / clipSpeed, kMinRate, kMaxRate);
-        float       rate   = last;
+        const float last = match.rate.load(std::memory_order_relaxed);
+        /// @note The playing frame's own speed (its stride, kClipSpeedWindow), not a per-gait figure: the search chose that
+        ///       clip for the speed the query asked, so the rate only trims the difference, and a slow frame (standing,
+        ///       turning in place) plays at 1.
+        float target = 1.0f;
+        if (db && frame && frame->speed >= kRateStill && p.clip >= 0 && p.clip < static_cast<int>(db->clips.size())) {
+            const Clip& c         = db->clips[p.clip];
+            const int   row       = c.first + (c.frames > 0 ? FrameOf(c, p.time) : 0);
+            const float clipSpeed = row >= 0 && row < static_cast<int>(db->rowSpeed.size()) ? db->rowSpeed[row] : 0.0f;
+            if (clipSpeed >= kRateClipStill) target = std::clamp(frame->speed / clipSpeed, kMinRate, kMaxRate);
+        }
+        float rate = last;
         ch::SpringDamperExact(rate, match.rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
         rate = std::clamp(rate, kMinRate, kMaxRate);
         match.rate.store(rate, std::memory_order_relaxed);

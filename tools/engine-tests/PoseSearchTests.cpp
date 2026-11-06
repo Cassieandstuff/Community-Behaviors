@@ -695,6 +695,22 @@ void SpeedProfileChecks() {
           "the factor is wanted over record, 1 when either is unset");
 }
 
+/// @brief The clip speed the rate trims against: a stride's average, not a step's.
+void ClipSpeedChecks() {
+    const int          frames = 60;
+    const double       dt     = 1.0 / 30.0;
+    std::vector<float> p;
+    for (int i = 0; i < frames; ++i) {
+        const float x = i < 30 ? 0.0f : static_cast<float>((i - 30) * 10);   // stands for a second, then 300 units/s
+        p.insert(p.end(), { x, 0.0f, 0.0f });
+    }
+    const auto v = ps::WindowedRootSpeeds(p, frames, dt);
+    Check(v.size() == static_cast<std::size_t>(frames), "a speed per frame");
+    Check(v[0] == 0.0f && std::fabs(v[59] - 300.0f) < 0.01f, "standing reads 0, steady reads its speed: " + std::to_string(v[59]));
+    Check(v[30] > 100.0f && v[30] < 200.0f, "the start averages across the window: " + std::to_string(v[30]));
+    Check(ps::WindowedRootSpeeds({}, 0, dt).empty(), "no frames, no speeds");
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -825,6 +841,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     WeightChecks();
     DeadBlendChecks();
     SpeedProfileChecks();
+    ClipSpeedChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

@@ -87,6 +87,12 @@ namespace CB::engine::locomotion {
     /// @brief A steady forward frame (the clips' own gait speeds): travel within kForwardDeg of facing, speed changing
     ///        by less than kSteadyAccel (game units/s²).
     inline constexpr float kForwardDeg = 45.0f, kSteadyAccel = 100.0f;
+    /// @brief Seconds either side of a frame its clip speed averages over: a stride's speed, not a step's.
+    inline constexpr double kClipSpeedWindow = 0.5;
+
+    /// @brief Each frame's horizontal root speed (game units/s) from `rootPositions` (x, y, z per frame), averaged over
+    ///        kClipSpeedWindow either side.
+    std::vector<float> WindowedRootSpeeds(const std::vector<float>& rootPositions, int frames, double dt);
 
     /// @brief The motion curves' names, byte-exact, as hky-tool's motionCurves generator writes them.
     inline constexpr const char* kSpeedCurve     = "Speed";
@@ -147,7 +153,8 @@ namespace CB::engine::locomotion {
         std::vector<int>          clipOf;       ///< row -> clip
         std::vector<char>         searchable;   ///< row's whole future lies inside its clip, and the row inside its child's range
         std::vector<std::uint8_t> rowGates;     ///< the frame's kRow* bits (the search's gates)
-        std::vector<std::uint8_t> rowGait;      ///< the frame's Gait from its Speed curve (None standing)
+        std::vector<std::uint8_t> rowGait;      ///< the frame's Gait from its Speed curve (None standing); the logs' label only
+        std::vector<float>        rowSpeed;     ///< the frame's clip root speed, game units/s, averaged over kClipSpeedWindow
         std::array<float, anim::features::kDims> mean{}, scale{};
         /// @brief The clips' own speed per gait (game units/s, indexed by Gait), 0 where no clip has one: the median
         ///        root speed of the steady forward frames in that gait's Speed band (CollectGaitSpeeds).
@@ -164,6 +171,7 @@ namespace CB::engine::locomotion {
         std::vector<float>            rows;
         std::vector<char>             searchable;
         std::vector<std::uint8_t>     gait;     ///< per frame, a Gait from the Speed curve's band
+        std::vector<float>            speed;    ///< per frame, the root's horizontal speed averaged over kClipSpeedWindow
         std::vector<anim::AnimCurveDef> curves;   ///< the clip's curves, which its databases' gates read per row
         int                           frames   = 0;
         double                        dt       = 1.0 / 30.0;

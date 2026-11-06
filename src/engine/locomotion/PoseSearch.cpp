@@ -285,6 +285,25 @@ namespace CB::engine::locomotion {
         }
     }
 
+    std::vector<float> WindowedRootSpeeds(const std::vector<float>& p, int frames, double dt)
+    {
+        std::vector<float> step(static_cast<std::size_t>((std::max)(frames, 0)), 0.0f), out(step.size(), 0.0f);
+        if (frames < 2 || dt <= 0.0 || p.size() < static_cast<std::size_t>(frames) * 3) return out;
+        for (int i = 0; i + 1 < frames; ++i) {
+            const double dx = p[(i + 1) * 3] - p[i * 3], dy = p[(i + 1) * 3 + 1] - p[i * 3 + 1];
+            step[i] = static_cast<float>(std::sqrt(dx * dx + dy * dy) / dt);
+        }
+        step[frames - 1] = step[frames - 2];
+        const int half = (std::max)(1, static_cast<int>(std::lround(kClipSpeedWindow / dt)));
+        for (int i = 0; i < frames; ++i) {
+            const int lo = (std::max)(0, i - half), hi = (std::min)(frames - 1, i + half);
+            double    sum = 0;
+            for (int k = lo; k <= hi; ++k) sum += step[k];
+            out[i] = static_cast<float>(sum / (hi - lo + 1));
+        }
+        return out;
+    }
+
     std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds)
     {
         auto out          = std::make_unique<Measured>();
@@ -296,6 +315,7 @@ namespace CB::engine::locomotion {
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
+        out->speed = WindowedRootSpeeds(c.rootPositions, c.frames, out->dt);
         out->curves = c.curves;
         return out;
     }
@@ -527,6 +547,7 @@ namespace CB::engine::locomotion {
         db->searchable.reserve(total);
         db->rowGates.reserve(total);
         db->rowGait.reserve(total);
+        db->rowSpeed.reserve(total);
         /// @note The gates read only the row's curves: the build has no actor, and the context is reset per row so
         ///       the primitive memo never hands one row's curve value to the next.
         relay::EvalContext ctx;
@@ -554,6 +575,8 @@ namespace CB::engine::locomotion {
                 if (t < c.rangeStart || (c.rangeEnd > 0 && t > c.rangeEnd)) db->searchable[c.first + f] = 0;
             }
             db->rowGait.insert(db->rowGait.end(), m->gait.begin(), m->gait.end());
+            db->rowSpeed.insert(db->rowSpeed.end(), m->speed.begin(), m->speed.end());
+            db->rowSpeed.resize(db->rowGait.size(), 0.0f);
             const PoseDatabase* pd = c.database >= 0 ? &db->databases[c.database] : nullptr;
             CurveVariables      vars(m->curves);
             for (int f = 0; f < m->frames; ++f) {

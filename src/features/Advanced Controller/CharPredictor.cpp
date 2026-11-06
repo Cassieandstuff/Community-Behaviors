@@ -820,16 +820,15 @@ namespace CB::feature {
             ch::PublishedGroundNote(ctrl, note);
             /// @note The body's velocity carries the pogo's last correction, which is no velocity of the character's.
             if (note.pogo && hull.lift > 0.0f) v(2) -= note.pogoRate;
-            /// @note A clip playing at `rate` reaches its horizon h after h / rate real seconds: the query is where the
-            ///       prediction is then, so turns compare as well as distances.
+            /// @note The query is in real time, at the clips' own sample times and with real velocities: the search must see
+            ///       the speed asked for to pick the clip that moves at it. A clip-time query (scaled by the playback rate) asked
+            ///       for the playing clip's own speed whatever the speed, so no gait change could ever win.
             std::array<float, kQuerySamples> queryTimes{}, pastTimes{};
-            float                            queryRate = 1.0f;
             if (matches && ch::motion::On()) {
-                const float rate = ch::motion::Rate(actorId, haveSpeed ? &fs : nullptr, dt);
-                queryRate        = rate;
+                ch::motion::Rate(actorId, haveSpeed ? &fs : nullptr, dt);
                 for (int k = 0; k < kQuerySamples; k++) {
-                    queryTimes[k] = static_cast<float>(CB::engine::anim::features::kAhead[k]) / rate;
-                    pastTimes[k]  = static_cast<float>(CB::engine::anim::features::kBack[k]) / rate;
+                    queryTimes[k] = static_cast<float>(CB::engine::anim::features::kAhead[k]);
+                    pastTimes[k]  = static_cast<float>(CB::engine::anim::features::kBack[k]);
                 }
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, pastTimes, world, path);
@@ -860,9 +859,8 @@ namespace CB::feature {
                     to.y    = from.forward * kGameUnitsPerHavok;
                     to.dirX = -std::sin(from.facing);
                     to.dirY = std::cos(from.facing);
-                    /// @note In clip time, as the database measured it: a clip played at the rate covers its own velocity times the rate.
-                    to.vx   = from.vSide * kGameUnitsPerHavok / queryRate;
-                    to.vy   = from.vForward * kGameUnitsPerHavok / queryRate;
+                    to.vx   = from.vSide * kGameUnitsPerHavok;
+                    to.vy   = from.vForward * kGameUnitsPerHavok;
                     to.z    = from.up * kGameUnitsPerHavok;
                 }
                 q.desiredX = tr.desiredWorld.x * kGameUnitsPerHavok;
