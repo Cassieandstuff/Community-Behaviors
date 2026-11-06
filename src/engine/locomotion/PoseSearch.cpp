@@ -7,6 +7,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <format>
 #include <map>
@@ -458,6 +459,35 @@ namespace CB::engine::locomotion {
         out += '\x1d';
         for (const auto& name : fallback) text(name);
         return out;
+    }
+
+    std::optional<anim::Rig> RigFromSkeleton(const decompile::ParsedHky& g)
+    {
+        for (const auto& o : g.objects) {
+            if (!o || std::string_view(o->ClassName()) != "hkaAnimationContainer") continue;
+            const auto& skeletons = o->Children("skeletons");
+            const auto* skel      = skeletons.empty() ? nullptr : dynamic_cast<const SchemaObject*>(skeletons.front().get());
+            if (!skel) return std::nullopt;
+            const auto  parents = skel->GetArray<std::int16_t>("parentIndices");
+            const auto* pose    = skel->FindField("referencePose");
+            const auto& bones   = skel->Children("bones");
+            anim::Rig   rig;
+            for (std::size_t i = 0; i < bones.size(); ++i) {
+                anim::Rig::Bone b;
+                if (const auto* bone = dynamic_cast<const SchemaObject*>(bones[i].get())) b.name = bone->Str("name");
+                b.parent = i < parents.size() ? parents[i] : -1;
+                /// @note hkQsTransform, 48 bytes: translation (x, y, z, w), rotation (x, y, z, w), scale.
+                if (pose && pose->raw.size() >= (i + 1) * 48) {
+                    float f[8];
+                    std::memcpy(f, pose->raw.data() + i * 48, sizeof f);
+                    b.translation = { f[0], f[1], f[2] };
+                    b.rotation    = { f[4], f[5], f[6], f[7] };
+                }
+                rig.bones.push_back(std::move(b));
+            }
+            return rig;
+        }
+        return std::nullopt;
     }
 
     anim::SchemaSpec SchemaSpecOf(const SchemaObject& schema, const WarnFn& warn)

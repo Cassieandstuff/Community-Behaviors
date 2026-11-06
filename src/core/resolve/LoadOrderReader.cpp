@@ -12,6 +12,7 @@ namespace CB::core::resolve {
             std::mutex                                               lock;
             std::optional<LoadOrderReader>                           reader;
             std::vector<std::function<void(const LoadOrderReader&)>> waiting;
+            std::vector<std::function<void(const LoadOrderReader&, const WarmUpExecutor*)>> warmUp;
         };
         Seam& S()
         {
@@ -30,6 +31,23 @@ namespace CB::core::resolve {
             run.swap(S().waiting);
         }
         for (auto& fn : run) fn(*S().reader);
+    }
+
+    void OnWarmUp(std::function<void(const LoadOrderReader&, const WarmUpExecutor*)> fn)
+    {
+        std::scoped_lock lock(S().lock);
+        S().warmUp.push_back(std::move(fn));
+    }
+
+    void RunWarmUp(const WarmUpExecutor* exec)
+    {
+        std::vector<std::function<void(const LoadOrderReader&, const WarmUpExecutor*)>> run;
+        {
+            std::scoped_lock lock(S().lock);
+            if (!S().reader) return;
+            run.swap(S().warmUp);
+        }
+        for (auto& fn : run) fn(*S().reader, exec);
     }
 
     void OnLoadOrderReady(std::function<void(const LoadOrderReader&)> fn)

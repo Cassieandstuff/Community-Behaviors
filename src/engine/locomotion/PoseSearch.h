@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -305,6 +306,10 @@ namespace CB::engine::locomotion {
     /// @brief BuildDatabase over a parsed selector.
     std::unique_ptr<Database> BuildDatabase(const codec::io::SchemaObject& selector, const anim::Rig* rig, const ClipSource& clips,
                                             const WarnFn& warn, BuildReport* report = nullptr);
+    /// @brief A parsed skeleton unit's animation skeleton (its animation container's first) as a rig: bone names, parents,
+    ///        reference pose; nothing when it holds none.
+    /// @note  The same skeleton a character loads, so a database built from it keys as the node's built from the live one.
+    std::optional<anim::Rig> RigFromSkeleton(const decompile::ParsedHky& skeleton);
     /// @brief The schema a parsed CBPoseSearchSchema states, its features read by class (names byte-exact).
     anim::SchemaSpec SchemaSpecOf(const codec::io::SchemaObject& schema, const WarnFn& warn = {});
 

@@ -258,6 +258,11 @@ namespace CB {
         std::vector<std::string> ServedRoster(const std::string& characterKey) const;
         /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
         std::vector<std::string> BehaviorUnitKeys() const;
+        /// @brief The served behavior graphs a mod adds outright: their base layer is not the base game's. Where a graph of
+        ///        CB's own classes can come from, found without merging any graph.
+        std::vector<std::string> AddedBehaviorUnitKeys() const;
+        /// @brief The rig unit (normalized serve path) the characters that run `key` bind through; empty when none does.
+        std::string RigUnitOf(const std::string& key) const { return BonesFor(key).rig; }
 
         /// @brief The served graph `key` merged across every layer of the load order: the merge Resolve runs, before
         ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`.

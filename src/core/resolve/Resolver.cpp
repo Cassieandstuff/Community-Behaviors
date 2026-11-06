@@ -1475,6 +1475,18 @@ namespace CB {
         return out;
     }
 
+    std::vector<std::string> Resolver::AddedBehaviorUnitKeys() const
+    {
+        std::vector<std::string> out;
+        for (const auto& key : BehaviorUnitKeys()) {
+            const auto it = m_sources.find(key);
+            if (it == m_sources.end() || it->second.layers.empty()) continue;
+            const auto& base = it->second.layers.front();
+            if (!base.masterTable.empty() && base.stem != base.masterTable.front()) out.push_back(key);
+        }
+        return out;
+    }
+
     Resolver::RigBones Resolver::BonesFor(const std::string& key) const
     {
         const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key));

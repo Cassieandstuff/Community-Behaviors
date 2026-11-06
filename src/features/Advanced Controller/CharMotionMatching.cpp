@@ -57,13 +57,14 @@
 ///        it, and a character needs only to have those variables set.
 /// @note  The character's side is the frame hook and the predictor, which set them. Only the player has one so far.
 /// @note  The search runs on the job updating the character's graph, holding its animation graph manager's lock.
-/// @note  THE ADD-ON CONTRACT (Motion Matching.hky, shipped apart from CB): the behavior `kGraphKey` whose root is a
+/// @note  THE ADD-ON CONTRACT (Motion Matching.hky, shipped apart from CB): any behavior a mod adds whose root is a
 ///        CBPoseSearchGenerator over clip generators (MM_Clip = the child index; a clip listed in several databases is
 ///        one child per database), each child a row naming its database and carrying its flags and searched range,
 ///        `databases` with Unreal's cost biases (condition expressions), and `chooser` rows each holding a `when`
 ///        condition expression; the selected child bound to `kClipVar` and every child's user-controlled time to
 ///        `kTimeVar`; `kEnableVar`, declared in 0_master and mt_behavior, switches mt_behavior's LocomotionDefault to that
-///        graph; and the inputs declared on it (compile/MotionMatchingBundle.h). Without the add-on the graph is not
+///        graph; and the inputs declared on it (compile/MotionMatchingBundle.h). Its database is built in the startup
+///        warm-up (BuildAll), so the game never runs the node before it exists. Without one, nothing is
 ///        served, nothing is built, and the controller runs exactly as before.
 
 namespace CB::feature {
@@ -87,7 +88,6 @@ namespace CB::feature {
         using ps::FrameOf;
         using ps::IsActive;
 
-        constexpr std::string_view kGraphKey   = "meshes/actors/character/behaviors/motionmatching.hkx";
         constexpr std::string_view kProjectDir = "meshes/actors/character/";   ///< a clip's animationName is below this
         constexpr const char*      kEnableVar  = "MM_Enable";
         constexpr const char*      kClipVar    = "MM_Clip";
@@ -227,7 +227,6 @@ namespace CB::feature {
             };
             std::deque<Job>                                  queue;
             bool                                             building = false;
-            std::string                                      warmedKey;   ///< the add-on's, built ahead of its first activation
         };
         Store g_store;
 
@@ -235,7 +234,9 @@ namespace CB::feature {
         /// @note Runs on the build thread: the add-on's authored YAML takes seconds to parse. Each distinct animationName
         ///       is measured once (a clip may be a child of several databases) and its rows are appended once per child
         ///       that plays it.
-        void Build(const core::resolve::LoadOrderReader& reader, const std::string& key, const ps::DatabaseSpec& spec, const ea::Rig& rig)
+        /// @param exec runs the clips' measurements in parallel first (the warm-up's pool); null: one by one, as asked
+        void Build(const core::resolve::LoadOrderReader& reader, const std::string& key, const ps::DatabaseSpec& spec, const ea::Rig& rig,
+                   const core::resolve::WarmUpExecutor* exec = nullptr)
         {
             const auto t0 = Clock::now();
             /// @note The cache holds the first build's clips and whatever later ones add: only the first can tell a clip
@@ -246,7 +247,44 @@ namespace CB::feature {
             std::vector<ea::MmCachedClip> fresh;
             std::size_t                   cacheHits  = 0;
             bool                          cacheDirty = false;
+            /// @note With a pool, every distinct clip is measured up front, each job into its own slot (the cache is only
+            ///       read meanwhile); the build then takes them by name.
+            std::map<std::string, std::size_t> early;
+            std::vector<std::optional<ea::MmCachedClip>> earlyClips;
+            std::vector<std::string>         earlyErrors;
+            if (exec && *exec) {
+                ps::ClipNeeds needs;
+                needs.rig = rig.bones.empty() ? nullptr : &rig;
+                if (needs.rig)
+                    for (const auto& s : spec.schemas) needs.schemas.push_back(s), needs.keys.push_back(ea::SchemaKey(s, rig));
+                for (const auto& c : spec.children)
+                    if (!c.clip.empty()) early.emplace(c.clip, early.size());
+                earlyClips.resize(early.size());
+                earlyErrors.resize(early.size());
+                std::vector<char>                  hits(early.size(), 0);
+                std::vector<std::function<void()>> jobs;
+                for (const auto& [name, slot] : early)
+                    jobs.push_back([&, name, slot] {
+                        try {
+                            bool hit = false;
+                            earlyClips[slot] = MeasureOrCached(reader, name, compiler, cache, hit, needs);
+                            hits[slot]       = hit;
+                        } catch (const std::exception& e) {
+                            earlyErrors[slot] = e.what();
+                        }
+                    });
+                (*exec)(std::move(jobs));
+                for (std::size_t i = 0; i < hits.size(); ++i) {
+                    if (hits[i]) ++cacheHits;
+                    else if (earlyClips[i]) cacheDirty = true;
+                }
+            }
             const auto clipOf = [&](const std::string& name, const ps::ClipNeeds& needs) -> const ea::MmCachedClip& {
+                if (const auto it = early.find(name); it != early.end()) {
+                    if (!earlyClips[it->second]) throw std::runtime_error(earlyErrors[it->second]);
+                    fresh.push_back(*earlyClips[it->second]);
+                    return fresh.back();
+                }
                 bool hit = false;
                 fresh.push_back(MeasureOrCached(reader, name, compiler, cache, hit, needs));
                 if (hit) ++cacheHits;
@@ -299,7 +337,7 @@ namespace CB::feature {
             std::scoped_lock lock(g_store.lock);
             const Database* built = db.get();
             g_store.entries[key]  = std::move(db);
-            if (key == g_store.warmedKey) g_db.store(built, std::memory_order_release);
+            if (!g_db.load(std::memory_order_acquire)) g_db.store(built, std::memory_order_release);
         }
 
         /// @brief The build thread: one database at a time, then gone until the next is asked for.
@@ -323,28 +361,43 @@ namespace CB::feature {
             }
         }
 
-        /// @brief Build the add-on's database ahead of its first activation, so turning it on never waits for a measure.
-        /// @note  A warm-up and nothing more: the node asks with what it loaded, which finds this one when the graph
-        ///        served states the same selector, and builds its own when it does not.
-        void Warm(const core::resolve::LoadOrderReader& reader)
+        /// @brief The store's key: the selector, and the rig it is measured through.
+        std::string StoreKey(const ps::DatabaseSpec& spec, const ea::Rig& rig)
         {
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
-            CB::engine::decompile::ParsedHky graph;
-            if (!reader.mergedGraph(std::string(kGraphKey), graph)) {
-                LOG_INFO("motion matching: '{}' is not in the load order (no Motion Matching.hky database bundle installed) - nothing to warm", kGraphKey);
-                return;
+            return spec.Key() + std::format("\x1c{:016x}", rig.bones.empty() ? 0ull : ea::SchemaKey({}, rig));
+        }
+
+        /// @brief Build every pose search database the load order holds, during the warm-up: each behavior a mod adds whose
+        ///        root is a CBPoseSearchGenerator, measured through the rig of the characters that run it. A node then finds
+        ///        its database built when the game first runs it.
+        void BuildAll(const core::resolve::LoadOrderReader& reader, const core::resolve::WarmUpExecutor* exec)
+        {
+            if (!reader.addedBehaviors) return;
+            std::size_t built = 0;
+            for (const std::string& key : reader.addedBehaviors()) {
+                CB::engine::decompile::ParsedHky graph;
+                if (!reader.mergedGraph(key, graph)) continue;
+                const auto* selector = ps::RootSelector(graph);
+                if (!selector) continue;
+                const ps::DatabaseSpec spec = ps::SpecOf(*selector);
+                ea::Rig                rig;
+                const std::string      rigKey = reader.rigUnitOf ? reader.rigUnitOf(key) : std::string();
+                CB::engine::decompile::ParsedHky skeleton;
+                if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
+                    if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
+                if (rig.bones.empty() && !spec.schemas.empty())
+                    LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
+                const std::string storeKey = StoreKey(spec, rig);
+                {
+                    std::scoped_lock lock(g_store.lock);
+                    if (g_store.entries.contains(storeKey)) continue;
+                    g_store.entries.emplace(storeKey, nullptr);
+                }
+                LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}')", key, spec.children.size(), rigKey);
+                Build(reader, storeKey, spec, rig, exec);
+                ++built;
             }
-            const auto* selector = ps::RootSelector(graph);
-            if (!selector) {
-                LOG_WARN("motion matching: '{}' does not have a CBPoseSearchGenerator at its root - nothing to warm", kGraphKey);
-                return;
-            }
-            const ps::DatabaseSpec spec = ps::SpecOf(*selector);
-            {
-                std::scoped_lock lock(g_store.lock);
-                g_store.warmedKey = spec.Key();
-            }
-            controller::motion::DatabaseFor(spec);
+            LOG_INFO("motion matching: {} database(s) built in the warm-up", built);
         }
 
         [[maybe_unused]] const bool s_build = [] {
@@ -354,7 +407,9 @@ namespace CB::feature {
                     std::scoped_lock lock(g_store.lock);
                     g_store.reader = reader;
                 }
-                std::thread([reader] { Warm(reader); }).detach();
+            });
+            core::resolve::OnWarmUp([](const core::resolve::LoadOrderReader& reader, const core::resolve::WarmUpExecutor* exec) {
+                BuildAll(reader, exec);
             });
             return true;
         }();
@@ -706,10 +761,8 @@ namespace CB::feature {
             next(controller, deltaTime, out);
             RE::Actor*       player = out ? PlayerOf(controller) : nullptr;
             RE::Actor*       actor  = player ? player : out ? MatchingNpcOf(controller) : nullptr;
-            const Database*  db     = g_db.load(std::memory_order_acquire);
             if (!actor) return;
             if (player) ch::motion::QueueSkeletonWatch();
-            if (!db) return;
             if (player) CountFrame();
             static const RE::BSFixedString enableName(kEnableVar);
             CharacterMatch& match = MatchOf(actor->GetFormID());
@@ -1044,7 +1097,7 @@ namespace CB::feature {
     const ps::Database* controller::motion::DatabaseFor(const ps::DatabaseSpec& spec, const ea::Rig& rig)
     {
         /// @note The rig is part of what was measured: the same selector on another skeleton is another database.
-        std::string key = spec.Key() + std::format("\x1c{:016x}", rig.bones.empty() ? 0ull : ea::SchemaKey({}, rig));
+        std::string key = StoreKey(spec, rig);
         std::scoped_lock lock(g_store.lock);
         if (const auto it = g_store.entries.find(key); it != g_store.entries.end()) return it->second.get();
         if (!g_store.reader) return nullptr;

@@ -339,7 +339,17 @@ namespace CB {
     {
         CB::core::resolve::ArmLoadOrderReader({
             [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
-            [](std::string_view path) { return g_resolver.NativeAnimationText(path); } });
+            [](std::string_view path) { return g_resolver.NativeAnimationText(path); },
+            [] { return g_resolver.AddedBehaviorUnitKeys(); },
+            [](const std::string& key) { return g_resolver.RigUnitOf(key); } });
+    }
+
+    /// @brief The features' warm-up work (core::resolve::OnWarmUp), on the anim pool, before the warm-up finishes.
+    static void RunFeatureWarmUp()
+    {
+        CB_ZONE(zone, "warm-up: features");
+        AnimParallel par("the features' warm-up");
+        CB::core::resolve::RunWarmUp(par.ptr());
     }
 
     static unsigned ArmThreadBody()
@@ -381,6 +391,7 @@ namespace CB {
                 ArmAdsfSetDataServe(animPar.ptr());
                 SignalAdsfArmed();
             }
+            RunFeatureWarmUp();
             CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
             {
@@ -416,6 +427,7 @@ namespace CB {
             LOG_INFO("Community Behaviors: COLD compile — adsf/setdata armed, compiling {} graph(s) + "
                      "{} animation(s) in the background (bar riding the compile).", graphCount, animCount);
             WarmUpThread(reinterpret_cast<void*>(total));   // compile + materialize (sets m_redirectReady)
+            RunFeatureWarmUp();
         }
 
         t_compileGateInProgress = false;
