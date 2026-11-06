@@ -146,6 +146,8 @@ namespace CB::platform::classes {
                 MemberAccess::type(m) = t;
                 return true;
             case sc::FieldKind::String:      MemberAccess::type(m) = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::Vector4:     MemberAccess::type(m) = M::TYPE_VECTOR4; return true;
+            case sc::FieldKind::Quaternion:  MemberAccess::type(m) = M::TYPE_QUATERNION; return true;
             case sc::FieldKind::EmptyPtr:    MemberAccess::type(m) = M::TYPE_POINTER; MemberAccess::subtype(m) = M::TYPE_VOID; return true;
             case sc::FieldKind::EmptyArray:  MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_VOID; return true;
             case sc::FieldKind::StringArray: MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_STRINGPTR; return true;
