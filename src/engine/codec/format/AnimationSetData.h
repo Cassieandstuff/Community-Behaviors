@@ -105,6 +105,10 @@ namespace CB::engine::animsetdata {
     /// @throws ParseError when the text does not follow the descriptors or a number field does not parse.
     SingleFile ReadSingleFile(const schema::SchemaRegistry& reg, std::string_view text);
 
+    /// @brief The enum item naming bound `value` of gate variable `variable` (AnimSetTypeCondition's `enumby`), e.g.
+    ///        ("iLeftHandType", 10) -> "Shield"; "" when the variable reads as a number or no item has that value.
+    std::string GateValueName(const schema::SchemaRegistry& reg, std::string_view variable, std::int32_t value);
+
     // Emit canonical CRLF form (every line CRLF-terminated, including the last), a
     // byte-for-byte reproduction of the vanilla layout.
     std::string EmitSingleFile(const SingleFile& sf);

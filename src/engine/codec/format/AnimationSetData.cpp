@@ -2,6 +2,7 @@
 
 #include <codec/resource/PathKey.h>   // path identity (project headers / set names are file names)
 #include <codec/serialization/MetaText.h>
+#include <interface/reflection/HavokSchema.h>
 
 #include <algorithm>
 #include <array>
@@ -520,6 +521,19 @@ namespace CB::engine::animsetdata {
             }
         }
         return st;
+    }
+
+    std::string GateValueName(const schema::SchemaRegistry& reg, std::string_view variable, std::int32_t value)
+    {
+        const schema::ClassSchema* cs = reg.Find("AnimSetTypeCondition");
+        if (!cs) return {};
+        const auto field = std::ranges::find(cs->fields, std::string_view("value"), &schema::Field::name);
+        if (field == cs->fields.end()) return {};
+        const auto en = field->enumBy.find(std::string(variable));
+        const schema::EnumDef* def = en == field->enumBy.end() ? nullptr : reg.FindEnum(en->second);
+        if (!def) return {};
+        const auto item = std::ranges::find(def->items, static_cast<long>(value), &schema::EnumItem::value);
+        return item == def->items.end() ? std::string() : item->name;
     }
 
 }  // namespace CB::engine::animsetdata

@@ -269,6 +269,17 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                                 if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
                         }
                     }
+                    if (hasKey(fn, "enumby")) {
+                        auto eb = fn[c4::to_csubstr("enumby")];
+                        if (!eb.is_map()) { err = out.name + "." + f.name + ": `enumby` must be a map ({ field: …, <value>: <Enum>, … })"; return false; }
+                        for (auto r : eb) {
+                            if (!r.has_val()) { err = out.name + "." + f.name + ": `enumby` holds a non-scalar"; return false; }
+                            const std::string key = toStr(r.key()), val = toStr(r.val());
+                            if (key == "field") f.enumByField = val;
+                            else f.enumBy[key] = val;
+                        }
+                        if (f.enumByField.empty() || f.enumBy.empty()) { err = out.name + "." + f.name + ": `enumby` needs a `field` and at least one enum"; return false; }
+                    }
                     f.required     = childStr(fn, "required") == "true";
                     f.expression   = childStr(fn, "expression") == "true";
                     f.rosterRef    = childStr(fn, "rosterref");
@@ -546,6 +557,8 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                     if (!lookup("Role", f.roleName, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role '" + f.roleName + "' (an item of the Role enum)"; return false; }
                     f.role = static_cast<int>(v);
                 }
+                for (const auto& [value, en] : f.enumBy)
+                    if (!FindEnum(en)) { err = "class '" + name + "' field '" + f.name + "': enumby '" + value + "' names unknown enum '" + en + "'"; return false; }
                 for (const std::string& flag : f.roleFlagNames) {
                     if (!lookup("RoleFlags", flag, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role flag '" + flag + "' (an item of the RoleFlags enum)"; return false; }
                     f.roleFlags |= static_cast<int>(v);

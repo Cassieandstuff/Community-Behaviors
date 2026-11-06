@@ -94,6 +94,16 @@ namespace {
         std::string sc = cb::animdata::EmitMotionSidecar(mr); (void)sc;
         auto* parseSidecar = &cb::animdata::ParseMotionSidecar; (void)parseSidecar;
         std::string lbl = cb::animdata::LabelSample(""); (void)lbl;
+        // cb::setdata — the asdsf model
+        cb::setdata::Set set; (void)set;
+        cb::setdata::Gate gate; (void)gate;
+        auto* readSf = &cb::setdata::ReadSingleFile; (void)readSf;
+        auto* parseUnit = &cb::setdata::ParseSetdataUnitYaml; (void)parseUnit;
+        auto* parseIndex = &cb::setdata::ParseSetdataIndexYaml; (void)parseIndex;
+        auto* stem = &cb::setdata::StemForHeader; (void)stem;
+        auto* compile = &cb::setdata::CompileSetdataCrcs; (void)compile;
+        cb::setdata::CrcTriple tri = cb::setdata::TripleForAnimation("meshes\x.hkx"); (void)tri;
+        auto* gateName = &cb::setdata::GateValueName; (void)gateName;
         std::string unl = cb::animdata::UnlabelSample(""); (void)unl;
 
         // cb::skeleton — read skeletons

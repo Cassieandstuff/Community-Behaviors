@@ -15,6 +15,7 @@
 //                  write a parsed unit back out (an editor's save)
 //   cb::anim     — decode / compile / EXPORT animations exactly as CB does
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
+//   cb::setdata  — the animationsetdata (asdsf) model: each project's sets, their gates, attacks and load lists
 //   cb::skeleton — read skeletons (schema-native; anim + ragdoll physics summary) from a .hkx or a bundle unit
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
 //   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches), and
@@ -61,6 +62,10 @@
 // animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 #include "interface/AnimationData.h"
 #include "codec/format/AnimDataYaml.h"
+
+// setdata — the animationsetdata model (the asdsf .txt and its decomposed setdata/<stem>.yaml folder)
+#include "codec/format/AnimationSetData.h"
+#include "codec/format/AnimSetDataYaml.h"
 #include "interface/MotionSample.h"
 #include "interface/GraphTrace.h"
 
@@ -206,6 +211,26 @@ namespace animdata {
     using CB::engine::animdata::LabelSample;         // a verbatim motion sample → its axis-labeled YAML form
     using CB::engine::animdata::UnlabelSample;       // axis-labeled sample → verbatim (also reads the bare form)
 }  // namespace animdata
+
+// ── cb::setdata ────────────────────────────────────────────────────────────────
+/// Skyrim's moveset table: per project, sets gated on variable ranges, each with the attack events it lists and the
+/// animations it loads (`animations` = paths, `crcs` = what the engine matches; CompileSetdataCrcs derives one from the other).
+namespace setdata {
+    using SingleFile    = CB::engine::animsetdata::SingleFile;      ///< every project, in the engine's order
+    using Project       = CB::engine::animsetdata::Project;         ///< one project's sets (header "DefaultMaleData\DefaultMale.txt")
+    using Set           = CB::engine::animsetdata::SetFile;         ///< a set: gate, equip events, attacks, load list
+    using Gate          = CB::engine::animsetdata::TypeCondition;   ///< `variable` in [value, extra]
+    using Attack        = CB::engine::animsetdata::Attack;          ///< an attack event -> clip generator names
+    using CrcTriple     = CB::engine::codec::crc::CrcTriple;        ///< an animation path's (folder, file, ext) hash
+    using ParseError    = CB::engine::animsetdata::ParseError;
+    using CB::engine::animsetdata::ReadSingleFile;           ///< the .txt (through its metadata descriptors) -> SingleFile
+    using CB::engine::animsetdata::ParseSetdataIndexYaml;    ///< the setdata folder's index.yaml -> project headers, in order
+    using CB::engine::animsetdata::ParseSetdataUnitYaml;     ///< setdata/<stem>.yaml -> one Project
+    using CB::engine::animsetdata::StemForHeader;            ///< project header -> its setdata/<stem>.yaml stem
+    using CB::engine::animsetdata::CompileSetdataCrcs;       ///< a set's `animations` -> its `crcs`
+    using CB::engine::codec::crc::TripleForAnimation;        ///< a Data path ("meshes\actors\...\x.hkx") -> its CrcTriple
+    using CB::engine::animsetdata::GateValueName;            ///< (variable, value) -> the enum item naming it, "" for a number
+}  // namespace setdata
 
 // ── cb::skeleton ───────────────────────────────────────────────────────────────
 namespace skeleton {
