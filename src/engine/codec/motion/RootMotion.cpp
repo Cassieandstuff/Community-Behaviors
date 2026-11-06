@@ -451,7 +451,20 @@ UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::eng
 std::optional<CB::engine::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack) {
     if (def.motion) return def.motion;
     if (def.rootMotionVisual) return std::nullopt;
-    return ExtractRootMotion(def, rootTrack);
+    auto rec = ExtractRootMotion(def, rootTrack);
+    /// @note ExtractRootMotion leaves frame 0's pose on the root (an adsf clip's authored rest). A motionMatching clip
+    ///       is measured in its root's own frame at every frame (MotionFeatures), so its root is the actor and is
+    ///       cleared whole; else a clip that starts off origin (a jump's land or loop starts mid-air) keeps that
+    ///       start as a constant offset from the actor, and a clip that starts turned plays turned.
+    if (def.motionTarget == AnimationDef::MotionTarget::MotionMatching && rootTrack < def.tracks.size() &&
+        def.numFrames > 0) {
+        AnimTrackDef& root = def.tracks[rootTrack];
+        root.translation.assign(static_cast<std::size_t>(def.numFrames), Vec3Keyframe{});
+        root.rotation.assign(static_cast<std::size_t>(def.numFrames), QuatKeyframe{});
+        for (int f = 0; f < def.numFrames; ++f)
+            root.translation[f].time = root.rotation[f].time = static_cast<float>(FrameTime(def, f));
+    }
+    return rec;
 }
 
 } // namespace CB::engine::anim
