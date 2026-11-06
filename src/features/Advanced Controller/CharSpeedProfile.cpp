@@ -125,6 +125,33 @@ namespace CB::feature::controller::speed {
         return engine * loco::SpeedFactor(Column(p, gait).forward, stated[ColumnIndex(gait)]);
     }
 
+    namespace {
+        /// @brief The type's forward walk and run: the profile's, else the record's; false without a movement type.
+        bool WalkAndRun(RE::Actor* actor, float& walk, float& run)
+        {
+            loco::SpeedProfile         p;
+            const RE::BGSMovementType* record = nullptr;
+            if (!Lookup(actor, p, record)) return false;
+            const auto& stated = record->movementTypeData.defaultData.speeds[Dir::kForward];
+            walk = p.walk.forward > 0.0f ? p.walk.forward : stated[RE::Movement::MaxSpeeds::kWalk];
+            run  = p.run.forward > 0.0f ? p.run.forward : stated[RE::Movement::MaxSpeeds::kRun];
+            return walk > 0.0f && run > walk;
+        }
+    }  // namespace
+
+    float WalkOfRun(RE::Actor* actor, float run)
+    {
+        float walkF = 0.0f, runF = 0.0f;
+        return WalkAndRun(actor, walkF, runF) ? run * walkF / runF : run;
+    }
+
+    Gait GaitOfSpeed(RE::Actor* actor, float speed)
+    {
+        float walkF = 0.0f, runF = 0.0f;
+        if (!WalkAndRun(actor, walkF, runF)) return Gait::Run;
+        return speed <= 0.5f * (walkF + runF) ? Gait::Walk : Gait::Run;
+    }
+
     void Ratios(RE::Actor* actor, Gait gait, move::Caps& caps)
     {
         loco::SpeedProfile         p;

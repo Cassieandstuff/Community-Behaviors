@@ -140,13 +140,24 @@ namespace CB::feature::controller {
             return CB::engine::locomotion::StickHeadingOf(stick.x, stick.y, cameraYaw, heading);
         }
 
-        /// @brief settings.ini `[Character] fStickMoveThreshold`: the stick length (0..1) from which the player moves, at full
-        ///        input; below it (past kStickDeadzone) the stick only turns them in place.
-        /// @note  Why fixed speed: the clips cover each gait at one speed, so a slower stick slid (GASP's own advice is its
-        ///        Fixed Speed stick mode). Variable speed waits on distance matching.
+        /// @brief settings.ini `[Character] fStickMoveThreshold`: the stick length (0..1) from which the player moves, at a
+        ///        gait's one speed (StickRunThreshold splits walk from run); below it (past kStickDeadzone) the stick only
+        ///        turns them in place.
+        /// @note  Why fixed speeds: the clips cover each gait at one speed, so a slower stick slid (GASP's own advice is its
+        ///        Fixed Speed - Walk/Run stick mode). Variable speed waits on distance matching.
         float StickMoveThreshold()
         {
-            static const float threshold = std::clamp(SettingFloat("fStickMoveThreshold", 0.5f), kStickDeadzone, 1.0f);
+            static const float threshold = std::clamp(SettingFloat("fStickMoveThreshold", 0.35f), kStickDeadzone, 1.0f);
+            return threshold;
+        }
+
+        /// @brief settings.ini `[Character] fStickRunThreshold`: the stick length (0..1) from which a running player runs;
+        ///        between StickMoveThreshold and it they walk, at the type's walk speed.
+        /// @note  The engine's own stick-to-speed is an analog curve (PlayerControls 0x14079b3c0), not a gait: with the
+        ///        input written at full length it would always run.
+        float StickRunThreshold()
+        {
+            static const float threshold = std::clamp(SettingFloat("fStickRunThreshold", 0.8f), StickMoveThreshold(), 1.0f);
             return threshold;
         }
 
@@ -408,7 +419,12 @@ namespace CB::feature::controller {
             const float heading    = player->GetHeading(false);
             const float engineFull = out->speed;
             /// @note The speed profile's, not the movement type record's (CharSpeedProfile): the engine's own stays in engineFull.
-            const float full       = speed::Forward(player, GaitOf(player), engineFull);
+            Gait        gait       = GaitOf(player);
+            float       full       = speed::Forward(player, gait, engineFull);
+            if (gait == Gait::Run && haveStick && std::hypot(raw.x, raw.y) < StickRunThreshold()) {
+                gait = Gait::Walk;
+                full = speed::WalkOfRun(player, full);
+            }
             const float engineDir = out->angles[2];
             const char* graphFlag   = hold ? GraphDrivesSpeed(player) : "";
             const bool  graphDrives = graphFlag[0] != 0;
@@ -475,7 +491,7 @@ namespace CB::feature::controller {
             const RE::NiPoint3 pos = player->GetPosition();
             move::Input        in;
             in.mode      = Aiming(player) ? move::Mode::Strafe : move::Mode::Orient;
-            in.gait      = GaitOf(player);
+            in.gait      = gait;
             in.airborne  = Airborne(player);
             in.haveStick = haveStick;
             if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
@@ -774,8 +790,8 @@ namespace CB::feature::controller {
             in.gait      = GaitOf(npc);
             in.airborne  = Airborne(npc);
             in.haveStick = full > kNpcStillSpeed;
-            /// @note An AI's walking need not raise the walk or run flag the way a stick does.
-            if (in.gait == Gait::None && in.haveStick) in.gait = Gait::Run;
+            /// @note An AI's walking need not raise the walk or run flag the way a stick does: its speed says which.
+            if (in.gait == Gait::None && in.haveStick) in.gait = speed::GaitOfSpeed(npc, full);
             if (in.haveStick) in.stickX = std::sin(heading + engineDir), in.stickY = std::cos(heading + engineDir);
 
             float slopeGoal = 1.0f;

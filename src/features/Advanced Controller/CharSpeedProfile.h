@@ -25,6 +25,14 @@ namespace CB::feature::controller::speed {
     ///        profile leaves unset keeps its value.
     void Ratios(RE::Actor* actor, Gait gait, move::Caps& caps);
 
+    /// @brief `run`, a forward run speed in `actor`'s current movement type (Forward's, every multiplier kept), scaled to the
+    ///        type's walk: the profile's walk over its run, else the record's.
+    float WalkOfRun(RE::Actor* actor, float run);
+
+    /// @brief The gait a forward speed (Forward's) reads as: Walk up to halfway between the type's walk and run, else Run.
+    /// @note  For an AI moving with neither the walk nor the run flag raised: CB's chooser needs a gait to pick databases.
+    Gait GaitOfSpeed(RE::Actor* actor, float speed);
+
     /// @brief What the config page shows of one movement type.
     struct TypeView {
         std::string                                    name;      ///< the MNAM, byte-exact
