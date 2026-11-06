@@ -231,8 +231,8 @@ target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml:
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
-# Drives the cold-compile progress bar: ProgressHud draws ImGui frames after the game's hooked
-# present call during the compile (see ProgressHud.cpp). Fetched unconditionally (small; the converter's
+# Drives CB's in-game overlays (the cold-compile progress bar, the debug HUD): the UI host draws ImGui frames after
+# the game's hooked present call (see src/core/ui/UiHost.cpp). Fetched unconditionally (small; the converter's
 # separate glfw/opengl3 `imgui` lib, below, reuses the same populated source). d3d11/dxgi for the
 # swapchain + device the game hands us.
 include(FetchContent)

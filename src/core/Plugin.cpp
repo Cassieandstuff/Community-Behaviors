@@ -12,7 +12,7 @@
 #include "core/debug/RuntimeTrace.h"
 #include "core/debug/Settings.h"
 #include <exec/Parallel.h>
-#include "core/bootstrap/ProgressHud.h"
+#include "core/ui/UiHost.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
 #include "core/resolve/LoadOrderReader.h"
@@ -410,7 +410,7 @@ namespace CB {
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
             const std::size_t total      = graphCount + animCount;
-            CB::core::bootstrap::Install();
+            CB::core::ui::Install();
 
             /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
             ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
@@ -478,7 +478,7 @@ namespace CB {
         // gate; it only draws while a compile is running.
         CB::core::bootstrap::SetPhase("reading the load order");
         CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate bar
-        CB::core::bootstrap::Install();                      // installs the present hook + imgui now (idempotent)
+        CB::core::ui::Install();                             // builds imgui for the present hook now (idempotent)
 
         // Kick the background arm and RETURN — the main thread stays free to pump the window + present, so
         // the bar paints and the cursor isn't trapped. Per-open waits (WaitAdsfArmed / WaitForCompile)
@@ -550,12 +550,12 @@ namespace CB {
 
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
             // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
-            // gate: CB::core::bootstrap::Install eagerly builds imgui + its font/device objects, so doing it at
+            // gate: CB::core::ui::Install eagerly builds imgui + its font/device objects, so doing it at
             // kDataLoaded keeps that heavy work off the live-present path (the Community Shaders pattern).
             // The bar is DEFAULT behavior — no marker gate. It only ever draws while a compile is running
             // (DrawBar's ReadProgress check), so installing it always is harmless; the gate keeps a
             // fallback Install() for the rare case the swapchain isn't ready yet at kDataLoaded.
-            if (!CB::core::bootstrap::Install())
+            if (!CB::core::ui::Install())
                 LOG_INFO("Community Behaviors: progress bar early-install deferred (swapchain not ready "
                          "at kDataLoaded) — will retry at the compile gate.");
             // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
@@ -626,7 +626,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 
     // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +
-    // matcher, only when enabled; features and ProgressHud at static init): attach every subscribed hook once
+    // matcher, only when enabled; features and the UI host at static init): attach every subscribed hook once
     // (a takeover cell where the image owns the function, else an entry or call detour) and close subscription.
     CB::platform::hooks::InstallAll();
 

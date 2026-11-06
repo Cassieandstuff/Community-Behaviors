@@ -4,8 +4,8 @@
 #include "CharFacing.h"
 #include "CharSprint.h"
 
-#include <core/bootstrap/ProgressHud.h>
 #include <core/debug/Settings.h>
+#include <core/ui/UiHost.h>
 
 #include <imgui.h>
 
@@ -19,7 +19,7 @@
 /// @file
 /// @brief The character debug HUD (char_debug_hud): the controlled character's (IsControlled: the player, or the
 ///        horse it rides) collision shape, floor rays, pogo spring, velocity arrows, predicted trajectory
-///        and a text panel, drawn with ProgressHud's ImGui over the finished frame.
+///        and a text panel, drawn on the UI host's ImGui (core/ui) over the finished frame.
 /// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
 ///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
 
@@ -358,7 +358,7 @@ namespace CB::feature::controller::hud {
         /// @note Registered whether or not the HUD starts on: the config menu can switch it on later, and Active answers
         ///       false while it is off.
         [[maybe_unused]] const bool s_registered = [] {
-            core::bootstrap::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
+            core::ui::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
             return true;
         }();
 
