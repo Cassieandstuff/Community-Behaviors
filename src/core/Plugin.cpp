@@ -341,7 +341,7 @@ namespace CB {
             [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
             [](std::string_view path) { return g_resolver.NativeAnimationText(path); },
             [] { return g_resolver.AddedBehaviorUnitKeys(); },
-            [](const std::string& key) { return g_resolver.RigUnitOf(key); } });
+            [](const std::string& key) { return g_resolver.RigUnitsOf(key); } });
     }
 
     /// @brief The features' warm-up work (core::resolve::OnWarmUp), on the anim pool, before the warm-up finishes.

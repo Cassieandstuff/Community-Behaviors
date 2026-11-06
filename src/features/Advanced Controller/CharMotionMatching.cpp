@@ -368,8 +368,9 @@ namespace CB::feature {
         }
 
         /// @brief Build every pose search database the load order holds, during the warm-up: each behavior a mod adds whose
-        ///        root is a CBPoseSearchGenerator, measured through the rig of the characters that run it. A node then finds
-        ///        its database built when the game first runs it.
+        ///        root is a CBPoseSearchGenerator, once per rig of the characters that run it (male and female skeletons
+        ///        differ, and the node keys its database by the live skeleton). A node then finds its database built when
+        ///        the game first runs it.
         void BuildAll(const core::resolve::LoadOrderReader& reader, const core::resolve::WarmUpExecutor* exec)
         {
             if (!reader.addedBehaviors) return;
@@ -379,23 +380,27 @@ namespace CB::feature {
                 if (!reader.mergedGraph(key, graph)) continue;
                 const auto* selector = ps::RootSelector(graph);
                 if (!selector) continue;
-                const ps::DatabaseSpec spec = ps::SpecOf(*selector);
-                ea::Rig                rig;
-                const std::string      rigKey = reader.rigUnitOf ? reader.rigUnitOf(key) : std::string();
-                CB::engine::decompile::ParsedHky skeleton;
-                if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
-                    if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
-                if (rig.bones.empty() && !spec.schemas.empty())
-                    LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
-                const std::string storeKey = StoreKey(spec, rig);
-                {
-                    std::scoped_lock lock(g_store.lock);
-                    if (g_store.entries.contains(storeKey)) continue;
-                    g_store.entries.emplace(storeKey, nullptr);
+                const ps::DatabaseSpec   spec    = ps::SpecOf(*selector);
+                std::vector<std::string> rigKeys = reader.rigUnitsOf ? reader.rigUnitsOf(key) : std::vector<std::string>{};
+                if (rigKeys.empty()) rigKeys.emplace_back();
+                for (const std::string& rigKey : rigKeys) {
+                    ea::Rig                          rig;
+                    CB::engine::decompile::ParsedHky skeleton;
+                    if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
+                        if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
+                    if (rig.bones.empty() && !spec.schemas.empty())
+                        LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
+                    const std::string storeKey = StoreKey(spec, rig);
+                    {
+                        std::scoped_lock lock(g_store.lock);
+                        if (g_store.entries.contains(storeKey)) continue;
+                        g_store.entries.emplace(storeKey, nullptr);
+                    }
+                    LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}', {} bone(s))", key, spec.children.size(), rigKey,
+                             rig.bones.size());
+                    Build(reader, storeKey, spec, rig, exec);
+                    ++built;
                 }
-                LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}')", key, spec.children.size(), rigKey);
-                Build(reader, storeKey, spec, rig, exec);
-                ++built;
             }
             LOG_INFO("motion matching: {} database(s) built in the warm-up", built);
         }
@@ -1101,6 +1106,9 @@ namespace CB::feature {
         std::scoped_lock lock(g_store.lock);
         if (const auto it = g_store.entries.find(key); it != g_store.entries.end()) return it->second.get();
         if (!g_store.reader) return nullptr;
+        LOG_WARN("motion matching: a node's database ({} child(ren), rig of {} bone(s)) was not built in the warm-up - building it now; "
+                 "the node waits until it is",
+                 spec.children.size(), rig.bones.size());
         g_store.entries.emplace(key, nullptr);
         g_store.queue.push_back({ std::move(key), spec, rig });
         if (!g_store.building) {

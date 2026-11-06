@@ -135,6 +135,7 @@ namespace CB {
             m_failed = true;
             m_sources.clear();
             m_skeletonServe.clear();
+            m_skeletonSources.clear();
             m_projectUnits.clear();
             m_nativeAnims.clear();
         }
@@ -523,6 +524,7 @@ namespace CB {
                 { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(bytes); }
                 LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bytes).", unit, bundles[bi].stem, size);
             };
+            for (const auto& [unit, bi] : skelWinner) m_skeletonSources[NormalizeKey(unit)] = { unit, skelLayers(unit, bi) };
             {
                 std::vector<std::function<void()>> serveTasks;
                 for (const auto& [unit, bi] : skelWinner) {
@@ -1416,9 +1418,18 @@ namespace CB {
     {
         auto*      reg = CB::engine::schema::SharedRegistry();
         const auto it  = m_sources.find(NormalizeKey(key));
-        if (!reg || it == m_sources.end()) return false;
+        if (!reg) return false;
+        std::string err;
+        if (it == m_sources.end()) {
+            const auto sk = m_skeletonSources.find(NormalizeKey(key));
+            if (sk == m_skeletonSources.end()) return false;
+            if (!CB::engine::decompile::MergeLayersSkippingBroken(sk->second.second, *reg, nullptr, out, err, nullptr, sk->second.first)) {
+                LOG_WARN("Resolver: merged read of skeleton '{}' failed: {}", key, err);
+                return false;
+            }
+            return true;
+        }
         const RigBones rb = BonesFor(it->first);
-        std::string    err;
         if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
             LOG_WARN("Resolver: merged read of '{}' failed: {}", key, err);
             return false;
@@ -1484,6 +1495,15 @@ namespace CB {
             /// @note By the base layer's own bundle: a master table starts with the bundle itself, so it tells nothing here.
             if (it->second.layers.front().stem != CB::engine::codec::formid::BASE_GAME_STEM) out.push_back(key);
         }
+        return out;
+    }
+
+    std::vector<std::string> Resolver::RigUnitsOf(const std::string& key) const
+    {
+        std::vector<std::string> out;
+        if (const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key)))
+            for (const std::string& r : *rigs)
+                if (m_skeletonSources.contains(NormalizeKey(r))) out.push_back(r);
         return out;
     }
 

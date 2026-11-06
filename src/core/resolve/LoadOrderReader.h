@@ -23,8 +23,8 @@ namespace CB::core::resolve {
         std::function<std::optional<std::string>(std::string_view path)> nativeAnimation;
         /// @brief The behavior graphs mods add outright (Resolver::AddedBehaviorUnitKeys).
         std::function<std::vector<std::string>()> addedBehaviors;
-        /// @brief The rig unit a graph binds through (Resolver::RigUnitOf); mergedGraph reads it.
-        std::function<std::string(const std::string& key)> rigUnitOf;
+        /// @brief Every rig unit the characters running a graph bind through (Resolver::RigUnitsOf); mergedGraph reads each.
+        std::function<std::vector<std::string>(const std::string& key)> rigUnitsOf;
     };
 
     /// @brief Runs a batch of jobs and returns once all are done: the plugin's BELOW_NORMAL pool, or none (serial).

@@ -261,11 +261,13 @@ namespace CB {
         /// @brief The served behavior graphs a mod adds outright: their base layer is not the base game's. Where a graph of
         ///        CB's own classes can come from, found without merging any graph.
         std::vector<std::string> AddedBehaviorUnitKeys() const;
-        /// @brief The rig unit (normalized serve path) the characters that run `key` bind through; empty when none does.
-        std::string RigUnitOf(const std::string& key) const { return BonesFor(key).rig; }
+        /// @brief Every rig unit (normalized serve path) the characters that run `key` bind through, each backed by a skeleton
+        ///        unit; empty when none does. A graph male and female characters share has both.
+        std::vector<std::string> RigUnitsOf(const std::string& key) const;
 
         /// @brief The served graph `key` merged across every layer of the load order: the merge Resolve runs, before
-        ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`.
+        ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`. A skeleton
+        ///        unit reads through its own layers.
         /// @return false when `key` is not served or the merge fails (logged).
         /// @pre   Init() done.
         /// @note  Independent of the compile: a warm launch that reuses the cache still reads the load order's graph.
@@ -355,6 +357,9 @@ namespace CB {
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
         std::unordered_map<std::string, CB::engine::common::BoneNameTable> m_skeletons;
+        /// @brief Every skeleton unit's layers (its winner, then the later bundles patching it), keyed by normalized path:
+        ///        MergedGraph reads a rig through them, since skeletons are not graph sources. Immutable after Init().
+        std::unordered_map<std::string, std::pair<std::string, std::vector<CB::engine::common::LayerSource>>> m_skeletonSources;
         /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
         ///        BonesFor. Immutable after Init().
         CB::engine::skeleton::RigIndex m_rigIndex;
