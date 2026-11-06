@@ -547,7 +547,10 @@ namespace CB::feature {
             io[kStance]       = player->IsSneaking() ? 1 : 0;
 
             const auto* cc      = player->GetCharController();
-            const bool  jumping = cc && cc->context.currentState == RE::hkpCharacterStateType::kJumping;
+            /// @note CB's own launch (CharStateWrapper) commits InAir, never Jumping, and marks the controller kJumping until
+            ///       it lands: without that bit the jump waited out kAirDebounce and entered the jump starts past their takeoff.
+            const auto* body    = reinterpret_cast<const ::bhkCharacterController*>(cc);
+            const bool  jumping = cc && (cc->context.currentState == RE::hkpCharacterStateType::kJumping || (body->m_flags & ch::kJumping) != 0);
             m.airFor            = in.airborne ? m.airFor + dt : 0.0f;
             const bool air      = jumping || (in.airborne && (m.airFor >= kAirDebounce || vz <= -kFallingSpeed));
             io[kMovementMode]   = air ? 1 : 0;

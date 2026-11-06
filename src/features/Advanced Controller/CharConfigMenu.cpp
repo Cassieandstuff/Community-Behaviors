@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharFacing.h"
+#include "CharMovementTuning.h"
 #include "CharSpeedProfile.h"
 
 #include <platform/startup/Startup.h>
@@ -67,6 +68,31 @@ namespace CB::feature::controller::config {
             }
         }
 
+        /// @brief The movement model's numbers, live; Save writes settings.ini [Movement].
+        void __stdcall RenderTuning()
+        {
+            ImGuiMCP::TextWrapped("How the player and the NPCs CB drives accelerate, brake, turn and grip (GASP's character movement "
+                                  "numbers). Changes apply at once; Save writes settings.ini [Movement].");
+            ImGuiMCP::Separator();
+            loco::Profile        p        = tuning::Current();
+            const loco::Profile  defaults = loco::kPlayer;
+            bool                 changed  = false;
+            for (const tuning::Field& f : tuning::Fields()) {
+                float shown = p.*f.member * f.shown;
+                const std::string label(f.label);
+                if (ImGuiMCP::DragFloat(label.c_str(), &shown, f.max / 500.0f, 0.0f, f.max, "%.3g")) {
+                    p.*f.member = (std::max)(0.0f, shown) / f.shown;
+                    changed     = true;
+                }
+                ImGuiMCP::SameLine();
+                ImGuiMCP::TextDisabled("%.*s, GASP %.3g", static_cast<int>(f.unit.size()), f.unit.data(), defaults.*f.member * f.shown);
+            }
+            if (changed) tuning::Set(p);
+            if (ImGuiMCP::Button("Save")) tuning::Save();
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button("Reset to GASP's")) tuning::Reset();
+        }
+
         /// @brief The Debug category's character controller page: the debug HUD's switch.
         void __stdcall RenderDebugController()
         {
@@ -90,8 +116,9 @@ namespace CB::feature::controller::config {
             }
             SKSEMenuFramework::SetSection("Community Behaviors");
             SKSEMenuFramework::AddSectionItem("Movement Speeds", RenderSpeeds);
+            SKSEMenuFramework::AddSectionItem("Movement Tuning", RenderTuning);
             SKSEMenuFramework::AddSectionItem("Debug/Character Controller", RenderDebugController);
-            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Debug/Character Controller).");
+            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Movement Tuning, Debug/Character Controller).");
         }
 
         [[maybe_unused]] const bool s_registered = platform::startup::OnDataLoaded(&Register, "config menu");

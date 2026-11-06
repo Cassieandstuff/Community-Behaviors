@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharDebugHud.h"
+#include "CharMovementTuning.h"
 #include "CharFacing.h"
 #include "CharGround.h"
 #include "CharComponents.h"
@@ -296,7 +297,7 @@ namespace CB::feature::controller {
                      "GASP's sprint ramps: acceleration over {:.0f}->{:.0f}, friction over 0->{:.0f}",
                      kNames[static_cast<int>(gait) & 3], full, high->currentMovementType.typeName.c_str(), sp[Dir::kForward][0], sp[Dir::kLeft][0],
                      sp[Dir::kRight][0], sp[Dir::kBack][0], sp[Dir::kForward][1], sp[Dir::kLeft][1], sp[Dir::kRight][1], sp[Dir::kBack][1],
-                     move::kPlayer.sprintAccelFrom, move::kPlayer.sprintAccelTo, move::kPlayer.sprintFrictionTo);
+                     tuning::Current().sprintAccelFrom, tuning::Current().sprintAccelTo, tuning::Current().sprintFrictionTo);
         }
 
         void PublishSpeed(RE::FormID actor, const FrameSpeed& speed)
@@ -467,7 +468,7 @@ namespace CB::feature::controller {
                     const float        dx   = speakerAt.x - at.x, dy = speakerAt.y - at.y;
                     if (dx * dx + dy * dy > 1.0f) {
                         const float goal = s.yaw + WrapPi(std::atan2(dx, dy) - s.yaw);
-                        SpringDamperExact(s.yaw, s.yawRate, goal, move::kPlayer.facingHalflife, deltaTime);
+                        SpringDamperExact(s.yaw, s.yawRate, goal, tuning::Current().facingHalflife, deltaTime);
                     }
                 }
                 out->speed     = 0.0f;
@@ -529,7 +530,7 @@ namespace CB::feature::controller {
             LogSpeeds(player, in.gait, full);
 
             /// @note The components pushed on the player (swimming) reshape the profile, caps and input before the step.
-            component::Frame cf{ component::Character::Player, move::kPlayer, caps, in };
+            component::Frame cf{ component::Character::Player, tuning::Current(), caps, in };
             component::Apply(*player, cf);
             in   = cf.input;
             caps = cf.caps;
@@ -808,14 +809,15 @@ namespace CB::feature::controller {
             move::Caps caps;
             caps.forward = full * sl.scale;
             const float turned = heading + out->turn[2] * deltaTime;
-            move::Step(s, in, caps, move::kPlayer, pos.x, pos.y, deltaTime);
+            const move::Profile profile = tuning::Current();
+            move::Step(s, in, caps, profile, pos.x, pos.y, deltaTime);
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, turned, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
             es = EngineSpeed{ true, engineFull, speed, engineDir, out->angles[2] };
-            move::Publish(npc->GetFormID(), move::Snapshot{ s, in, caps, move::kPlayer, pos.x, pos.y });
+            move::Publish(npc->GetFormID(), move::Snapshot{ s, in, caps, profile, pos.x, pos.y });
             PublishSpeed(npc->GetFormID(), FrameSpeed{ full, speed, sl.scale, in.gait });
         }
 
