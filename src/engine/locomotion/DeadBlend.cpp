@@ -55,7 +55,7 @@ namespace CB::engine::locomotion {
 
     void DeadBlend::Reset(int n, int playing)
     {
-        bones = n, child = playing, history = 0, blending = false, t = 0.0f;
+        bones = n, child = playing, history = 0, blending = false, t = 0.0f, lastDt = dt;
         last.assign(static_cast<std::size_t>(n), Bone{});
         prev.assign(static_cast<std::size_t>(n), Bone{});
     }
@@ -64,6 +64,7 @@ namespace CB::engine::locomotion {
     {
         prev.swap(last);
         for (int i = 0; i < bones; i++) last[i] = pose[i];
+        lastDt  = dt;
         history = (std::min)(history + 1, 2);
     }
 
@@ -72,7 +73,7 @@ namespace CB::engine::locomotion {
         from = last;
         vel.assign(static_cast<std::size_t>(bones), BoneVelocity{});
         side.assign(static_cast<std::size_t>(bones), Quat{});
-        const float inv = dt > 1.0e-5f ? 1.0f / dt : 60.0f;
+        const float inv = lastDt > 1.0e-5f ? 1.0f / lastDt : 60.0f;
         for (int i = 0; i < bones; i++) {
             BoneVelocity& v = vel[i];
             for (int a = 0; a < 3; a++) v.t[a] = std::clamp((last[i].t[a] - prev[i].t[a]) * inv, -kMaxLinear, kMaxLinear);

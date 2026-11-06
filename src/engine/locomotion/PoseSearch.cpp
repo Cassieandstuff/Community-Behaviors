@@ -410,7 +410,17 @@ namespace CB::engine::locomotion {
         return -1.0f;
     }
 
-    std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds)
+    double FutureHorizon(const DatabaseSpec& spec)
+    {
+        double out = kIgnoreRangeEnd;
+        for (int s = 0; s < anim::features::kSamples; ++s) out = (std::max)(out, anim::features::SampleTime(s));
+        for (const anim::SchemaSpec& schema : spec.schemas)
+            for (const anim::FeatureSpec& f : schema.features)
+                for (const anim::TrajectorySampleSpec& smp : f.samples) out = (std::max)(out, static_cast<double>(smp.time));
+        return out;
+    }
+
+    std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds, double horizonSeconds)
     {
         auto out          = std::make_unique<Measured>();
         out->rows         = c.features;
@@ -418,8 +428,10 @@ namespace CB::engine::locomotion {
         out->dt           = c.frameDuration;
         out->duration     = c.duration;
         out->looping      = c.loopFrames > 0;
+        out->loopPeriod   = out->looping ? (std::min)(c.loopFrames * out->dt, out->duration) : 0.0;
         /// @note A loop's future wraps into its next cycle, so every frame of it is a candidate.
-        const int horizon = out->looping ? 0 : static_cast<int>(std::lround(kIgnoreRangeEnd / out->dt));
+        const double tail    = (std::max)(kIgnoreRangeEnd, (std::min)(horizonSeconds, 0.5 * out->duration));
+        const int    horizon = out->looping ? 0 : static_cast<int>(std::lround(tail / out->dt));
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
@@ -613,7 +625,9 @@ namespace CB::engine::locomotion {
         for (std::size_t i = 0; i < spec.children.size(); ++i) {
             const SpecChild& row = spec.children[i];
             Clip&            c   = db.clips[i];
-            c.flags      = row.flags;
+            /// @note Only a measured loop loops: a row flagged looping whose clip does not close wrapped with no blend, a pop
+            ///       each cycle.
+            c.flags      = static_cast<std::uint8_t>(row.flags & ~kFlagLooping);
             c.rangeStart = row.rangeStart;
             c.rangeEnd   = row.rangeEnd;
             if (implied) {
@@ -692,6 +706,7 @@ namespace CB::engine::locomotion {
         /// @note Keyed by the exact animationName: case is never folded (a differently cased name is its own clip).
         std::map<std::string, std::unique_ptr<Measured>> measured;
         std::vector<const Measured*>                     of(children.size(), nullptr);
+        const double                                     horizon = FutureHorizon(spec);
         std::array<std::vector<float>, 4>                gaitSpeeds;
         const auto rowsIn = [&](const Measured& m, std::size_t sp) -> const std::vector<float>* {
             if (db->spaces[sp].classic) return &m.rows;
@@ -710,7 +725,7 @@ namespace CB::engine::locomotion {
             if (it == measured.end()) {
                 std::unique_ptr<Measured> m;
                 try {
-                    m = MeasuredFrom(clips(c.name, needs), gaitSpeeds);
+                    m = MeasuredFrom(clips(c.name, needs), gaitSpeeds, horizon);
                 } catch (const std::exception& e) {
                     Warn(warn, std::format("clip {} '{}' not measured ({}) - never chosen", i, c.name, e.what()));
                 }
@@ -799,6 +814,7 @@ namespace CB::engine::locomotion {
             c.duration = m->duration;
             c.takeoff  = m->takeoff;
             if (m->looping) c.flags |= kFlagLooping;
+            c.loopPeriod = m->loopPeriod;
             for (std::size_t sp = 0; sp < db->spaces.size(); ++sp) {
                 if (!used[sp]) continue;
                 SchemaSpace& space = db->spaces[sp];
@@ -987,8 +1003,9 @@ namespace CB::engine::locomotion {
         MatchStep out;
         m_clock += dt;
         if (m_pendingClip >= 0) {
+            /// @note The pick showed as is last frame (nextTime); this frame plays on from it.
             m_clip        = m_pendingClip;
-            m_time        = m_pendingTime;
+            m_time        = m_pendingTime + dt * in.rate;
             m_pendingClip = -1;
         } else if (m_clip >= 0) {
             m_time += dt * in.rate;
@@ -997,7 +1014,9 @@ namespace CB::engine::locomotion {
             const Clip& c = db.clips[m_clip];
             /// @note A loop plays on into its next cycle; anything else searches before it runs out.
             if ((c.flags & kFlagLooping) && c.duration > 0) {
-                m_time = std::fmod(m_time, c.duration);
+                /// @note At the measured period, not the clip's end: a loop whose last frames repeat its first played them
+                ///       and then jumped back with no blend.
+                m_time = std::fmod(m_time, c.loopPeriod > 0 ? c.loopPeriod : c.duration);
             } else {
                 if (m_time >= c.duration - kEndMargin) m_searchNow = true;
                 m_time = (std::min)(m_time, c.duration);
@@ -1011,8 +1030,10 @@ namespace CB::engine::locomotion {
         out.time = m_time;
 
         bool       forcedNow = false;
+        const bool ranOut    = m_clip >= 0 && !(db.clips[m_clip].flags & kFlagLooping) && m_time >= db.clips[m_clip].duration;
         const auto due = [&] {
             if (!in.haveQuery) return false;
+            if (m_clock - m_lastSwitch < kSwitchFloor && !ranOut) return false;
             const double elapsed = m_clock - m_lastSearch;
             /// @note Forced: the request jumped since the last search, in speed or (while moving) in direction, and has settled.
             ///       Holden forces on the falling edge too: one search for the input it settled on, not one per step of a change.
@@ -1020,7 +1041,7 @@ namespace CB::engine::locomotion {
             bool        forced = std::fabs(speed - lastSpeed) > kForceSpeed;
             if (!forced && speed > kForceMoving && lastSpeed > kForceMoving)
                 forced = (in.desiredX * m_lastWantX + in.desiredY * m_lastWantY) / (speed * lastSpeed) < kForceCos;
-            forced    = forced && std::hypot(in.desiredX - m_prevWantX, in.desiredY - m_prevWantY) < kSettledSpeed;
+            forced    = forced && dt > 0.0f && std::hypot(in.desiredX - m_prevWantX, in.desiredY - m_prevWantY) < kSettledSpeed * dt;
             forcedNow = forced;
             out.trigger = m_interrupt ? "interrupt" : m_searchNow ? "clip end" : elapsed < kSearchInterval ? "forced" : "timer";
             return m_searchNow || m_interrupt || elapsed >= kSearchInterval || (forced && elapsed >= kForcedSpacing);
@@ -1079,10 +1100,8 @@ namespace CB::engine::locomotion {
             out.nextClip = m_pendingClip;
             out.nextTime = m_pendingTime;
         } else if (m_clip >= 0) {
-            out.nextClip     = m_clip;
-            const Clip& c    = db.clips[m_clip];
-            const double t   = m_time + dt * in.rate;
-            out.nextTime     = (c.flags & kFlagLooping) && c.duration > 0 ? std::fmod(t, c.duration) : (std::min)(t, c.duration);
+            out.nextClip = m_clip;
+            out.nextTime = m_time;
         }
         return out;
     }

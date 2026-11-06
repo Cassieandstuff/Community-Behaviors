@@ -66,6 +66,10 @@ namespace CB::engine::locomotion {
         int                       child   = -1;            ///< the source the last output played
         int                       history = 0;             ///< outputs recorded since the last reset, up to 2
         float                     dt      = 1.0f / 60.0f;  ///< the latest update's timestep (the caller sets it)
+        /// @brief The timestep `last` was output over (dt as of its Record), which the start velocity divides by.
+        /// @note  Dividing last - prev by the current dt was off by dt(N-1)/dt(N): up to 3x after a hitch, so the coasting
+        ///        pose overshot.
+        float                     lastDt  = 1.0f / 60.0f;
         bool                      blending = false;
         float                     t        = 0.0f;         ///< seconds into the blend
         std::vector<Bone>         last, prev, from;

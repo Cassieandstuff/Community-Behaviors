@@ -28,10 +28,12 @@ namespace CB::engine::locomotion {
 
     /// @brief Frames: a candidate this close in the current clip is the current. 1/3 s at 30 fps, as Holden's 20 at 60.
     inline constexpr int kIgnoreSurrounding = 10;
-    /// @brief Seconds at a clip's end no search cuts into (Holden's ignore_range_end): the samples past the end hold at its last frame.
+    /// @brief The least a clip's end no search cuts into (Holden's ignore_range_end); the database widens it to its furthest
+    ///        future sample (FutureHorizon).
     inline constexpr double kIgnoreRangeEnd = 1.0 / 3.0;
-    /// @brief Game units/s per update: a request moving less than this has settled, and a jump in it searches then.
-    inline constexpr float kSettledSpeed = 5.0f;
+    /// @brief Game units/s per second: a request changing slower than this has settled, and a jump in it searches then.
+    /// @note  Was 5 units/s per update, which at a high frame rate read a stick still ramping as settled.
+    inline constexpr float kSettledSpeed = 300.0f;
     inline constexpr float kForceMoving     = 10.0f;   ///< game units/s: a direction counts only above this speed; a request below it stands
     inline constexpr double kSearchInterval = 0.1;     ///< seconds between searches
     /// @brief A jump in the request since the last search searches at once, at most this soon after any search.
@@ -46,6 +48,10 @@ namespace CB::engine::locomotion {
     /// @brief Seconds a pick plays before another may replace it, and the shorter hold after a jump in the request.
     /// @note  A clip's end and the chooser leaving its database replace it at once.
     inline constexpr double kMinDwell = 0.3, kForcedDwell = 0.1;
+    /// @brief Seconds after any switch before another of any kind (an interrupt, a clip's end, a forced search) may search:
+    ///        a dead blend restarts at every switch, and switches faster than this kept it from ever showing the live pose.
+    /// @note  Waived only when the playing clip has run out.
+    inline constexpr double kSwitchFloor = 0.1;
 
     /// @brief The default weights: Holden's demo weights on the samples CB matched on first (1/3, 2/3 and 1 s, ahead and
     ///        back), 0 on every part added since, so a database stating no weights matches as it did.
@@ -112,6 +118,7 @@ namespace CB::engine::locomotion {
         float        rangeStart = 0;  ///< seconds: the search cuts only into [rangeStart, rangeEnd]
         float        rangeEnd   = 0;  ///< <= 0 = the clip's end
         float        takeoff    = -1; ///< seconds: when the root first rises kTakeoffRise above its start (ClipTakeoff), -1 = never
+        double       loopPeriod = 0;  ///< seconds a looping clip wraps at (its measured period, at most `duration`), 0 = not looping
     };
 
     /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
@@ -197,6 +204,7 @@ namespace CB::engine::locomotion {
         double                        dt       = 1.0 / 30.0;
         double                        duration = 0;
         float                         takeoff  = -1;   ///< ClipTakeoff's
+        double                        loopPeriod = 0;  ///< the measured loop's period in seconds, 0 = none
     };
 
     /// @brief How far (game units) the root must rise above its first frame for the clip to have taken off.
@@ -282,7 +290,17 @@ namespace CB::engine::locomotion {
                            std::array<std::vector<float>, 4>& out);
     /// @brief `c` as the database's per-clip measurement.
     /// @note  Built from the cached form on a miss too, so a cache hit and a fresh measurement build the same rows.
-    std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds);
+    /// @param horizon seconds at a non-looping clip's end that are no candidate (FutureHorizon), at most half the clip and
+    ///        at least kIgnoreRangeEnd, so a short clip (a one-second landing) keeps its first half
+    std::unique_ptr<Measured> MeasuredFrom(const anim::MmCachedClip& c, std::array<std::vector<float>, 4>& gaitSpeeds,
+                                           double horizon = kIgnoreRangeEnd);
+
+    /// @brief Seconds of future the database's rows look ahead: the furthest of the classic layout's samples and every
+    ///        schema's trajectory samples, at least kIgnoreRangeEnd.
+    /// @note  Why: a sample past a clip's end holds at its last frame, so a frame closer to the end than this has a cut-short
+    ///        future that can beat the real loop (late frames of a sprint transition picked, then run out a moment later:
+    ///        the switch churn that kept restarting the blend).
+    double FutureHorizon(const DatabaseSpec& spec);
 
     /// @brief `text` compiled as a condition expression; a non-empty one that fails is warned of, naming `what` and
     ///        `fallback` (what it counts as instead).
@@ -422,8 +440,12 @@ namespace CB::engine::locomotion {
     struct MatchStep {
         int          clip = -1;   ///< the child playing now, -1 = none yet
         double       time = 0;    ///< seconds into it
-        int          nextClip = -1;   ///< the child the next update plays
-        double       nextTime = 0;    ///< seconds into it, this update's timestep ahead
+        int          nextClip = -1;   ///< the child the graph shows next frame
+        /// @brief Seconds into it, as the graph shows it next frame.
+        /// @note  The graph updates children before their parent, so what this update writes shows one frame later. Writing
+        ///        `time` plus this update's timestep stepped by 2*dt(N) - dt(N-1) a frame (backwards after a hitch); `time`
+        ///        itself lags a steady frame. A switch shows its pick as is, and its next update plays on from there.
+        double       nextTime = 0;
         bool         searched = false;
         bool         switched = false;   ///< the search chose a new pick: `nextClip` and `nextTime` are it
         const char*  trigger  = "";      ///< why it searched: "interrupt", "clip end", "forced" or "timer"

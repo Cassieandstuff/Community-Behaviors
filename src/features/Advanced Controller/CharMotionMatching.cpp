@@ -437,8 +437,10 @@ namespace CB::feature {
             std::uint32_t      windupClipGen = 0;   ///< the jump wind-up (ch::takeoff::Generation) the playing clip was switched to for
         };
         constexpr float  kDatabaseRetry = 1.0f;   ///< seconds between asking for a database not built yet
-        constexpr double kSlotStale     = 0.5;    ///< seconds unused before a slot starts over
-        constexpr double kSlotDrop      = 10.0;   ///< seconds unused before a slot is dropped
+        /// @brief Seconds unused before a slot is dropped (its node gone).
+        /// @note  A node that comes back restarts through its own activate (RunMatcher's restart), not on a clock: the wall
+        ///        clock also ran through pauses and menus, and every unpause reset the matcher and popped.
+        constexpr double kSlotDrop      = 300.0;
 
         /// @brief `node`'s slot: a clone is one character's, and a character may hold several nodes, each with its own database.
         /// @note  A character updates on one thread at a time and different ones update in parallel, so the table's lock
@@ -451,7 +453,7 @@ namespace CB::feature {
             const auto       now = Clock::now();
             std::scoped_lock held(lock);
             auto&            slot = slots[node];
-            if (!slot || std::chrono::duration<double>(now - slot->used).count() > kSlotStale) slot = std::make_shared<MatchSlot>();
+            if (!slot) slot = std::make_shared<MatchSlot>();
             slot->used = now;
             std::shared_ptr<MatchSlot> out = slot;
             if (++calls % 600 == 0)

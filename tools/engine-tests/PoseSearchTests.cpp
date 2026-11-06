@@ -248,9 +248,11 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     Check(db.spaces.size() == 1 && db.spaces[0].rows.size() == 240u * F::kDims && db.clipOf.size() == 240 && db.searchable.size() == 240 && db.rowGates.size() == 240 && db.rowGait.size() == 240,
           "every per-row array covers every row");
     Check(db.clipOf[0] == 0 && db.clipOf[60] == 1 && db.clipOf[120] == 3 && db.clipOf[239] == 4, "row -> clip");
-    Check(db.clips[1].flags == ps::kFlagDisableReselection && db.clips[4].flags == ps::kFlagLooping, "the row's flags");
+    Check(db.clips[1].flags == ps::kFlagDisableReselection, "the row's flags");
+    Check(!(db.clips[4].flags & ps::kFlagLooping) && db.clips[4].loopPeriod == 0.0, "a row flagged looping whose clip measures no loop does not loop");
 
-    Check(db.searchable[0] && db.searchable[49] && !db.searchable[50] && !db.searchable[59], "a clip's last third of a second is no candidate");
+    /// @note The tail no search cuts into: the furthest future sample (1 s here), at most half the clip (59 frames, 29 of them).
+    Check(db.searchable[0] && db.searchable[30] && !db.searchable[31] && !db.searchable[59], "a clip's furthest future, at most its half, is no candidate");
     const int ranged = db.clips[3].first;
     Check(!db.searchable[ranged + 14] && db.searchable[ranged + 15] && db.searchable[ranged + 24] && !db.searchable[ranged + 25],
           "the range cuts its child");
@@ -295,7 +297,7 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         Check(ps::Search(db, q).bestRow == ranged + 20, "an in-range row of the ranged child");
         q.samples[1].x = 1028.0f;
         Check(ps::Search(db, q).bestRow == ranged + 24, "past the range, its last row");
-        Check(ps::Search(db, At(1055.0f)).bestRow == 49, "a frame in the clip's end is no candidate: the last searchable row");
+        Check(ps::Search(db, At(1055.0f)).bestRow == 30, "a frame in the clip's end is no candidate: the last searchable row");
     }
     {
         ps::Query q = At(1020.0f);
@@ -365,9 +367,9 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         ps::Query q = At(2005.0f);
         q.biases    = { {}, { 7.0f, 0.0f, -100.0f } };
         const ps::SearchResult r = ps::Search(db, q);
-        Check(r.bestRow == db.clips[4].first + 5 && r.best == 7.0f - 100.0f, "base and looping biases add to a looping child's rows");
+        Check(r.bestRow == db.clips[4].first + 5 && r.best == 7.0f, "the base bias adds; the looping one only to a measured loop's rows");
         const auto top = ps::TopCandidates(db, q, 1);
-        Check(top.size() == 1 && top[0].bias == -93.0f && top[0].total == -93.0f && top[0].clip == 4 && top[0].frame == 5, "TopCandidates reports the bias");
+        Check(top.size() == 1 && top[0].bias == 7.0f && top[0].total == 7.0f && top[0].clip == 4 && top[0].frame == 5, "TopCandidates reports the bias");
     }
     {
         ps::Query q = At(0.0f);
@@ -537,9 +539,12 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         Check(first.searched && first.switched && first.clip == -1, "the first query searches, with nothing playing");
         Check(first.nextClip >= 0, "and names what plays next");
         const ps::MatchStep second = m.Update(db, in, kDt);
-        Check(second.clip == first.nextClip && second.time == first.nextTime, "the next update plays what the last one named");
+        Check(second.clip == first.nextClip && std::fabs(second.time - (first.nextTime + kDt)) < 1.0e-9,
+              "the next update plays on from what the last one named (it showed as is)");
         Check(!second.searched, "a search is not due yet");
-        Check(second.nextClip == second.clip && std::fabs(second.nextTime - (second.time + kDt)) < 1.0e-9, "the time goes on by the timestep");
+        Check(second.nextClip == second.clip && second.nextTime == second.time, "what it names next is where it is: the graph shows it a frame on");
+        const ps::MatchStep third = m.Update(db, in, kDt * 3.0f);
+        Check(std::fabs(third.time - (second.time + 3.0 * kDt)) < 1.0e-6, "the time goes on by each update's own timestep");
     }
     {
         ps::Matcher m;
@@ -598,8 +603,11 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         ps::MatchStep unchanged = m.Update(db, change, kDt);
         Check(!unchanged.searched || std::string_view(unchanged.trigger) != "interrupt", "out of the pick without a change of input does not interrupt");
         change.inputsChanged = true;
-        const ps::MatchStep cut = m.Update(db, change, kDt);
-        Check(cut.searched && std::string_view(cut.trigger) == "interrupt", "out of the pick with a change of input interrupts");
+        ps::MatchStep cut = m.Update(db, change, kDt);
+        Check(!cut.searched, "an interrupt waits out kSwitchFloor after the last switch");
+        change.inputsChanged = false;
+        for (int i = 0; i < 10 && !cut.searched; ++i) cut = m.Update(db, change, kDt);
+        Check(cut.searched && std::string_view(cut.trigger) == "interrupt", "out of the pick with a change of input interrupts, once the floor passes");
         if (cut.switched) Check(db.clips[cut.nextClip].database == 1 - from, "an interrupt plays from the new pick");
     }
     {

@@ -72,7 +72,11 @@ namespace CB::feature::controller::motion {
     struct BlendSlot {
         DeadBlend                             blend;
         std::vector<loco::Bone>               pose;   ///< the output pose, copied out of and back into Havok's
-        bool                                  jumped = false;   ///< the matcher moved the playing clip to another time: the next output blends
+        /// @brief The matcher moved the playing clip to another time (jumpPending, this update); the output that shows it
+        ///        blends (jumpNow, the next generate).
+        /// @note  The graph updates children before their parent, so the clip shows the new time a frame after the matcher
+        ///        wrote it: a blend started in the same frame's generate was already part-way in when the jump showed.
+        bool                                  jumpPending = false, jumpNow = false;
         bool                                  activated = false;   ///< the node (re)activated: its last outputs are not the pose shown since
         std::chrono::steady_clock::time_point used{};
     };
@@ -89,8 +93,8 @@ namespace CB::feature::controller::motion {
         return t;
     }
     using Clock                       = std::chrono::steady_clock;
-    constexpr double        kStaleAfter = 0.5;    ///< seconds unused before a slot starts over
-    constexpr double        kDropAfter  = 10.0;   ///< seconds unused before a slot is dropped
+    /// @brief Seconds unused before a slot is dropped (its node gone); a node that comes back starts over through activate.
+    constexpr double        kDropAfter  = 300.0;
     constexpr std::uint32_t kPruneEvery = 600;    ///< blends between prunes
 
 
@@ -212,7 +216,7 @@ namespace CB::feature::controller::motion {
     {
         BlendTable&      table = Blends();
         std::scoped_lock lock(table.lock);
-        if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.jumped = true;
+        if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.jumpPending = true;
     }
 
     void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
@@ -393,12 +397,10 @@ namespace CB::feature::controller::motion {
             LOG_INFO("motion matching: dead blend slot for hkbCharacter {} - {}", static_cast<const void*>(context.m_character), whose);
             CB_MESSAGE("MM blend slot for hkbCharacter {} - {}", static_cast<const void*>(context.m_character), whose);
         }
-        /// @note A slot unused for a while is stale (a reused character address, or a graph that stopped playing the
-        ///       node): it starts over instead of blending from another life's pose.
-        /// @note So is a node that (re)activated since its last output: the graph showed another generator meanwhile, and a
-        ///       blend from this node's last pose (however recent) snaps back to it.
-        if (std::exchange(slot.activated, false) || std::chrono::duration<double>(now - slot.used).count() > kStaleAfter)
-            slot.blend.Reset(0, m_currentIndex);
+        /// @note A node that (re)activated since its last output starts over: the graph showed another generator meanwhile,
+        ///       and a blend from this node's last pose (however recent) snaps back to it. No clock decides it, since a
+        ///       pause or a menu stops the graph too.
+        if (std::exchange(slot.activated, false)) slot.blend.Reset(0, m_currentIndex);
         slot.used = now;
         if (++table.calls % kPruneEvery == 0)
             std::erase_if(table.slots, [&](const auto& kv) { return std::chrono::duration<double>(now - kv.second.used).count() > kDropAfter; });
@@ -425,7 +427,7 @@ namespace CB::feature::controller::motion {
         }
         const loco::DeadBlendTuning& s = Tuning();
         loco::BlendFault             fault;
-        const bool jumped = std::exchange(slot.jumped, false);
+        const bool jumped = std::exchange(slot.jumpNow, std::exchange(slot.jumpPending, false));
         if (!b.Step(pose.data(), bones, m_currentIndex, jumped, s, &fault)) return;
         if (fault.bone >= 0 && !g_outputLogged.exchange(true)) {
             const loco::Bone& live = fault.blended;
