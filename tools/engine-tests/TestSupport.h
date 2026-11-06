@@ -15,5 +15,6 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg);
 void RunPoseSearchTests(const schema::SchemaRegistry& reg);
 void RunBlendSpaceTests(const schema::SchemaRegistry& reg);
 void RunRootMotionTests(const schema::SchemaRegistry& reg);
+void RunCompatTests();
 
 }  // namespace CB::engine::tests

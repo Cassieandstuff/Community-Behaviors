@@ -5,6 +5,7 @@
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
 #include "core/serve/conditions/Conditions.h"
+#include "core/bootstrap/Compat.h"
 #include "core/bootstrap/CompileGate.h"
 #include "core/bootstrap/LoadGate.h"
 #include "core/debug/DebugOverlay.h"
@@ -541,6 +542,9 @@ namespace CB {
     {
         if (!a_msg) return;
 
+        if (a_msg->type == SKSE::MessagingInterface::kPostLoad)
+            CB::core::bootstrap::compat::Postflight();
+
         if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame || a_msg->type == SKSE::MessagingInterface::kNewGame)
             CB::platform::classes::ReportTypeRegistries();
 
@@ -575,6 +579,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
     PluginLogger::Init("CommunityBehaviors", "Community Behaviors");
+    /// @note Before the first FlagOn of any hook or feature: a mod found here switches the flags it clashes with off.
+    CB::core::bootstrap::compat::Preflight();
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));

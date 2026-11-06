@@ -111,6 +111,7 @@ int main(int argc, char** argv) {
     t::RunPoseSearchTests(reg);
     t::RunBlendSpaceTests(reg);
     t::RunRootMotionTests(reg);
+    t::RunCompatTests();
 
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");

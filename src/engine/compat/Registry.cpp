@@ -1,6 +1,4 @@
-#include "compat/Registry.h"
-
-#include <array>
+#include <compat/Registry.h>
 
 namespace CB::engine::compat {
 
