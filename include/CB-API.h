@@ -268,6 +268,19 @@ namespace mm {
     using CB::engine::anim::WriteMmCache;                      ///< CachedClips → the cache packfile
     using CB::engine::anim::ReadMmCache;                       ///< the cache packfile → CachedClips
 
+    // A pose search schema (CBPoseSearchSchema) and its typed features, as data, and the rig they measure through.
+    using SchemaSpec           = CB::engine::anim::SchemaSpec;
+    using FeatureSpec          = CB::engine::anim::FeatureSpec;
+    using FeatureKind          = CB::engine::anim::FeatureKind;
+    using TrajectorySampleSpec = CB::engine::anim::TrajectorySampleSpec;
+    using Rig                  = CB::engine::anim::Rig;
+    using SchemaSpace          = CB::engine::locomotion::SchemaSpace;   ///< one row space of a SearchDatabase
+    using CB::engine::anim::SchemaText;                        ///< a schema as canonical text
+    using CB::engine::anim::SchemaKey;                         ///< a schema + rig → the key its rows are cached under
+    using CB::engine::anim::MeasureSchema;                     ///< an animation measured against a schema
+    using CB::engine::locomotion::RigFromSkeleton;             ///< a parsed skeleton unit → its Rig
+    using CB::engine::locomotion::SchemaSpecOf;                ///< a parsed CBPoseSearchSchema → its SchemaSpec
+
     using CB::engine::locomotion::RootSelector;                ///< a graph → its CBPoseSearchGenerator, or null
     using CB::engine::locomotion::BuildDatabase;               ///< selector + clips → the SearchDatabase
     using CB::engine::locomotion::Choose;                      ///< the chooser's pick, per database
