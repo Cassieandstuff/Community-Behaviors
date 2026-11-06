@@ -5,6 +5,7 @@
 #include "CharGround.h"
 #include "CharComponents.h"
 #include "CharMovementModel.h"
+#include "CharSpeedProfile.h"
 
 #include <features/Camera/Camera.h>
 #include <locomotion/Horse.h>
@@ -393,8 +394,10 @@ namespace CB::feature::controller {
             Driven&      d  = *driven;
             EngineSpeed& es = d.engineSpeed;
 
-            const float heading   = player->GetHeading(false);
-            const float full      = out->speed;
+            const float heading    = player->GetHeading(false);
+            const float engineFull = out->speed;
+            /// @note The speed profile's, not the movement type record's (CharSpeedProfile): the engine's own stays in engineFull.
+            const float full       = speed::Forward(player, GaitOf(player), engineFull);
             const float engineDir = out->angles[2];
             const char* graphFlag   = hold ? GraphDrivesSpeed(player) : "";
             const bool  graphDrives = graphFlag[0] != 0;
@@ -494,6 +497,7 @@ namespace CB::feature::controller {
             move::Caps caps;
             caps.forward = full * sl.scale;
             DirectionRatios(player, in.gait, caps);
+            speed::Ratios(player, in.gait, caps);
             LogSpeeds(player, in.gait, full);
 
             /// @note The components pushed on the player (swimming) reshape the profile, caps and input before the step.
@@ -507,7 +511,7 @@ namespace CB::feature::controller {
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
-            es = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
+            es = EngineSpeed{ true, engineFull, speed, engineDir, out->angles[2] };
 
             move::Publish(player->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
             /// @note Diagnostic: twice a second while moving or asked to move, the model's inputs and output (a stick held
@@ -737,8 +741,9 @@ namespace CB::feature::controller {
             PublishNpc(*npc);
 
             const float heading   = npc->GetHeading(false);
-            const float full      = out->speed;
-            const float engineDir = out->angles[2];
+            const float engineFull = out->speed;
+            const float full       = speed::Forward(npc, GaitOf(npc), engineFull);
+            const float engineDir  = out->angles[2];
             move::State& s = d.state;
             const bool graphDrives = GraphDrivesSpeed(npc)[0] != 0;
             if (!d.init || graphDrives || deltaTime <= 0.0f) {
@@ -781,7 +786,7 @@ namespace CB::feature::controller {
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, turned, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
-            es = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
+            es = EngineSpeed{ true, engineFull, speed, engineDir, out->angles[2] };
             move::Publish(npc->GetFormID(), move::Snapshot{ s, in, caps, move::kPlayer, pos.x, pos.y });
             PublishSpeed(npc->GetFormID(), FrameSpeed{ full, speed, sl.scale, in.gait });
         }

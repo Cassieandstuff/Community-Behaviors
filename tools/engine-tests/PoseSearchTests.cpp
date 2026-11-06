@@ -18,6 +18,7 @@
 #include <cmath>
 #include <locomotion/ChooserInputs.h>
 #include <locomotion/DeadBlend.h>
+#include <locomotion/SpeedProfile.h>
 #include <filesystem>
 #include <map>
 #include <process.h>
@@ -663,6 +664,22 @@ void ChooserInputChecks() {
 }
 
 /// @brief A jump to another time of the playing clip blends from what was shown, as a change of clip does.
+/// @brief The speed profile: built-ins for the replaced locomotion types, the ini's keys over them, nothing for the rest.
+void SpeedProfileChecks() {
+    namespace loco = CB::engine::locomotion;
+    const auto none = [](std::string_view) { return std::string(); };
+    const auto def  = loco::ResolveSpeedProfile("NPCDefault", none);
+    Check(def && def->walk.forward == 148.0f && def->run.side == 259.0f, "NPCDefault resolves to GASP's walk and run");
+    Check(!loco::ResolveSpeedProfile("NPCBleedout", none), "a type without built-ins or keys keeps its record");
+    const auto keyed = loco::ResolveSpeedProfile("NPCDefault", [](std::string_view k) { return std::string(k == "fWalkForward" ? "100" : k == "fRunBack" ? "junk" : ""); });
+    Check(keyed && keyed->walk.forward == 100.0f && keyed->run.back == 222.0f, "an ini key overrides, an unreadable one leaves the built-in");
+    const auto added = loco::ResolveSpeedProfile("MyState", [](std::string_view k) { return std::string(k == "fRunForward" ? "400" : ""); });
+    Check(added && added->run.forward == 400.0f && added->walk.forward == 0.0f, "a new type needs only its section");
+    Check(loco::SpeedSection("NPCDefault") == "Speed.NPCDefault", "the section is Speed.<MNAM>, byte-exact");
+    Check(loco::SpeedFactor(148.0f, 80.0f) == 1.85f && loco::SpeedFactor(0.0f, 80.0f) == 1.0f && loco::SpeedFactor(148.0f, 0.0f) == 1.0f,
+          "the factor is wanted over record, 1 when either is unset");
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -792,6 +809,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     ChooserInputChecks();
     WeightChecks();
     DeadBlendChecks();
+    SpeedProfileChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);
