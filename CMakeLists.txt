@@ -172,6 +172,8 @@ target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 # <platform/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
 # (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
+# SKSE Menu Framework's consumer header (lib/SKSEMenuFramework, vendored as published): the in-game config pages.
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/lib/SKSEMenuFramework")
 # The CB SDK (lib/cb-sdk, github.com/Cassieandstuff/CB-SDK): the reconstructed Havok + Bethesda source, compiled into
 # the plugin. HK_EXE_GLOBALS_BY_REFERENCE makes every global the exe owns an extern reference the schema link shim
 # binds at load, so the compiled code runs on the game's heaps, singletons and hkClass records. Its roots (<Common/…>

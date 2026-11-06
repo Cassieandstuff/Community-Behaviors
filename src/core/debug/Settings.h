@@ -15,4 +15,12 @@ namespace CB::core::debug {
     /// @brief settings.ini's `[section] key` (a non-flag value), or `def` when the file or key is absent.
     std::string Value(std::string_view section, std::string_view key, std::string_view def = {});
 
+    /// @brief Set settings.ini's `[section] key` to `value` and write the file back, creating it when absent.
+    /// @note A flag already read keeps its value until the next launch: FlagOn callers cache.
+    /// @return false when the file could not be written (logged).
+    bool SetValue(std::string_view section, std::string_view key, std::string_view value);
+
+    /// @brief Remove settings.ini's `[section] key` and write the file back; true when nothing is left to remove.
+    bool RemoveValue(std::string_view section, std::string_view key);
+
 }  // namespace CB::core::debug
