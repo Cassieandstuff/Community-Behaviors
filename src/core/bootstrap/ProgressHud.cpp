@@ -117,13 +117,13 @@ namespace CB::core::bootstrap {
                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize |
                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                          ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
-            ImGui::TextUnformatted("Community Behaviors  -  compiling behaviors");
+            ImGui::Text("Community Behaviors  -  %s", CB::core::bootstrap::ReadPhase());
             ImGui::Spacing();
             if (total == 0) {
-                // Indeterminate: the gate armed the bar before Init finished, so the real total isn't
-                // known yet. A negative fraction makes ImGui animate a sweeping bar ("working…").
+                /// @note Indeterminate: a phase with no count (Init, the adsf, the features' warm-up). A negative
+                ///       fraction makes ImGui animate a sweeping bar.
                 ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()),
-                                   ImVec2(460.0f, 24.0f), "compiling\xE2\x80\xA6");   // "compiling…"
+                                   ImVec2(460.0f, 24.0f), "working\xE2\x80\xA6");
             } else {
                 const float frac = static_cast<float>(done) / static_cast<float>(total);
                 char label[64];

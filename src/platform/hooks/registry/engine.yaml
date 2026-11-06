@@ -249,6 +249,11 @@ symbols:
   # --- Render loop ---
   - { name: Renderer_PresentCall, kind: call, se: 75461+0x9, ae: 77246+0x9, vr: 0 }  # the render loop's CALL of present (OAR's hook point; VR unpinned)
 
+  # --- Main menu -> game load (the warm-up's load gate) ---
+  - { name: BGSSaveLoadManager_ProcessEvents, kind: func, se: 34862, ae: 35772, vr: 0, cpp: "CB::platform::game::BGSSaveLoadManager_ProcessEvents", mangled: "?BGSSaveLoadManager_ProcessEvents@game@platform@CB@@YAXPEAVBGSSaveLoadManager@RE@@@Z", header: "platform/game/SaveLoad.h" }  # the main-thread request pump that runs every game load; 0x140589a60 (SE), 0x1406130b0 (1.6.1170), 0x140625b90 (1.7.104)
+  - { name: BGSSaveLoadManager_Load, kind: func, se: 34819, ae: 35728, vr: 0, cpp: "CB::platform::game::BGSSaveLoadManager_Load", mangled: "?BGSSaveLoadManager_Load@game@platform@CB@@YA_NPEAVBGSSaveLoadManager@RE@@PEBDHI_N@Z", header: "platform/game/SaveLoad.h" }  # Load_Impl (CommonLib's ids): async read, 0x140610480 (1.6.1170), 0x140622f30 (1.7.104)
+  - { name: MainMenu_StartNewGame, kind: func, se: 51246, ae: 52118, vr: 0, cpp: "CB::platform::game::MainMenu_StartNewGame", mangled: "?MainMenu_StartNewGame@game@platform@CB@@YAXAEBVFxDelegateArgs@RE@@@Z", header: "platform/game/SaveLoad.h" }  # "StartNewGame" delegate; 0x1408a20e0 (SE), 0x1409426a0 (1.6.1170), 0x140959160 (1.7.104)
+
   # --- Misc ---
   - { name: LoadPluginBSA, kind: func, se: 13673, ae: 13786, vr: 0 }
 

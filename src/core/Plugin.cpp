@@ -6,6 +6,7 @@
 #include "core/serve/ByteServe.h"
 #include "core/serve/conditions/Conditions.h"
 #include "core/bootstrap/CompileGate.h"
+#include "core/bootstrap/LoadGate.h"
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
 #include "core/debug/Settings.h"
@@ -147,6 +148,8 @@ namespace CB {
         const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
+        CB::core::bootstrap::SetPhase("compiling behaviors");
+        CB::core::bootstrap::SetProgress(0, grandTotal, true);
         /// @note The graphs PlanIncremental kept (ArmThread, before the adsf) are skipped here and in the materialize.
         {
             CB_ZONE(zone, "warm-up: compile graphs");
@@ -173,13 +176,13 @@ namespace CB {
         };
         AnimParallel animPar;   // parallel native-anim compile unless sequencer.disable; serial otherwise
         std::size_t  wrote = 0;
+        CB::core::bootstrap::SetPhase("compiling animations");
         {
             CB_ZONE(zone, "warm-up: materialize + animations");
             wrote = g_resolver.MaterializeCacheToDisk(std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
         }
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
-        CB::core::bootstrap::SetProgress(grandTotal, grandTotal, false);
         LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
                  "in {:.1f}s (runtime loads served from disk cache).",
                  graphCount, g_resolver.NativeAnimCount(), wrote, secs);
@@ -329,7 +332,6 @@ namespace CB {
     static unsigned StandDown()
     {
         SignalAdsfArmed();
-        CB::core::bootstrap::SetProgress(0, 0, false);
         t_compileGateInProgress = false;
         return 0;
     }
@@ -348,6 +350,8 @@ namespace CB {
     static void RunFeatureWarmUp()
     {
         CB_ZONE(zone, "warm-up: features");
+        CB::core::bootstrap::SetPhase("building features");
+        CB::core::bootstrap::SetProgress(0, 0, true);
         AnimParallel par("the features' warm-up");
         CB::core::resolve::RunWarmUp(par.ptr());
     }
@@ -376,6 +380,7 @@ namespace CB {
                 CB_ZONE(zone, "warm-up: wait for init");
                 g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
             }
+            CB::core::bootstrap::SetPhase("loading the cache");
             if (g_resolver.Failed()) return StandDown();
             ArmLoadOrder();
 
@@ -388,11 +393,11 @@ namespace CB {
             }
             if (!adsfFromCache) {
                 CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                CB::core::bootstrap::SetPhase("projecting animation data");
                 ArmAdsfSetDataServe(animPar.ptr());
                 SignalAdsfArmed();
             }
             RunFeatureWarmUp();
-            CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
             {
                 CB_ZONE(zone, "warm-up: wait for init");
@@ -404,7 +409,7 @@ namespace CB {
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
             const std::size_t total      = graphCount + animCount;
-            CB::core::bootstrap::SetProgress(0, total, true); CB::core::bootstrap::Install();
+            CB::core::bootstrap::Install();
 
             /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
             ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
@@ -420,6 +425,7 @@ namespace CB {
                 g_resolver.SetAnimDataComplete(true);
             } else {
                 CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                CB::core::bootstrap::SetPhase("projecting animation data");
                 AnimParallel adsfPar("the adsf projection parses animations");
                 ArmAdsfSetDataServe(adsfPar.ptr());
             }
@@ -437,10 +443,15 @@ namespace CB {
     /// @brief Set as the arm/compile exits, by any path (inline fallback included); WarmUpFinished reads it.
     static std::atomic<bool> g_warmUpFinished{ false };
 
+    /// @note The bar is retired here and nowhere else: after every phase, so it never vanishes while one still runs.
     static unsigned __stdcall ArmThread(void*)
     {
+        const auto     t0 = std::chrono::steady_clock::now();
         const unsigned rc = ArmThreadBody();
         g_warmUpFinished.store(true, std::memory_order_release);
+        CB::core::bootstrap::SetProgress(0, 0, false);
+        LOG_INFO("Community Behaviors: warm-up finished in {:.1f} s (every phase) - game loads may start.",
+                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
         return rc;
     }
 
@@ -464,7 +475,8 @@ namespace CB {
         // Progress bar is DEFAULT — armed NOW, before the ArmThread does any work, so it's visible for the
         // whole arm. Indeterminate until a path sets the real total (DrawBar's total==0 path). No marker
         // gate; it only draws while a compile is running.
-        CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
+        CB::core::bootstrap::SetPhase("reading the load order");
+        CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate bar
         CB::core::bootstrap::Install();                      // installs the present hook + imgui now (idempotent)
 
         // Kick the background arm and RETURN — the main thread stays free to pump the window + present, so
@@ -596,6 +608,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::core::serve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
+
+    CB::core::bootstrap::InstallLoadGate();
 
     /// @note The condition roster is registered always: it installs nothing, and motion matching's chooser rows and
     ///       biases are condition expressions. Only the conditional-setdata producer/matcher hooks wait on
