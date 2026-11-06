@@ -337,6 +337,21 @@ void DatabaseChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
         q.biases    = { { 0.0f, 5000.0f, 0.0f }, {} };
         r           = ps::Search(db, q);
         Check(r.playing == 5000.0f && r.wins, "the continuing bias counts on the playing row alone");
+        q.hold = true;
+        Check(!ps::Search(db, q).wins, "a pick within its dwell holds against a far better candidate");
+        q.clipEnd = true;
+        Check(ps::Search(db, q).wins, "but not past its clip's end");
+        q.clipEnd = false;
+        q.hold    = false;
+        const float best = r.best;
+        Check(best > 0.0f, "the margin case needs a candidate above cost 0: " + std::to_string(best));
+        q.biases = { { 0.0f, best * 1.05f, 0.0f }, {} };
+        Check(!ps::Search(db, q).wins, "a candidate 5% better than the playing row does not replace it");
+        q.margin = 0.0f;
+        Check(ps::Search(db, q).wins, "without the margin it does");
+        q.margin = ps::kSwitchMargin;
+        q.biases = { { 0.0f, best * 1.2f, 0.0f }, {} };
+        Check(ps::Search(db, q).wins, "20% better clears the margin");
     }
     {
         ps::Query q = At(2005.0f);

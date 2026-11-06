@@ -38,6 +38,13 @@ namespace CB::engine::locomotion {
     inline constexpr float  kForceSpeed     = 100.0f;      ///< game units/s change of the desired speed
     inline constexpr float  kForceCos       = 0.8660254f;  ///< cos 30 deg: a turn of the desired direction past it
     inline constexpr double kEndMargin      = 0.1;         ///< seconds before a clip's end that force a search
+    /// @brief The share of the playing row's cost a candidate must beat it by to replace it.
+    /// @note  Without it, query noise alone flips between near-equal frames each search (FluidMotion switches at 12%; UE's
+    ///        pose search biases the continuing pose for the same reason).
+    inline constexpr float  kSwitchMargin   = 0.12f;
+    /// @brief Seconds a pick plays before another may replace it, and the shorter hold after a jump in the request.
+    /// @note  A clip's end and the chooser leaving its database replace it at once.
+    inline constexpr double kMinDwell = 0.3, kForcedDwell = 0.1;
 
     /// @brief The default weights: Holden's demo weights on the samples CB matched on first (1/3, 2/3 and 1 s, ahead and
     ///        back), 0 on every part added since, so a database stating no weights matches as it did.
@@ -301,6 +308,8 @@ namespace CB::engine::locomotion {
         std::vector<std::pair<int, int>> banned;
         bool clipEnd   = false;   ///< the playing clip is ending: it cannot go on, so the best candidate wins outright
         bool interrupt = false;   ///< likewise: the chooser left the playing database
+        bool  hold   = false;           ///< the playing pick is within its dwell: no candidate replaces it (bar clipEnd, interrupt)
+        float margin = kSwitchMargin;   ///< see kSwitchMargin
     };
 
     /// @brief One search's answer.
@@ -390,6 +399,7 @@ namespace CB::engine::locomotion {
         double            m_lastSearch = -1.0e9;
         float             m_lastWantX = 0, m_lastWantY = 0;
         float             m_prevWantX = 0, m_prevWantY = 0;   ///< the request one update ago
+        double            m_lastSwitch = -1.0e9;   ///< m_clock at the last pick
         std::vector<Pick> m_picks;
     };
 

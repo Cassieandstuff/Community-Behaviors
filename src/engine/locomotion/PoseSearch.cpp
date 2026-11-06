@@ -663,8 +663,10 @@ namespace CB::engine::locomotion {
         out.playingRow = curRow;
         out.searched   = searched;
         /// @note At a clip's end or an interrupt the playing row cannot go on, so the best candidate wins outright;
-        ///       otherwise its biased cost must be below the playing row's.
-        out.wins       = bestRow >= 0 && (curRow < 0 || q.clipEnd || q.interrupt || best < playing);
+        ///       otherwise the pick must be past its dwell and the candidate's biased cost below the playing row's by the
+        ///       margin (of its magnitude: a bias can make a cost negative).
+        out.wins       = bestRow >= 0 && (curRow < 0 || q.clipEnd || q.interrupt ||
+                                    (!q.hold && best < playing - q.margin * std::fabs(playing)));
         return out;
     }
 
@@ -714,6 +716,7 @@ namespace CB::engine::locomotion {
         m_lastSearch = -1.0e9;
         m_lastWantX = m_lastWantY = 0;
         m_prevWantX = m_prevWantY = 0;
+        m_lastSwitch = -1.0e9;
         m_picks.clear();
     }
 
@@ -740,6 +743,7 @@ namespace CB::engine::locomotion {
         out.clip = m_clip;
         out.time = m_time;
 
+        bool       forcedNow = false;
         const auto due = [&] {
             if (!in.haveQuery) return false;
             const double elapsed = m_clock - m_lastSearch;
@@ -749,7 +753,8 @@ namespace CB::engine::locomotion {
             bool        forced = std::fabs(speed - lastSpeed) > kForceSpeed;
             if (!forced && speed > kForceMoving && lastSpeed > kForceMoving)
                 forced = (in.desiredX * m_lastWantX + in.desiredY * m_lastWantY) / (speed * lastSpeed) < kForceCos;
-            forced = forced && std::hypot(in.desiredX - m_prevWantX, in.desiredY - m_prevWantY) < kSettledSpeed;
+            forced    = forced && std::hypot(in.desiredX - m_prevWantX, in.desiredY - m_prevWantY) < kSettledSpeed;
+            forcedNow = forced;
             out.trigger = m_interrupt ? "interrupt" : m_searchNow ? "clip end" : elapsed < kSearchInterval ? "forced" : "timer";
             return m_searchNow || m_interrupt || elapsed >= kSearchInterval || (forced && elapsed >= kForcedSpacing);
         };
@@ -778,6 +783,7 @@ namespace CB::engine::locomotion {
             q.biases      = in.biases;
             q.clipEnd     = m_searchNow;
             q.interrupt   = m_interrupt;
+            q.hold        = m_clock - m_lastSwitch < (forcedNow ? kForcedDwell : kMinDwell);
 
             m_searchNow  = false;
             m_interrupt  = false;
@@ -796,6 +802,7 @@ namespace CB::engine::locomotion {
                 m_pendingClip = clip;
                 m_pendingTime = (out.result.bestRow - c.first) * c.dt;
                 m_picks.push_back({ clip, static_cast<double>(out.result.bestRow - c.first), m_clock });
+                m_lastSwitch = m_clock;
                 out.switched = true;
             }
         }
