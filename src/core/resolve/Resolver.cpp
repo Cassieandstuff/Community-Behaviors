@@ -1221,10 +1221,10 @@ namespace CB {
         //    exact same redirect without recompiling.
         BuildRedirectMap(dataRoot);
 
-        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed: nothing in graph serving
-        ///       waits on them (they're loose .hkx under Data\meshes\, found by the engine's own loose scan, not
-        ///       the cache redirect), so their compile no longer holds graph serving back. Unchanged ones are
-        ///       skipped and orphans removed via the animation ledger.
+        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed (they're loose .hkx under
+        ///       Data\meshes\, found by the engine's own loose scan, not the cache redirect), so graphs under roots
+        ///       without them serve at once; ByteServe holds a serve under a root WITH them until the warm-up ends
+        ///       (CompilesAnimationsUnder). Unchanged ones are skipped and orphans removed via the animation ledger.
         WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 4) Completion sentinel — written LAST, and ONLY when every graph compiled + wrote
@@ -1316,11 +1316,7 @@ namespace CB {
             ++characters;
         }
 
-        {
-            std::lock_guard<std::mutex> lk(m_readyMutex);
-            m_redirectReady.store(true, std::memory_order_release);
-        }
-        m_readyCv.notify_all();   // wake any owned actor that loaded early and is waiting
+        m_redirectReady.store(true, std::memory_order_release);
         LOG_INFO("Community Behaviors: above-OAR redirect armed for {} character(s) across {} actor root(s) "
                  "({} actor(s) deferred to loose pair).",
                  characters, m_projectRedirects.size(), deferred);
@@ -1518,25 +1514,10 @@ namespace CB {
         std::string projStem = projKey.substr(slash + 1);                   // "defaultmale.hkx"
         if (const auto dot = projStem.find_last_of('.'); dot != std::string::npos) projStem.erase(dot);  // "defaultmale"
 
-        // If warm-up hasn't armed the cache yet, only actors WE OWN wait for it — never stall
-        // unowned actors (wolves, chickens) or the main menu's background loads. Ownership is
-        // known from m_sources (built in Init, before warm-up): a character unit under this
-        // project's folder root. Waiting (vs the old silent vanilla fallback) is what keeps an
-        // early save-load from getting un-merged behaviors (TDM lean gone). Bounded so a stuck
-        // warm-up degrades to vanilla instead of hanging forever.
-        if (!m_redirectReady.load(std::memory_order_acquire)) {
-            // Only actors we will actually redirect wait — i.e. those whose behavior tree BR
-            // owns (same condition as the redirect-map build). An actor whose behavior BR does
-            // not own (e.g. the horse, deferred to its loose pair) passes straight through.
-            bool owned = false;
-            for (const auto& [k, _] : m_sources)
-                if (k.rfind(folderRoot + "/behaviors/", 0) == 0) { owned = true; break; }
-            if (!owned) return {};
-            std::unique_lock<std::mutex> lk(m_readyMutex);
-            m_readyCv.wait_for(lk, std::chrono::seconds(120),
-                               [this] { return m_redirectReady.load(std::memory_order_acquire); });
-            if (!m_redirectReady.load(std::memory_order_acquire)) return {};  // timed out -> passthrough
-        }
+        /// @note No wait here: ByteServe parks an owned project's open in WaitForCompile (RedirectsProject) until the
+        ///       warm-up ends, with no time limit. The old 120 s bound here served vanilla to any actor loaded that long
+        ///       before the cache armed, for the whole session.
+        if (!m_redirectReady.load(std::memory_order_acquire)) return {};
 
         const auto it = m_projectRedirects.find(folderRoot);
         if (it == m_projectRedirects.end() || it->second.empty()) return {};
@@ -1612,6 +1593,31 @@ namespace CB {
             }
         }
         return swap;
+    }
+
+    bool Resolver::RedirectsProject(std::string_view vanillaProjectPath) const
+    {
+        const std::string norm    = NormalizeKey(vanillaProjectPath);
+        const std::string projKey = (norm.rfind("meshes/", 0) == 0) ? norm : "meshes/" + norm;
+        const auto        slash   = projKey.find_last_of('/');
+        if (slash == std::string::npos) return false;
+        const std::string behaviors = projKey.substr(0, slash) + "/behaviors/";
+        for (const auto& [k, _] : m_sources)
+            if (k.rfind(behaviors, 0) == 0) return true;
+        return false;
+    }
+
+    bool Resolver::CompilesAnimationsUnder(const std::string& folderRoot) const
+    {
+        if (folderRoot.empty() || m_nativeAnims.empty()) return false;
+        std::call_once(m_nativeAnimKeysOnce, [this] {
+            m_nativeAnimKeys.reserve(m_nativeAnims.size());
+            for (const auto& a : m_nativeAnims) m_nativeAnimKeys.push_back(NormalizeKey(a.outKey));
+            std::sort(m_nativeAnimKeys.begin(), m_nativeAnimKeys.end());
+        });
+        const std::string prefix = folderRoot + '/';
+        const auto        it     = std::lower_bound(m_nativeAnimKeys.begin(), m_nativeAnimKeys.end(), prefix);
+        return it != m_nativeAnimKeys.end() && it->rfind(prefix, 0) == 0;
     }
 
     bool Resolver::Owns(std::string_view servePath) const

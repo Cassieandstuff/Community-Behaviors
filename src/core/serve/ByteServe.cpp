@@ -10,6 +10,7 @@
 #include <codec/resource/PathKey.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -41,6 +42,20 @@ namespace CB::core::serve {
 
         std::atomic<int> s_logBudget{ 80 };   // cap the "serving" spam in NPC-dense cells
 
+        /// @brief Park this open until the warm-up has exited (no time limit; the arm thread exits on every path).
+        /// @note  Logs the first waiting thread's id: a wait on the main thread stops the window until the warm-up ends.
+        void WaitForWarmUp(const char* a_raw, const char* a_why)
+        {
+            static std::atomic<bool> logged{ false };
+            if (!logged.exchange(true))
+                LOG_INFO("[byteserve] '{}' waits for the warm-up ({}) on thread {}.", a_raw, a_why, ::GetCurrentThreadId());
+            const auto t0 = std::chrono::steady_clock::now();
+            CB::EnsureCompiledAndArmed();
+            CB::WaitForCompile();
+            const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (secs >= 1.0) LOG_INFO("[byteserve] '{}' waited {:.1f} s for the warm-up.", a_raw, secs);
+        }
+
         // SEH-guarded bounded C-string copy (POD-only; a bad pointer degrades to "" instead of AV).
         bool SehCopy(const char* a_p, char* a_out, std::size_t a_cap) {
             __try {
@@ -70,18 +85,14 @@ namespace CB::core::serve {
                         // (1) Owned character / behavior graph — swap to the cache the warm-up wrote.
                         //     Gate on RedirectReady so we never point at a not-yet-materialized file.
                         if (s_resolver->Owns(serveKey)) {
-                            // Backstop for the compile gate: an owned graph must never be served
-                            // half-compiled. Drive the gate (a no-op once armed), then WAIT for the
-                            // compile — this is what makes the SPLIT path correct: the adsf/setdata
-                            // detours armed the light merges and launched the graph compile in the
-                            // background so the menu could present the progress bar; here, the first
-                            // time a real BR graph is actually needed, we block until that background
-                            // compile has finished and RedirectReady is true. On the synchronous path
-                            // EnsureCompiledAndArmed already compiled+armed and WaitForCompile no-ops.
-                            if (!s_resolver->RedirectReady()) {
-                                CB::EnsureCompiledAndArmed();
-                                CB::WaitForCompile();
-                            }
+                            /// @note An owned graph is never served half-compiled, nor before the native animations
+                            ///       its actor root may bind are written: RedirectReady arms before those, so a root
+                            ///       holding any waits for the whole warm-up.
+                            if (!s_resolver->RedirectReady())
+                                WaitForWarmUp(raw, "graphs");
+                            else if (!CB::WarmUpFinished() &&
+                                     s_resolver->CompilesAnimationsUnder(CB::core::discover::FolderRootOf(serveKey)))
+                                WaitForWarmUp(raw, "native animations");
                             // Owns() is membership only — a graph that FAILED to compile is still owned
                             // but has no cache file. Redirecting to a missing file abandons the vanilla
                             // open with no fallback (→ A-pose/CTD), so require the file to exist before
@@ -96,9 +107,18 @@ namespace CB::core::serve {
                             // not ready yet (pre-warm-up load), or owned-but-uncompiled (no cache file)
                             // → fall through to vanilla, safe.
                         }
-                        // (2) Owned PROJECT — ProjectRedirect waits for the cache, synthesizes BR's
+                        // (2) Owned PROJECT — waits for the warm-up here, then ProjectRedirect synthesizes BR's
                         //     project into community_behaviors_cache\, and returns the swap path ("" if not ours).
                         else {
+                            /// @note The project of a tree CB owns waits like its graphs; the project sits AT its folder
+                            ///       root (e.g. meshes/actors/character/defaultmale.hkx).
+                            if (!CB::WarmUpFinished() && s_resolver->RedirectsProject(raw)) {
+                                const std::size_t slash = serveKey.find_last_of('/');
+                                if (!s_resolver->RedirectReady())
+                                    WaitForWarmUp(raw, "graphs");
+                                else if (s_resolver->CompilesAnimationsUnder(serveKey.substr(0, slash)))
+                                    WaitForWarmUp(raw, "native animations");
+                            }
                             thread_local std::string pswap;
                             pswap = s_resolver->ProjectRedirect(raw);
                             if (!pswap.empty()) {
