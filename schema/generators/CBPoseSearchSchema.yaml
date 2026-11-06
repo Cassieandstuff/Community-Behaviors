@@ -1,0 +1,10 @@
+name:      CBPoseSearchSchema
+parent:    hkReferencedObject
+size:      48
+# What a pose search database matches on: its features, each measured from every clip and weighed in the cost. Shared:
+# each database points at one (Unreal's PoseSearchSchema, O3DE's FeatureSchema). `rootBone` is the bone every feature is
+# measured relative to (the character's position and facing); empty = the rig's first bone.
+fields:
+  - { name: name,     type: string }
+  - { name: rootBone, type: string }
+  - { name: features, type: ptrarray, ref: CBPoseSearchFeature, roster: ref }

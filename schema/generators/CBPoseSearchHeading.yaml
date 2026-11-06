@@ -1,0 +1,10 @@
+name:      CBPoseSearchHeading
+parent:    CBPoseSearchFeature
+size:      96
+# Where a bone's `axis` (0 = x, 1 = y, 2 = z) points on the ground plane, in the root's space, a unit vector. The query is
+# the playing frame's unless `query` is bound.
+fields:
+  - { name: bone,  type: string }
+  - { name: axis,  type: int32 }
+  - { pad: 16 }
+  - { name: query, type: vector4 }

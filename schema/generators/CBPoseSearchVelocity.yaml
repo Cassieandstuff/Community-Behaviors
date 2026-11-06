@@ -1,0 +1,10 @@
+name:      CBPoseSearchVelocity
+parent:    CBPoseSearchFeature
+size:      96
+# A bone's velocity less `origin`'s (empty = the schema's root bone), in the root's space, game units/s. The query is the
+# playing frame's unless `query` is bound.
+fields:
+  - { name: bone,   type: string }
+  - { name: origin, type: string }
+  - { pad: 16 }
+  - { name: query,  type: vector4 }

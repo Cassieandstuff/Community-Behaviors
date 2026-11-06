@@ -1,0 +1,8 @@
+name:      CBPoseSearchFeature
+parent:    hkbBindable
+size:      56
+abstract:  true
+# One part of a frame a schema matches on. `weight` scales its whole cost; bindable like every field of a feature.
+fields:
+  - { name: weight, type: float }
+  - { pad: 8 }

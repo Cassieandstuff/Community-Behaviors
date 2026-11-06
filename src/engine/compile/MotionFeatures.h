@@ -5,6 +5,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /// @file
@@ -121,5 +122,54 @@ namespace CB::engine::anim {
     ///        and a key before a ±180 wrap is CONSTANT, so no sample between two frames sweeps through 0.
     /// @note  Names are compared byte-exact by every reader; the generator and motion matching share these.
     std::vector<AnimCurveDef> MeasureMotionCurves(const ClipMotion& m, const CurveTolerances& tol);
+
+    /// @brief A skeleton's bones, parents before children or not: what a schema's features measure through.
+    /// @note  An animation names only the bones it moves; the rest hold their reference pose, and parents come from here.
+    struct Rig {
+        struct Bone {
+            std::string name;          ///< byte-exact
+            int         parent = -1;
+            MotionVec   translation;   ///< the reference pose, parent-relative
+            MotionQuat  rotation;
+        };
+        std::vector<Bone> bones;
+        /// @return the bone named `name` exactly, -1 when none
+        int IndexOf(std::string_view name) const;
+    };
+
+    /// @brief CBPoseSearch*'s feature classes, as plain data (the schema classes' fields, names byte-exact).
+    enum class FeatureKind { Trajectory, Position, Velocity, Heading, Curve };
+    struct TrajectorySampleSpec {
+        float time = 0;                                           ///< seconds; negative = back
+        float position = 0, facing = 0, velocity = 0, height = 0;  ///< each part's weight
+    };
+    struct FeatureSpec {
+        FeatureKind                       kind   = FeatureKind::Trajectory;
+        float                             weight = 1;
+        std::string                       bone, origin, curve;   ///< as the kind uses them; origin empty = the root bone
+        int                               axis = 1;               ///< Heading: 0 = x, 1 = y, 2 = z
+        std::vector<TrajectorySampleSpec> samples;               ///< Trajectory
+    };
+    struct SchemaSpec {
+        std::string              name;
+        std::string              rootBone;   ///< empty = the rig's first bone
+        std::vector<FeatureSpec> features;
+    };
+
+    /// @brief Floats a feature adds to a row: a trajectory 7 per sample (position x y, facing x y, velocity x y, height),
+    ///        a position or velocity 3, a heading 2, a curve 1.
+    int FeatureDims(const FeatureSpec& f);
+    /// @brief A schema's row width: its features' dims, in order.
+    int SchemaDims(const SchemaSpec& s);
+    /// @brief Each dim's weight: the feature's weight, times the sample part's for a trajectory.
+    std::vector<float> SchemaWeights(const SchemaSpec& s);
+
+    /// @brief `def` measured against `schema` through `rig`: one row (SchemaDims floats) per frame.
+    /// @param loopFrames the clip's loop period (LoopPeriod), 0 = no loop: a loop's trajectory samples wrap into its next
+    ///        cycle, anything else's hold at its ends
+    /// @return nullopt with `err` set when the clip has under two frames, or the rig lacks a bone a feature or the root names.
+    /// @note  Every value is in the current frame's root space (x right, y forward, z up), game units.
+    std::optional<std::vector<float>> MeasureSchema(const AnimationDef& def, const Rig& rig, const SchemaSpec& schema, int loopFrames,
+                                                    std::string& err);
 
 }  // namespace CB::engine::anim

@@ -509,4 +509,199 @@ namespace CB::engine::anim {
         return out;
     }
 
+    int Rig::IndexOf(std::string_view name) const
+    {
+        for (std::size_t i = 0; i < bones.size(); ++i)
+            if (bones[i].name == name) return static_cast<int>(i);
+        return -1;
+    }
+
+    int FeatureDims(const FeatureSpec& f)
+    {
+        switch (f.kind) {
+        case FeatureKind::Trajectory: return static_cast<int>(f.samples.size()) * features::kPerSample;
+        case FeatureKind::Position:
+        case FeatureKind::Velocity: return 3;
+        case FeatureKind::Heading: return 2;
+        case FeatureKind::Curve: return 1;
+        }
+        return 0;
+    }
+
+    int SchemaDims(const SchemaSpec& s)
+    {
+        int n = 0;
+        for (const auto& f : s.features) n += FeatureDims(f);
+        return n;
+    }
+
+    std::vector<float> SchemaWeights(const SchemaSpec& s)
+    {
+        using namespace features;
+        std::vector<float> w;
+        w.reserve(static_cast<std::size_t>(SchemaDims(s)));
+        for (const auto& f : s.features) {
+            if (f.kind != FeatureKind::Trajectory) {
+                w.insert(w.end(), static_cast<std::size_t>(FeatureDims(f)), f.weight);
+                continue;
+            }
+            for (const auto& smp : f.samples) {
+                float part[kPerSample]{};
+                part[kSamplePos] = part[kSamplePos + 1] = smp.position;
+                part[kSampleFacing] = part[kSampleFacing + 1] = smp.facing;
+                part[kSampleVelocity] = part[kSampleVelocity + 1] = smp.velocity;
+                part[kSampleHeight] = smp.height;
+                for (float p : part) w.push_back(f.weight * p);
+            }
+        }
+        return w;
+    }
+
+    std::optional<std::vector<float>> MeasureSchema(const AnimationDef& def, const Rig& rig, const SchemaSpec& schema, int loopFrames,
+                                                    std::string& err)
+    {
+        using namespace features;
+        const double dt = def.frameDuration > 0 ? def.frameDuration : 1.0 / 30.0;
+        const int    n  = def.numFrames > 0 ? def.numFrames : static_cast<int>(std::lround(def.duration / dt)) + 1;
+        if (n < 2) { err = "fewer than 2 frames"; return std::nullopt; }
+        if (rig.bones.empty()) { err = "an empty rig"; return std::nullopt; }
+
+        const int root = schema.rootBone.empty() ? 0 : rig.IndexOf(schema.rootBone);
+        if (root < 0) { err = "the rig has no root bone '" + schema.rootBone + "'"; return std::nullopt; }
+        const auto boneOf = [&](const std::string& name, int fallback) -> int {
+            if (name.empty()) return fallback;
+            const int b = rig.IndexOf(name);
+            if (b < 0) err = "the rig has no bone '" + name + "'";
+            return b;
+        };
+        std::vector<int> bone(schema.features.size(), -1), origin(schema.features.size(), -1);
+        for (std::size_t k = 0; k < schema.features.size(); ++k) {
+            const FeatureSpec& f = schema.features[k];
+            if (f.kind == FeatureKind::Position || f.kind == FeatureKind::Velocity || f.kind == FeatureKind::Heading) {
+                bone[k] = boneOf(f.bone, -1);
+                if (f.bone.empty()) err = "a " + std::string(f.kind == FeatureKind::Heading ? "heading" : "bone") + " feature names no bone";
+                origin[k] = boneOf(f.origin, root);
+                if (bone[k] < 0 || origin[k] < 0) return std::nullopt;
+            }
+        }
+
+        /// @note Model space per frame, through the rig's parents: an animated bone's track, else its reference pose.
+        std::unordered_map<std::string, const AnimTrackDef*> tracks;
+        for (const auto& t : def.tracks) tracks.emplace(t.bone, &t);
+        std::vector<const AnimTrackDef*> trackOf(rig.bones.size(), nullptr);
+        for (std::size_t b = 0; b < rig.bones.size(); ++b)
+            if (const auto it = tracks.find(rig.bones[b].name); it != tracks.end()) trackOf[b] = it->second;
+        std::vector<std::vector<Xf>> world(rig.bones.size());
+        std::vector<char>            busy(rig.bones.size(), 0);
+        const auto solve = [&](auto&& self, int b) -> bool {
+            if (!world[b].empty()) return true;
+            if (busy[b]) { err = "the rig's parents loop at '" + rig.bones[b].name + "'"; return false; }
+            busy[b] = 1;
+            const int parent = rig.bones[b].parent;
+            if (parent >= static_cast<int>(rig.bones.size())) { err = "a parent index past the rig"; return false; }
+            if (parent >= 0 && !self(self, parent)) return false;
+            const Rig::Bone&    rb = rig.bones[b];
+            const AnimTrackDef* tr = trackOf[b];
+            world[b].resize(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i) {
+                const double t = i * dt;
+                Xf local{ rb.translation, rb.rotation };
+                if (tr && !tr->translation.empty()) local.p = SampleV3(tr->translation, t);
+                if (tr && !tr->rotation.empty()) local.q = SampleQt(tr->rotation, t);
+                world[b][i] = parent >= 0 ? Compose(world[parent][i], local) : local;
+            }
+            return true;
+        };
+        if (!solve(solve, root)) return std::nullopt;
+        for (std::size_t k = 0; k < schema.features.size(); ++k) {
+            if (bone[k] >= 0 && !solve(solve, bone[k])) return std::nullopt;
+            if (origin[k] >= 0 && !solve(solve, origin[k])) return std::nullopt;
+        }
+
+        ClipMotion m;
+        m.dt     = dt;
+        m.frames = n;
+        for (const Xf& x : world[root]) m.rootPos.push_back(x.p), m.rootRot.push_back(x.q);
+        int ahead = 0, back = 0;
+        for (const auto& f : schema.features)
+            for (const auto& smp : f.samples) {
+                const int o = static_cast<int>(std::lround(smp.time / dt));
+                ahead = (std::max)(ahead, o), back = (std::max)(back, -o);
+            }
+        /// @note A loop's root runs on across its seam (Unroll); anything else's holds at its ends.
+        std::vector<MotionVec>  path    = m.rootPos;
+        std::vector<MotionQuat> pathRot = m.rootRot;
+        int                     lead    = 0;
+        if (loopFrames > 0 && loopFrames <= n) {
+            Unroll(m, loopFrames, back + 1, ahead + 1, path, pathRot);
+            lead = back + 1;
+        }
+        const int span = static_cast<int>(path.size());
+
+        const int        dims = SchemaDims(schema);
+        std::vector<float> rows(static_cast<std::size_t>(n) * dims, 0.0f);
+        /// @brief Central differences in model space (one-sided at the ends), as Velocity.
+        const auto velocityOf = [&](int b, int i) {
+            const int a = i == 0 ? 0 : i - 1, c = i + 1 == n ? n - 1 : i + 1;
+            return (world[b][c].p - world[b][a].p) * (1.0 / ((c - a) * dt));
+        };
+        for (int i = 0; i < n; ++i) {
+            float*            r = rows.data() + static_cast<std::size_t>(i) * dims;
+            const MotionQuat& q = m.rootRot[i];
+            const MotionVec&  p = m.rootPos[i];
+            for (std::size_t k = 0; k < schema.features.size(); ++k) {
+                const FeatureSpec& f = schema.features[k];
+                switch (f.kind) {
+                case FeatureKind::Trajectory:
+                    for (const auto& smp : f.samples) {
+                        const int       j   = std::clamp(i + lead + static_cast<int>(std::lround(smp.time / dt)), 0, span - 1);
+                        const MotionVec pos = ToLocal(q, path[j] - p);
+                        const MotionVec dir = ToLocal(q, Rotate(pathRot[j], { 0, 1, 0 }));
+                        const MotionVec vel = ToLocal(q, Velocity(path, j, dt));
+                        const double    len = std::hypot(dir.x, dir.y);
+                        r[kSamplePos]          = static_cast<float>(pos.x);
+                        r[kSamplePos + 1]      = static_cast<float>(pos.y);
+                        r[kSampleFacing]       = static_cast<float>(len > 0 ? dir.x / len : 0.0);
+                        r[kSampleFacing + 1]   = static_cast<float>(len > 0 ? dir.y / len : 1.0);
+                        r[kSampleVelocity]     = static_cast<float>(vel.x);
+                        r[kSampleVelocity + 1] = static_cast<float>(vel.y);
+                        r[kSampleHeight]       = static_cast<float>(pos.z);
+                        r += kPerSample;
+                    }
+                    break;
+                case FeatureKind::Position: {
+                    const MotionVec v = ToLocal(q, world[bone[k]][i].p - world[origin[k]][i].p);
+                    r[0] = static_cast<float>(v.x), r[1] = static_cast<float>(v.y), r[2] = static_cast<float>(v.z);
+                    r += 3;
+                    break;
+                }
+                case FeatureKind::Velocity: {
+                    const MotionVec v = ToLocal(q, velocityOf(bone[k], i) - velocityOf(origin[k], i));
+                    r[0] = static_cast<float>(v.x), r[1] = static_cast<float>(v.y), r[2] = static_cast<float>(v.z);
+                    r += 3;
+                    break;
+                }
+                case FeatureKind::Heading: {
+                    const MotionVec unit = f.axis == 0 ? MotionVec{ 1, 0, 0 } : f.axis == 2 ? MotionVec{ 0, 0, 1 } : MotionVec{ 0, 1, 0 };
+                    const MotionVec h    = ToLocal(q, Rotate(world[bone[k]][i].q, unit));
+                    const double    len  = std::hypot(h.x, h.y);
+                    r[0] = static_cast<float>(len > 0 ? h.x / len : 0.0);
+                    r[1] = static_cast<float>(len > 0 ? h.y / len : 1.0);
+                    r += 2;
+                    break;
+                }
+                case FeatureKind::Curve: {
+                    const AnimCurveDef* c = nullptr;
+                    for (const auto& cv : def.curves)
+                        if (cv.name == f.curve) c = &cv;
+                    r[0] = c ? SampleCurve(*c, static_cast<float>(i * dt)) : 0.0f;
+                    r += 1;
+                    break;
+                }
+                }
+            }
+        }
+        return rows;
+    }
+
 }  // namespace CB::engine::anim

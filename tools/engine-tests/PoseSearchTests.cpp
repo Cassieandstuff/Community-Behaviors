@@ -767,6 +767,73 @@ void LoopFitReport() {
     std::printf("loopfit: %d of %d clip(s) loop\n", loops, clips);
 }
 
+/// @brief A schema's features measured through a rig: every kind, its weights, a missing bone, a loop's wrap.
+void SchemaMeasureChecks() {
+    anim::Rig rig;
+    rig.bones.push_back({ "Root", -1, {}, {} });
+    rig.bones.push_back({ "Pelvis", 0, { 0, 0, 50 }, {} });
+    rig.bones.push_back({ "Foot", 1, { 10, 0, -50 }, {} });
+
+    anim::AnimationDef def;   // the root walks +y at 100 units/s for a second; nothing else moves
+    def.numFrames     = 31;
+    def.frameDuration = 1.0f / 30.0f;
+    def.duration      = 1.0f;
+    anim::AnimTrackDef root;
+    root.bone = "Root";
+    root.translation.push_back({ 0.0f, { 0, 0, 0 } });
+    root.translation.push_back({ 1.0f, { 0, 100, 0 } });
+    root.rotation.push_back({ 0.0f, { 0, 0, 0, 1 } });
+    def.tracks.push_back(root);
+    anim::AnimCurveDef speed;
+    speed.name = "Speed";
+    speed.keys.push_back({ 0.0f, 100.0f, anim::AnimCurveKey::Interp::Constant });
+    def.curves.push_back(speed);
+
+    anim::SchemaSpec schema;
+    anim::FeatureSpec traj;
+    traj.kind    = anim::FeatureKind::Trajectory;
+    traj.weight  = 2;
+    traj.samples = { { 0.5f, 1, 1, 1, 0 }, { -0.2f, 0.5f, 0, 0, 0 } };
+    anim::FeatureSpec pos;
+    pos.kind = anim::FeatureKind::Position;
+    pos.bone = "Foot";
+    anim::FeatureSpec vel;
+    vel.kind = anim::FeatureKind::Velocity;
+    vel.bone = "Foot";
+    anim::FeatureSpec head;
+    head.kind = anim::FeatureKind::Heading;
+    head.bone = "Pelvis";
+    anim::FeatureSpec curve;
+    curve.kind  = anim::FeatureKind::Curve;
+    curve.curve = "Speed";
+    schema.features = { traj, pos, vel, head, curve };
+
+    Check(anim::SchemaDims(schema) == 23, "dims: two trajectory samples, a position, a velocity, a heading, a curve");
+    const auto w = anim::SchemaWeights(schema);
+    Check(w.size() == 23 && w[0] == 2.0f && w[6] == 0.0f && w[7] == 1.0f && w[9] == 0.0f && w[14] == 1.0f,
+          "a sample part's weight times its feature's");
+
+    std::string err;
+    const auto  rows = anim::MeasureSchema(def, rig, schema, 0, err);
+    Check(rows.has_value(), "the schema measures: " + err);
+    if (!rows) return;
+    const float* r0 = rows->data();
+    Check(std::fabs(r0[1] - 50.0f) < 0.01f && std::fabs(r0[5] - 100.0f) < 0.5f, "half a second ahead: 50 forward, at 100 units/s");
+    Check(r0[7] == 0.0f && r0[8] == 0.0f, "back before the first frame holds at it");
+    Check(std::fabs(r0[14] - 10.0f) < 0.01f && std::fabs(r0[16]) < 0.01f, "the foot from the root, through the pelvis's reference pose");
+    Check(std::fabs(r0[17]) < 0.01f && std::fabs(r0[18]) < 0.01f, "the foot moves with the root: no velocity of its own");
+    Check(std::fabs(r0[20]) < 0.01f && std::fabs(r0[21] - 1.0f) < 0.01f, "the pelvis faces forward");
+    Check(r0[22] == 100.0f, "the curve's value");
+    const float* last = rows->data() + 30 * 23;
+    Check(std::fabs(last[1]) < 0.01f, "the last frame's future holds at the clip's end");
+
+    const auto looped = anim::MeasureSchema(def, rig, schema, 30, err);
+    Check(looped && std::fabs((*looped)[30 * 23 + 1] - 50.0f) < 0.01f, "a loop's last frame sees its next cycle ahead");
+
+    schema.features[1].bone = "Hand";
+    Check(!anim::MeasureSchema(def, rig, schema, 0, err) && err.find("Hand") != std::string::npos, "a bone the rig lacks is refused by name");
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -900,6 +967,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     ClipSpeedChecks();
     LoopFitChecks();
     LoopFitReport();
+    SchemaMeasureChecks();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);
