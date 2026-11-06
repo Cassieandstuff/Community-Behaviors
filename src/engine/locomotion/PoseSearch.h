@@ -166,6 +166,7 @@ namespace CB::engine::locomotion {
     struct Database {
         std::vector<Clip>         clips;
         std::vector<SchemaSpace>  spaces;       ///< [0] is the classic layout
+        std::vector<int>          spaceOfSchema;   ///< per DatabaseSpec::schemas entry: its space (0 when it fell back)
         std::vector<int>          clipOf;       ///< row -> clip
         std::vector<char>         searchable;   ///< row's whole future lies inside its clip, and the row inside its child's range
         std::vector<std::uint8_t> rowGates;     ///< the frame's kRow* bits (the search's gates)
@@ -347,6 +348,10 @@ namespace CB::engine::locomotion {
         bool interrupt = false;   ///< likewise: the chooser left the playing database
         bool  hold   = false;           ///< the playing pick is within its dwell: no candidate replaces it (bar clipEnd, interrupt)
         float margin = kSwitchMargin;   ///< see kSwitchMargin
+        /// @brief Per space, raw query values given in place of what the space would read (the trajectory sample, the
+        ///        playing row): its `dims` long, NaN where nothing is given; empty = nothing for that space.
+        /// @note  A feature's bound query (a CBPoseSearch* binding) arrives here.
+        std::vector<std::vector<float>> given;
     };
 
     /// @brief One search's answer.
@@ -393,6 +398,7 @@ namespace CB::engine::locomotion {
         ///        pick, the next search runs at once and the playing row cannot go on (GASP's InterruptOnDatabaseChange).
         bool                 inputsChanged = false;
         float                reselectTime  = 1;     ///< seconds a pick's neighbourhood stays banned
+        std::vector<std::vector<float>> given;      ///< as Query's
     };
 
     /// @brief What one update did.

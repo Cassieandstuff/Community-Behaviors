@@ -43,6 +43,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <limits>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -194,20 +195,22 @@ namespace CB::feature {
         /// @warning Throws when it cannot be measured.
         /// @note  The fingerprint folds in `compiler` (the plugin DLL + schema): a rebuild may measure differently, so it
         ///        measures every clip once.
+        /// @note  A cached clip lacking one of `needs`' schemas is measured again, under every one of them.
         ea::MmCachedClip MeasureOrCached(const core::resolve::LoadOrderReader& reader, const std::string& name, std::string_view compiler,
-                                         const std::map<std::string, ea::MmCachedClip>& cache, bool& hit)
+                                         const std::map<std::string, ea::MmCachedClip>& cache, bool& hit, const ps::ClipNeeds& needs)
         {
             std::string path = std::string(kProjectDir) + name;
             std::replace(path.begin(), path.end(), '\\', '/');
             const auto text = reader.nativeAnimation(path);
             if (!text) throw std::runtime_error("not shipped by any bundle");
             const std::uint64_t fp = ea::MmFingerprint(std::string(compiler) + '\n' + *text);
-            if (const auto it = cache.find(name); it != cache.end() && it->second.fingerprint == fp) {
+            if (const auto it = cache.find(name); it != cache.end() && it->second.fingerprint == fp &&
+                std::all_of(needs.keys.begin(), needs.keys.end(), [&](std::uint64_t k) { return it->second.RowsFor(k) != nullptr; })) {
                 hit = true;
                 return it->second;
             }
             hit = false;
-            return ea::MeasureMmClip(name, path, *text, fp);
+            return ea::MeasureMmClip(name, path, *text, fp, needs.rig, needs.schemas);
         }
 
         /// @brief Every database asked for, by the selector it was built from (DatabaseSpec::Key).
@@ -217,7 +220,12 @@ namespace CB::feature {
             std::mutex                                       lock;
             std::optional<core::resolve::LoadOrderReader>    reader;
             std::map<std::string, std::unique_ptr<Database>> entries;
-            std::deque<std::pair<std::string, ps::DatabaseSpec>> queue;
+            struct Job {
+                std::string      key;
+                ps::DatabaseSpec spec;
+                ea::Rig          rig;
+            };
+            std::deque<Job>                                  queue;
             bool                                             building = false;
             std::string                                      warmedKey;   ///< the add-on's, built ahead of its first activation
         };
@@ -227,7 +235,7 @@ namespace CB::feature {
         /// @note Runs on the build thread: the add-on's authored YAML takes seconds to parse. Each distinct animationName
         ///       is measured once (a clip may be a child of several databases) and its rows are appended once per child
         ///       that plays it.
-        void Build(const core::resolve::LoadOrderReader& reader, const std::string& key, const ps::DatabaseSpec& spec)
+        void Build(const core::resolve::LoadOrderReader& reader, const std::string& key, const ps::DatabaseSpec& spec, const ea::Rig& rig)
         {
             const auto t0 = Clock::now();
             /// @note The cache holds the first build's clips and whatever later ones add: only the first can tell a clip
@@ -238,15 +246,15 @@ namespace CB::feature {
             std::vector<ea::MmCachedClip> fresh;
             std::size_t                   cacheHits  = 0;
             bool                          cacheDirty = false;
-            const auto clipOf = [&](const std::string& name, const ps::ClipNeeds&) -> const ea::MmCachedClip& {
+            const auto clipOf = [&](const std::string& name, const ps::ClipNeeds& needs) -> const ea::MmCachedClip& {
                 bool hit = false;
-                fresh.push_back(MeasureOrCached(reader, name, compiler, cache, hit));
+                fresh.push_back(MeasureOrCached(reader, name, compiler, cache, hit, needs));
                 if (hit) ++cacheHits;
                 else cacheDirty = true;
                 return fresh.back();
             };
             ps::BuildReport report;
-            auto db = ps::BuildDatabase(spec, nullptr, clipOf, [](const std::string& message) { LOG_WARN("motion matching: {}", message); }, &report);
+            auto db = ps::BuildDatabase(spec, rig.bones.empty() ? nullptr : &rig, clipOf, [](const std::string& message) { LOG_WARN("motion matching: {}", message); }, &report);
 
             if (first && fresh.size() != cache.size()) cacheDirty = true;
             if (first) cache.clear();
@@ -299,7 +307,7 @@ namespace CB::feature {
         {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
             for (;;) {
-                std::pair<std::string, ps::DatabaseSpec> job;
+                Store::Job                               job;
                 core::resolve::LoadOrderReader           reader = [&] {
                     std::scoped_lock lock(g_store.lock);
                     if (g_store.queue.empty()) {
@@ -310,8 +318,8 @@ namespace CB::feature {
                     g_store.queue.pop_front();
                     return *g_store.reader;
                 }();
-                if (job.first.empty()) return;
-                Build(reader, job.first, job.second);
+                if (job.key.empty()) return;
+                Build(reader, job.key, job.spec, job.rig);
             }
         }
 
@@ -360,6 +368,11 @@ namespace CB::feature {
             relay::EvalContext ctx;
             std::vector<char>  lastActive;
             Clock::time_point  used{};
+            std::vector<std::vector<ch::motion::BoundInput>> bound;   ///< per schema of the node: the query values its features bind
+            bool               speedBound = false;
+            float              rate = 1.0f, rateVelocity = 0.0f;   ///< the node's own playback rate, while its speed is bound
+            int                playingClip = -1;
+            double             playingTime = 0;
         };
         constexpr float  kDatabaseRetry = 1.0f;   ///< seconds between asking for a database not built yet
         constexpr double kSlotStale     = 0.5;    ///< seconds unused before a slot starts over
@@ -870,6 +883,58 @@ namespace CB::feature {
         match.queryValid = false;
     }
 
+    namespace {
+
+        /// @brief The query values `bound` reads, from `actor`'s graph variables, into `given` per space of `db`.
+        /// @note  By name, for this character: one feature object serves every clone of the node, so its bindings are never
+        ///        copied into it.
+        void ReadBound(RE::Actor* actor, const Database& db, const std::vector<std::vector<ch::motion::BoundInput>>& bound,
+                       std::vector<std::vector<float>>& given)
+        {
+            using How = ch::motion::BoundInput::How;
+            for (std::size_t k = 0; k < bound.size() && k < db.spaceOfSchema.size(); ++k) {
+                const int space = db.spaceOfSchema[k];
+                if (space <= 0 || bound[k].empty()) continue;
+                if (given.size() < db.spaces.size()) given.resize(db.spaces.size());
+                auto& out = given[space];
+                out.assign(static_cast<std::size_t>(db.spaces[space].dims), std::numeric_limits<float>::quiet_NaN());
+                for (const ch::motion::BoundInput& b : bound[k]) {
+                    const RE::BSFixedString name(b.variable.c_str());
+                    if (b.dim < 0 || b.dim + b.width > static_cast<int>(out.size())) continue;
+                    if (b.how == How::Float) {
+                        float v = 0;
+                        if (actor->GetGraphVariableFloat(name, v)) out[b.dim] = v;
+                        continue;
+                    }
+                    RE::NiPoint3 p;
+                    if (!actor->GetGraphVariableNiPoint3(name, p)) continue;
+                    if (b.how == How::PoseXY) {
+                        out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = -std::sin(p.z), out[b.dim + 3] = std::cos(p.z);
+                    } else {
+                        const float v[3] = { p.x, p.y, p.z };
+                        for (int j = 0; j < (std::min)(b.width, 3); ++j) out[b.dim + j] = v[j];
+                    }
+                }
+            }
+        }
+
+        /// @brief The node's own playback rate: its bound speed over the playing frame's clip speed, eased like Rate.
+        float NodeRate(const Database& db, MatchSlot& s, float speed, float dt)
+        {
+            float target = 1.0f;
+            if (speed >= kRateStill && s.playingClip >= 0 && s.playingClip < static_cast<int>(db.clips.size())) {
+                const Clip& c         = db.clips[s.playingClip];
+                const int   row       = c.first + (c.frames > 0 ? FrameOf(c, s.playingTime) : 0);
+                const float clipSpeed = row >= 0 && row < static_cast<int>(db.rowSpeed.size()) ? db.rowSpeed[row] : 0.0f;
+                if (clipSpeed >= kRateClipStill) target = std::clamp(speed / clipSpeed, kMinRate, kMaxRate);
+            }
+            ch::SpringDamperExact(s.rate, s.rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
+            s.rate = std::clamp(s.rate, kMinRate, kMaxRate);
+            return s.rate;
+        }
+
+    }  // namespace
+
     int controller::motion::RunMatcher(const ::hkbContext& context, PoseSearchGenerator& node, float timestep, bool restart)
     {
         if (!On()) return -1;
@@ -881,14 +946,16 @@ namespace CB::feature {
             s.retry -= timestep;
             if (s.retry > 0.0f) return -1;
             s.retry = kDatabaseRetry;
-            std::optional<ps::DatabaseSpec> spec = node.Describe(context);
-            if (!spec) {
+            std::optional<ch::motion::NodeDescription> desc = node.Describe(context);
+            if (!desc) {
                 static std::atomic<bool> warned{ false };
                 if (!warned.exchange(true)) LOG_WARN("motion matching: a CBPoseSearchGenerator clone has no template - it follows its selected index");
                 return -1;
             }
-            s.db = DatabaseFor(*spec);
+            s.db = DatabaseFor(desc->spec, desc->rig);
             if (!s.db) return -1;
+            s.bound      = std::move(desc->bound);
+            s.speedBound = desc->speedBound;
             s.matcher.Restart();
             static std::atomic<int> searchers{ 0 };
             if (searchers.fetch_add(1, std::memory_order_relaxed) < 32)
@@ -907,6 +974,8 @@ namespace CB::feature {
         s.before                       = in;
         ps::MatchRequest request;
         ReadQuery(actor, request);
+        ReadBound(actor, db, s.bound, request.given);
+        if (s.speedBound) request.rate = NodeRate(db, s, node.m_speed, timestep);
         request.inputsChanged = inputsChanged;
         request.reselectTime  = ReselectTime();
         const InputVariables vars(in);
@@ -916,6 +985,8 @@ namespace CB::feature {
         request.biases  = ps::EvaluateBiases(db, s.ctx);
 
         const ps::MatchStep step = s.matcher.Update(db, request, timestep);
+        s.playingClip            = step.clip;
+        s.playingTime            = step.time;
         /// @note A new child blends by itself; a new time in the same one has to be told.
         if (step.switched && step.clip >= 0 && step.nextClip == step.clip) node.BlendNextJump();
 
@@ -1004,14 +1075,15 @@ namespace CB::feature {
         return step.nextClip;
     }
 
-    const ps::Database* controller::motion::DatabaseFor(const ps::DatabaseSpec& spec)
+    const ps::Database* controller::motion::DatabaseFor(const ps::DatabaseSpec& spec, const ea::Rig& rig)
     {
-        std::string key = spec.Key();
+        /// @note The rig is part of what was measured: the same selector on another skeleton is another database.
+        std::string key = spec.Key() + std::format("\x1c{:016x}", rig.bones.empty() ? 0ull : ea::SchemaKey({}, rig));
         std::scoped_lock lock(g_store.lock);
         if (const auto it = g_store.entries.find(key); it != g_store.entries.end()) return it->second.get();
         if (!g_store.reader) return nullptr;
         g_store.entries.emplace(key, nullptr);
-        g_store.queue.push_back({ std::move(key), spec });
+        g_store.queue.push_back({ std::move(key), spec, rig });
         if (!g_store.building) {
             g_store.building = true;
             std::thread(BuildQueued).detach();

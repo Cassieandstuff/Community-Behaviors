@@ -53,10 +53,14 @@ namespace CB::engine::locomotion {
             {
                 std::vector<float>& qv = m_qv[space];
                 if (!qv.empty()) return qv;
-                const SchemaSpace& sp = m_db.spaces[space];
+                const SchemaSpace&        sp    = m_db.spaces[space];
+                const std::vector<float>* given = static_cast<std::size_t>(space) < m_q.given.size() ? &m_q.given[space] : nullptr;
+                if (given && given->size() != static_cast<std::size_t>(sp.dims)) given = nullptr;
                 qv.assign(static_cast<std::size_t>(sp.dims), 0.0f);
                 for (int d = 0; d < sp.dims; ++d) {
-                    if (sp.querySample[d] >= 0) {
+                    if (given && !std::isnan((*given)[d])) {
+                        qv[d] = ((*given)[d] - sp.mean[d]) / sp.scale[d];
+                    } else if (sp.querySample[d] >= 0) {
                         const TrajectorySample& t = m_q.samples[sp.querySample[d]];
                         const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
                         qv[d] = (raw[sp.queryPart[d]] - sp.mean[d]) / sp.scale[d];
@@ -633,6 +637,7 @@ namespace CB::engine::locomotion {
             spaceOfSchema[k] = static_cast<int>(db->spaces.size());
             db->spaces.push_back(TypedSpace(spec.schemas[k], *rig));
         }
+        db->spaceOfSchema = spaceOfSchema;
         for (std::size_t d = 0; d < spec.databases.size(); ++d) {
             const int schema = spec.databases[d].schema;
             if (schema >= 0 && static_cast<std::size_t>(schema) < spaceOfSchema.size()) db->databases[d].space = spaceOfSchema[schema];
@@ -1004,6 +1009,7 @@ namespace CB::engine::locomotion {
             q.biases      = in.biases;
             q.clipEnd     = m_searchNow;
             q.interrupt   = m_interrupt;
+            q.given       = in.given;
             q.hold        = m_clock - m_lastSwitch < (forcedNow ? kForcedDwell : kMinDwell);
 
             m_searchNow  = false;

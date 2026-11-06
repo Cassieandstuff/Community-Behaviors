@@ -6,6 +6,8 @@
 #include <Behavior/Behavior/Generator/hkbGenerator.h>
 #include <Common/Base/Container/String/hkString.h>
 
+#include "CharPoseSearchSchema.h"
+
 #include <locomotion/PoseSearch.h>
 
 #include <cstddef>
@@ -78,6 +80,14 @@ namespace CB::feature::controller::motion {
     };
     static_assert(sizeof(PoseSearchChooser) == 48, "PoseSearchChooser size (schema: 48)");
 
+    /// @brief What a node loaded, for its database and its query.
+    struct NodeDescription {
+        CB::engine::locomotion::DatabaseSpec  spec;
+        anim::Rig                             rig;        ///< the character's animation skeleton, as its graph runs
+        std::vector<std::vector<BoundInput>>  bound;      ///< per spec.schemas entry: the query values its features bind
+        bool                                  speedBound = false;   ///< m_speed is bound: the node trims its own rate
+    };
+
     class PoseSearchGenerator : public ::hkbGenerator {
     public:
         /// @note Each row's child holds a reference (raw pointers: the constructors and the destructor count them by hand).
@@ -91,6 +101,9 @@ namespace CB::feature::controller::motion {
         ///       the rows' other columns, from the template the clone came from.
         ::hkArray<PoseSearchDatabase>       m_databases;      ///< +0x60
         PoseSearchChooser*                           m_chooser;        ///< +0x70, the loaded file's (never referenced or freed here)
+        /// @brief Bound to the character's speed (game units/s): the playback rate is this over the playing frame's own clip
+        ///        speed. Unbound, the rate comes from MM_Rate.
+        ::hkReal                            m_speed;          ///< +0x78
 
         /// @brief The finish constructor: the vtable on loaded bytes; serialized members stay as loaded.
         explicit PoseSearchGenerator(::hkFinishLoadedObjectFlag flag);
@@ -119,7 +132,7 @@ namespace CB::feature::controller::motion {
         void PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction);
 
         /// @return what this node loaded, for its database; nothing when its template cannot be found
-        std::optional<CB::engine::locomotion::DatabaseSpec> Describe(const ::hkbContext& context) const;
+        std::optional<NodeDescription> Describe(const ::hkbContext& context) const;
 
     private:
         /// @brief m_selectedIndex clamped into [0, last child].
@@ -127,7 +140,7 @@ namespace CB::feature::controller::motion {
         /// @brief Cross the output pose from the switched-from child's extrapolated motion into the live child's.
         void deadBlend(const ::hkbContext& context, ::hkbGeneratorOutput& output);
     };
-    static_assert(sizeof(PoseSearchGenerator) == 0x78, "PoseSearchGenerator size (schema: 120)");
+    static_assert(sizeof(PoseSearchGenerator) == 0x80, "PoseSearchGenerator size (schema: 128)");
 
     /// @brief Seconds left in the newest dead blend (0 when none runs), for the HUD.
     /// @note  One value for every instance: motion matching plays the node for the player alone.

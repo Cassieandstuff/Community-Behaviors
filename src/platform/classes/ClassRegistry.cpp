@@ -82,6 +82,7 @@ namespace CB::platform::classes {
             if (name == "hkbGenerator") return &::hkbGeneratorClass;
             if (name == "hkbBlenderGenerator") return &::hkbBlenderGeneratorClass;
             if (name == "hkbModifier") return &::hkbModifierClass;
+            if (name == "hkbBindable") return &::hkbBindableClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }

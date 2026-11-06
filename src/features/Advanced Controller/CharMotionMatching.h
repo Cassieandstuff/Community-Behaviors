@@ -55,9 +55,10 @@ namespace CB::feature::controller::motion {
     /// @return the child that plays next, -1 when the matcher has none (no database yet, no query yet, or no actor)
     int RunMatcher(const ::hkbContext& context, PoseSearchGenerator& node, float timestep, bool restart);
 
-    /// @return the database `spec` states, null until it is built; the first request queues its build
-    /// @note  Thread-safe. Equal selectors share one database, whichever graphs and characters they come from.
-    const CB::engine::locomotion::Database* DatabaseFor(const CB::engine::locomotion::DatabaseSpec& spec);
+    /// @return the database `spec` states, measured through `rig`, null until it is built; the first request queues its build
+    /// @note  Thread-safe. Equal selectors over equal rigs share one database, whichever graphs and characters they come from.
+    const CB::engine::locomotion::Database* DatabaseFor(const CB::engine::locomotion::DatabaseSpec& spec,
+                                                        const CB::engine::anim::Rig& rig = {});
 
     /// @brief SetTimeToLand's value when the predicted path doesn't land within its horizon (GASP's open upper bound).
     inline constexpr float kNoLanding = 999.0f;

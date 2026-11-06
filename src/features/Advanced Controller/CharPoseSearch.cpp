@@ -14,6 +14,9 @@
 #include <Common/Base/Reflection/hkClass.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbNodeInfo.h>
 #include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Character/hkbCharacterSetup.h>
+#include <Behavior/Behavior/Variables/hkbVariableBindingSet.h>
+#include <Animation/Animation/Rig/hkaSkeleton.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
@@ -156,7 +159,8 @@ namespace CB::feature::controller::motion {
     :   hkbGenerator(other),
         m_selectedIndex(other.m_selectedIndex),
         m_currentIndex(0),
-        m_chooser(nullptr)
+        m_chooser(nullptr),
+        m_speed(other.m_speed)
     {
         m_children = other.m_children;
         for (int i = 0; i < m_children.getSize(); i++) m_children[i].m_generator->addReference();
@@ -214,7 +218,7 @@ namespace CB::feature::controller::motion {
         static_cast<::hkbClipGenerator*>(clone)->m_userControlledTimeFraction = fraction;
     }
 
-    std::optional<CB::engine::locomotion::DatabaseSpec> PoseSearchGenerator::Describe(const ::hkbContext& context) const
+    std::optional<NodeDescription> PoseSearchGenerator::Describe(const ::hkbContext& context) const
     {
         const PoseSearchGenerator* from = this;
         if (m_cloneState == CLONE_STATE_CLONE) {
@@ -223,7 +227,27 @@ namespace CB::feature::controller::motion {
         }
         const auto text = [](const char* s) { return s ? std::string(s) : std::string(); };
         const auto name = [&](const ::hkStringPtr& s) { return text(s.cString()); };
-        loco::DatabaseSpec spec;
+        NodeDescription     desc;
+        loco::DatabaseSpec& spec = desc.spec;
+        /// @note The rig the clips are measured through: the character's own animation skeleton, as loaded.
+        if (const ::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr)
+            if (const ::hkaSkeleton* skeleton = setup->m_animationSkeleton.val())
+                for (int b = 0; b < skeleton->m_bones.getSize(); ++b) {
+                    anim::Rig::Bone bone;
+                    bone.name   = name(skeleton->m_bones[b].m_name);
+                    bone.parent = b < skeleton->m_parentIndices.getSize() ? skeleton->m_parentIndices[b] : -1;
+                    if (b < skeleton->m_referencePose.getSize()) {
+                        const ::hkQsTransform& t = skeleton->m_referencePose[b];
+                        bone.translation         = { t.m_translation(0), t.m_translation(1), t.m_translation(2) };
+                        bone.rotation            = { t.m_rotation.m_vec(0), t.m_rotation.m_vec(1), t.m_rotation.m_vec(2), t.m_rotation.m_vec(3) };
+                    }
+                    desc.rig.bones.push_back(std::move(bone));
+                }
+        if (const ::hkbVariableBindingSet* set = m_variableBindingSet.val())
+            for (int b = 0; b < set->m_bindings.getSize(); ++b)
+                if (const char* path = set->m_bindings[b].m_memberPath.cString(); path && std::strcmp(path, "speed") == 0) desc.speedBound = true;
+        /// @note A schema shared by several databases is read once.
+        std::vector<const PoseSearchSchema*> schemas;
         for (int i = 0; i < from->m_databases.getSize(); ++i) {
             const PoseSearchDatabase& d = from->m_databases[i];
             loco::SpecDatabase        out;
@@ -235,6 +259,15 @@ namespace CB::feature::controller::motion {
             out.movingCandidate        = name(d.m_movingCandidate);
             for (int t = 0; t < d.m_tags.getSize(); ++t)
                 if (name(d.m_tags[t]) == "Pivots") out.pivots = true;
+            if (const auto* schema = static_cast<const PoseSearchSchema*>(d.m_schema)) {
+                const auto it = std::find(schemas.begin(), schemas.end(), schema);
+                out.schema    = static_cast<int>(it - schemas.begin());
+                if (it == schemas.end()) {
+                    schemas.push_back(schema);
+                    desc.bound.emplace_back();
+                    spec.schemas.push_back(SpecOfSchema(*schema, context, desc.bound.back()));
+                }
+            }
             spec.databases.push_back(std::move(out));
         }
         for (int i = 0; i < from->m_children.getSize(); ++i) {
@@ -261,7 +294,7 @@ namespace CB::feature::controller::motion {
             }
             for (int f = 0; f < chooser->m_fallback.getSize(); ++f) spec.fallback.push_back(name(chooser->m_fallback[f]));
         }
-        return spec;
+        return desc;
     }
 
     int PoseSearchGenerator::getMaxNumChildren(GetChildrenFlags flags)

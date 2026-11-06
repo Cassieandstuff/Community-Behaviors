@@ -1,6 +1,6 @@
 name:      CBPoseSearchGenerator
 parent:    hkbGenerator
-size:      120
+size:      128
 view:      { kind: clipset, children: children, groups: databases, chooser: chooser }
 runtime:
   source: self
@@ -19,6 +19,8 @@ fields:
   - { name: currentIndex,  type: int32, ignored: true }
   - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
   - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
+  - { name: speed,         type: float }   # bind to the character's speed: the playback rate trims the playing frame to it
+  - { pad: 8 }
 # `databases` are the dance cards each child names, `chooser` picks which of them are searched.
 # `children` is a slot roster because selectedIndex (MM_Clip) is a position. No member owns runtime memory: the arrays
 # and the chooser are the loaded file's, each character's clone shares them, and the dead blend keeps its state per
