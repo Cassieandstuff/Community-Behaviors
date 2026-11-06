@@ -248,7 +248,128 @@ namespace CB::engine::anim {
         return m;
     }
 
-    void AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows)
+    namespace {
+
+        /// @brief Frames: a shorter clip is never taken for a loop (too little motion to tell its seam).
+        constexpr int kMinLoopFrames = 8;
+        /// @brief How close the last frame's pose must come to the first's to call the clip a loop: feet within
+        ///        kLoopFootPos plus kLoopSteps frames of their travel, foot velocities within kLoopFootVel or kLoopVelShare
+        ///        of their speed, the pelvis velocity within kLoopHipVel. kLoopRepeat: the last frame repeats the first.
+        /// @note  Tuned on GASP's clips (CB_TEST_MM_CLIPS in engine-tests prints every clip's fit).
+        constexpr double kLoopFootPos = 3.0, kLoopSteps = 1.5, kLoopFootVel = 100.0, kLoopVelShare = 0.5, kLoopHipVel = 40.0,
+                         kLoopRepeat = 1.0;
+        /// @brief A clip whose pelvis moves slower than kLoopStill (game units/s) at both ends stands there, and loops only if
+        ///        its root travels less than kLoopTravel (game units) end to end. A clip turning more than kLoopTurn (radians)
+        ///        end to end loops only if it already turns at its ends at kLoopCurve of its average rate (an arc, a circle):
+        ///        a turn clip turns in its middle, its ends straight. Each end's turn rate is read over kLoopEndTime seconds.
+        constexpr double kLoopStill = 60.0, kLoopTravel = 20.0, kLoopTurn = 0.26, kLoopCurve = 0.5, kLoopEndTime = 0.2;
+        /// @brief Game units the root may leave the straight line between its end heights: a loop is level, or climbs evenly
+        ///        (a slope); a vault or a climb rises and falls in its middle.
+        constexpr double kLoopHeight = 10.0;
+
+        double YawOf(const MotionQuat& q)
+        {
+            const MotionVec f = Rotate(q, { 0, 1, 0 });
+            return std::atan2(-f.x, f.y);
+        }
+        double WrapAngle(double a)
+        {
+            while (a > kPi) a -= 2 * kPi;
+            while (a < -kPi) a += 2 * kPi;
+            return a;
+        }
+
+        MotionQuat Conj(MotionQuat q) { return { -q.x, -q.y, -q.z, q.w }; }
+
+        /// @brief The root at frames [-before, frames + after), cycles laid end to end: frame k + period is frame k carried
+        ///        by one cycle's motion (the transform from frame 0 to frame `period`).
+        /// @note  A loop whose last frame runs on into the first (period == frames) takes its seam frame from the last
+        ///        frame's own step.
+        void Unroll(const ClipMotion& m, int period, int before, int after, std::vector<MotionVec>& pos, std::vector<MotionQuat>& rot)
+        {
+            const int  n = m.frames;
+            MotionVec  endPos;
+            MotionQuat endRot;
+            if (period < n) {
+                endPos = m.rootPos[period];
+                endRot = m.rootRot[period];
+            } else {
+                const MotionQuat stepRot = Mul(Conj(m.rootRot[n - 2]), m.rootRot[n - 1]);
+                const MotionVec  stepPos = ToLocal(m.rootRot[n - 2], m.rootPos[n - 1] - m.rootPos[n - 2]);
+                endRot = Normalize(Mul(m.rootRot[n - 1], stepRot));
+                endPos = m.rootPos[n - 1] + Rotate(m.rootRot[n - 1], stepPos);
+            }
+            const MotionQuat cycleRot = Normalize(Mul(endRot, Conj(m.rootRot[0])));
+            const MotionVec  cyclePos = endPos - Rotate(cycleRot, m.rootPos[0]);
+            const int        total    = before + n + after;
+            pos.resize(static_cast<std::size_t>(total));
+            rot.resize(static_cast<std::size_t>(total));
+            for (int k = -before; k < n + after; ++k) {
+                int        r = k, cycles = 0;
+                while (r < 0) r += period, --cycles;
+                while (r >= period) r -= period, ++cycles;
+                MotionVec  p = m.rootPos[r];
+                MotionQuat q = m.rootRot[r];
+                for (; cycles > 0; --cycles) p = Rotate(cycleRot, p) + cyclePos, q = Normalize(Mul(cycleRot, q));
+                for (; cycles < 0; ++cycles) p = Rotate(Conj(cycleRot), p - cyclePos), q = Normalize(Mul(Conj(cycleRot), q));
+                pos[k + before] = p;
+                rot[k + before] = q;
+            }
+        }
+
+    }  // namespace
+
+    void AppendRows(const ClipMotion& m, const std::array<int, features::kSamples>& offset, const std::vector<MotionVec>& rootPos,
+                    const std::vector<MotionQuat>& rootRot, int lead, float* out);
+
+    LoopFit FitLoop(const float* rows, int frames, double dt)
+    {
+        using namespace features;
+        LoopFit fit;
+        if (!rows || frames < kMinLoopFrames || dt <= 0) return fit;
+        const float* a = rows;
+        const float* b = rows + static_cast<std::size_t>(frames - 1) * kDims;
+        for (int k = 0; k < 6; ++k) {
+            fit.footPos = (std::max)(fit.footPos, static_cast<double>(std::fabs(a[kFootPos + k] - b[kFootPos + k])));
+            fit.footVel = (std::max)(fit.footVel, static_cast<double>(std::fabs(a[kFootVel + k] - b[kFootVel + k])));
+        }
+        for (int k = 0; k < 3; ++k) fit.hipVel = (std::max)(fit.hipVel, static_cast<double>(std::fabs(a[kHipVel + k] - b[kHipVel + k])));
+        double speed = 0;
+        for (int k = 0; k < 6; ++k) speed = (std::max)(speed, static_cast<double>((std::max)(std::fabs(a[kFootVel + k]), std::fabs(b[kFootVel + k]))));
+        fit.step = speed * dt;
+        const bool loops = fit.footPos <= kLoopFootPos + kLoopSteps * fit.step && fit.footVel <= (std::max)(kLoopFootVel, kLoopVelShare * speed) &&
+                           fit.hipVel <= kLoopHipVel;
+        if (loops) fit.period = fit.footPos <= kLoopRepeat + 0.5 * fit.step ? frames - 1 : frames;
+        return fit;
+    }
+
+    int LoopPeriod(const ClipMotion& m, const float* rows)
+    {
+        using namespace features;
+        const LoopFit fit = FitLoop(rows, m.frames, m.dt);
+        if (fit.period <= 0) return 0;
+        const int    n     = m.frames;
+        const float* first = rows;
+        const float* last  = rows + static_cast<std::size_t>(n - 1) * kDims;
+        const double still = (std::max)(std::hypot(first[kHipVel], first[kHipVel + 1]), std::hypot(last[kHipVel], last[kHipVel + 1]));
+        const MotionVec d  = m.rootPos[n - 1] - m.rootPos[0];
+        if (still < kLoopStill && std::hypot(d.x, d.y) >= kLoopTravel) return 0;
+        for (int i = 1; i + 1 < n; ++i) {
+            const double line = m.rootPos[0].z + (m.rootPos[n - 1].z - m.rootPos[0].z) * i / (n - 1);
+            if (std::fabs(m.rootPos[i].z - line) > kLoopHeight) return 0;
+        }
+        /// @note The total turn follows the root frame by frame, so a turn past 180 degrees still counts in full.
+        double total = 0;
+        for (int i = 1; i < n; ++i) total += WrapAngle(YawOf(m.rootRot[i]) - YawOf(m.rootRot[i - 1]));
+        if (std::fabs(total) < kLoopTurn) return fit.period;
+        const int    k        = (std::clamp)(static_cast<int>(std::lround(kLoopEndTime / m.dt)), 1, (n - 1) / 2);
+        const double startRate = WrapAngle(YawOf(m.rootRot[k]) - YawOf(m.rootRot[0])) / (k * m.dt);
+        const double endRate   = WrapAngle(YawOf(m.rootRot[n - 1]) - YawOf(m.rootRot[n - 1 - k])) / (k * m.dt);
+        const double average   = std::fabs(total) / ((n - 1) * m.dt);
+        return (std::min)(std::fabs(startRate), std::fabs(endRate)) >= kLoopCurve * average ? fit.period : 0;
+    }
+
+    int AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows)
     {
         using namespace features;
         const int n = m.frames;
@@ -256,15 +377,34 @@ namespace CB::engine::anim {
         for (int s = 0; s < kSamples; ++s) offset[s] = static_cast<int>(std::lround(SampleTime(s) / m.dt));
         const std::size_t base = rows.size();
         rows.resize(base + static_cast<std::size_t>(n) * kDims);
+        AppendRows(m, offset, m.rootPos, m.rootRot, 0, rows.data() + base);
+        /// @note A second pass for a loop: its pose rows stand, its trajectory samples are taken again across the seam.
+        const int period = LoopPeriod(m, rows.data() + base);
+        if (period <= 0) return 0;
+        int ahead = 0, back = 0;
+        for (int s = 0; s < kSamples; ++s) ahead = (std::max)(ahead, offset[s]), back = (std::max)(back, -offset[s]);
+        std::vector<MotionVec>  pos;
+        std::vector<MotionQuat> rot;
+        Unroll(m, period, back + 1, ahead + 1, pos, rot);
+        AppendRows(m, offset, pos, rot, back + 1, rows.data() + base);
+        return period;
+    }
+
+    void AppendRows(const ClipMotion& m, const std::array<int, features::kSamples>& offset, const std::vector<MotionVec>& rootPos,
+                    const std::vector<MotionQuat>& rootRot, int lead, float* out)
+    {
+        using namespace features;
+        const int n    = m.frames;
+        const int span = static_cast<int>(rootPos.size());
         for (int i = 0; i < n; ++i) {
-            float* r = rows.data() + base + static_cast<std::size_t>(i) * kDims;
-            const MotionQuat& q = m.rootRot[i];
-            const MotionVec&  p = m.rootPos[i];
+            float* r = out + static_cast<std::size_t>(i) * kDims;
+            const MotionQuat& q = rootRot[i + lead];
+            const MotionVec&  p = rootPos[i + lead];
             for (int s = 0; s < kSamples; ++s) {
-                const int       j   = std::clamp(i + offset[s], 0, n - 1);
-                const MotionVec pos = ToLocal(q, m.rootPos[j] - p);
-                const MotionVec dir = ToLocal(q, Rotate(m.rootRot[j], { 0, 1, 0 }));
-                const MotionVec vel = ToLocal(q, Velocity(m.rootPos, j, m.dt));
+                const int       j   = std::clamp(i + lead + offset[s], 0, span - 1);
+                const MotionVec pos = ToLocal(q, rootPos[j] - p);
+                const MotionVec dir = ToLocal(q, Rotate(rootRot[j], { 0, 1, 0 }));
+                const MotionVec vel = ToLocal(q, Velocity(rootPos, j, m.dt));
                 const double    len = std::hypot(dir.x, dir.y);
                 float*          o   = r + SampleAt(s);
                 o[kSamplePos]          = static_cast<float>(pos.x);
@@ -275,6 +415,7 @@ namespace CB::engine::anim {
                 o[kSampleVelocity + 1] = static_cast<float>(vel.y);
                 o[kSampleHeight]       = static_cast<float>(pos.z);
             }
+            if (lead > 0) continue;   // the loop's second pass: only the trajectory changes
             for (int s = 0; s < 2; ++s) {
                 const MotionVec fp = ToLocal(q, m.foot[s][i] - p);
                 const MotionVec fv = ToLocal(q, Velocity(m.foot[s], i, m.dt));

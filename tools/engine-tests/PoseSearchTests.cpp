@@ -14,6 +14,8 @@
 #include <relay/Relay.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <array>
 #include <cmath>
 #include <locomotion/ChooserInputs.h>
@@ -119,6 +121,10 @@ anim::MmCachedClip LineClip(const std::string& name, int frames, float xBase, fl
     c.duration      = static_cast<float>(frames - 1) / 30.0f;
     c.features.assign(static_cast<std::size_t>(frames) * F::kDims, 0.0f);
     for (int f = 0; f < frames; ++f) c.features[static_cast<std::size_t>(f) * F::kDims + kLineDim] = xBase + static_cast<float>(f);
+    /// @note The pelvis ends at another speed than it starts: a one-shot clip, not a loop (anim::FitLoop reads the pose's
+    ///       ends). Balanced about 0, so the group's normalization leaves every other row at 0.
+    c.features[F::kHipVel + 1]                                                    = -150.0f;
+    c.features[static_cast<std::size_t>(frames - 1) * F::kDims + F::kHipVel + 1] = 150.0f;
     c.rootPositions.assign(static_cast<std::size_t>(frames) * 3, 0.0f);
     anim::AnimCurveDef speed;
     speed.name = "Speed";
@@ -711,6 +717,56 @@ void ClipSpeedChecks() {
     Check(ps::WindowedRootSpeeds({}, 0, dt).empty(), "no frames, no speeds");
 }
 
+/// @brief A clip whose last frame meets its first loops; one that ends elsewhere does not.
+void LoopFitChecks() {
+    namespace F = anim::features;
+    const int          frames = 30;
+    const double       dt     = 1.0 / 30.0;
+    std::vector<float> rows(static_cast<std::size_t>(frames) * F::kDims, 0.0f);
+    const auto         pose = [&](int f, float footY, float speed) {
+        float* r       = rows.data() + static_cast<std::size_t>(f) * F::kDims;
+        r[F::kFootPos + 1] = footY;
+        r[F::kFootPos + 4] = -footY;
+        r[F::kFootVel + 1] = speed;
+        r[F::kHipVel + 1]  = speed;
+    };
+    for (int f = 0; f < frames; ++f) pose(f, 20.0f * std::sin(f * 0.2f), 300.0f);
+    pose(frames - 1, 0.0f, 300.0f);   // the last frame repeats the first
+    Check(anim::FitLoop(rows.data(), frames, dt).period == frames - 1, "a repeated first frame loops, its cycle one frame short");
+    pose(frames - 1, 8.0f, 300.0f);   // about a frame's travel (10) short of the first: it runs on into it
+    Check(anim::FitLoop(rows.data(), frames, dt).period == frames, "a last frame one step from the first loops over every frame");
+    pose(frames - 1, 0.0f, 0.0f);     // the same feet, but stopped: a start or a stop, not a loop
+    Check(anim::FitLoop(rows.data(), frames, dt).period == 0, "a clip that ends stopped does not loop");
+    pose(frames - 1, 40.0f, 300.0f);  // the feet elsewhere
+    Check(anim::FitLoop(rows.data(), frames, dt).period == 0, "a clip that ends in another pose does not loop");
+    Check(anim::FitLoop(rows.data(), 4, dt).period == 0, "too short to tell");
+}
+
+/// @brief Opt-in (CB_TEST_MM_CLIPS = a folder of unpacked clip units): every clip's loop fit, to tune FitLoop on real data.
+void LoopFitReport() {
+    const char* dir = std::getenv("CB_TEST_MM_CLIPS");
+    if (!dir || !*dir) return;
+    std::error_code ec;
+    int             clips = 0, loops = 0;
+    for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
+        if (!e.is_regular_file() || e.path().extension() != ".hkx") continue;
+        const auto read = disk::ReadFile(e.path());
+        if (!read) continue;
+        const std::string& text = *read;
+        try {
+            const anim::MmCachedClip c   = anim::MeasureMmClip(e.path().filename().string(), e.path().string(), text, 0);
+            const anim::LoopFit      fit = anim::FitLoop(c.features.data(), c.frames, c.frameDuration);
+            ++clips;
+            if (c.loopFrames > 0) ++loops;
+            std::printf("loopfit %-52s frames %4d period %4d fit %4d footPos %7.2f step %6.2f footVel %7.1f hipVel %7.1f\n",
+                        e.path().filename().string().c_str(), c.frames, c.loopFrames, fit.period, fit.footPos, fit.step, fit.footVel, fit.hipVel);
+        } catch (const std::exception& x) {
+            std::printf("loopfit %-52s not measured: %s\n", e.path().filename().string().c_str(), x.what());
+        }
+    }
+    std::printf("loopfit: %d of %d clip(s) loop\n", loops, clips);
+}
+
 void DeadBlendChecks() {
     const ps::DeadBlendTuning tuning{ 0.2f, 0.1f };
     const auto                run = [&](bool jumped, int child) {
@@ -842,6 +898,8 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     DeadBlendChecks();
     SpeedProfileChecks();
     ClipSpeedChecks();
+    LoopFitChecks();
+    LoopFitReport();
     MeasureChecks();
     std::error_code ec;
     fs::remove_all(tmp, ec);

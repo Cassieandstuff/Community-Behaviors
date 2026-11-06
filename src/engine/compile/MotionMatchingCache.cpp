@@ -66,7 +66,7 @@ namespace CB::engine::anim {
         c.frames        = m->frames;
         c.frameDuration = static_cast<float>(m->dt);
         c.duration      = static_cast<float>(def.duration > 0 ? def.duration : (m->frames - 1) * m->dt);
-        AppendClipFeatures(*m, c.features);
+        c.loopFrames = AppendClipFeatures(*m, c.features);
         c.rootPositions.reserve(static_cast<std::size_t>(m->frames) * 3);
         for (const auto& r : m->rootPos) {
             c.rootPositions.push_back(static_cast<float>(r.x));
@@ -96,6 +96,7 @@ namespace CB::engine::anim {
                 clip->SetInt("frames", c.frames);
                 clip->SetFloat("frameDuration", c.frameDuration);
                 clip->SetFloat("duration", c.duration);
+                clip->SetInt("loopFrames", c.loopFrames);
                 PutFloats(clip->FieldRef("features"), c.features);
                 PutFloats(clip->FieldRef("rootPositions"), c.rootPositions);
                 auto& curves = clip->FieldRef("curves").objs;
@@ -151,6 +152,7 @@ namespace CB::engine::anim {
                 c.frames        = static_cast<int>(o->GetInt("frames"));
                 c.frameDuration = o->GetFloat("frameDuration");
                 c.duration      = o->GetFloat("duration");
+                c.loopFrames    = static_cast<int>(o->GetInt("loopFrames"));
                 c.features      = GetFloats(o->FieldRef("features"));
                 c.rootPositions = GetFloats(o->FieldRef("rootPositions"));
                 if (c.frames < 0 || c.features.size() != static_cast<std::size_t>(c.frames) * features::kDims ||

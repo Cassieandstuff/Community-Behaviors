@@ -78,12 +78,32 @@ namespace CB::engine::anim {
         constexpr double SampleTime(int s) { return s < static_cast<int>(kAhead.size()) ? kAhead[s] : -kBack[s - kAhead.size()]; }
     }
 
+    /// @brief How a clip's last frame meets its first, read from its feature rows' pose (the feet and pelvis in root space).
+    struct LoopFit {
+        double footPos = 0;   ///< the largest foot position difference, game units
+        double footVel = 0;   ///< the largest foot velocity difference, game units/s
+        double hipVel  = 0;   ///< the largest pelvis velocity difference, game units/s
+        double step    = 0;   ///< the feet's largest one-frame travel at the ends, game units
+        int    period  = 0;   ///< frames per cycle: frames - 1 (the last frame repeats the first), frames (it runs on into it), 0 = no loop
+    };
+    /// @brief How well a clip's ends meet, from its feature rows' pose.
+    /// @note  From the motion rather than a flag: Unreal keeps a sequence's bLoop on the asset, which no export carries.
+    /// @note  The end foot velocities are one-sided differences from either side of the seam, so they disagree even on a
+    ///        clean loop; the pelvis velocity tells a start or stop from a cycle.
+    LoopFit FitLoop(const float* rows, int frames, double dt);
+    /// @brief The clip's loop period: FitLoop's, refused for a clip standing at both ends whose root turns or travels
+    ///        between (a turn or step in place starts and ends in the same stance).
+    int LoopPeriod(const ClipMotion& m, const float* rows);
+
     /// @brief The clip's feature rows, one per frame (kDims floats each), appended to `rows`.
+    /// @note  A clip that loops (FitLoop) samples its trajectory across the seam, its root carried on by one cycle's
+    ///        motion, so a frame near its end sees the next cycle ahead rather than the clip stopping.
     /// @pre   `m.hasFeet && m.hasHip`.
     /// @note  A sample past the clip's last frame holds at that frame: the database marks those frames unsearchable,
     ///        since their future is the clip ending, not the motion continuing. A sample back before the first frame
     ///        holds at the first: a start clip's past is where it starts (standing), and every frame stays searchable.
-    void AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows);
+    /// @return the clip's loop period (LoopPeriod), 0 when it does not loop
+    int AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows);
 
     /// @brief How far each measured curve's keys may stray from its per-frame measurement (the curve's own units).
     struct CurveTolerances {

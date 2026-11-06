@@ -311,7 +311,9 @@ namespace CB::engine::locomotion {
         out->frames       = c.frames;
         out->dt           = c.frameDuration;
         out->duration     = c.duration;
-        const int horizon = static_cast<int>(std::lround(kIgnoreRangeEnd / out->dt));
+        out->looping      = c.loopFrames > 0;
+        /// @note A loop's future wraps into its next cycle, so every frame of it is a candidate.
+        const int horizon = out->looping ? 0 : static_cast<int>(std::lround(kIgnoreRangeEnd / out->dt));
         for (int i = 0; i < c.frames; ++i) out->searchable.push_back(i + horizon <= c.frames - 1);
         AppendRowGaits(c, *out);
         CollectGaitSpeeds(c, out->dt, out->gait, gaitSpeeds);
@@ -563,6 +565,7 @@ namespace CB::engine::locomotion {
             c.frames   = m->frames;
             c.dt       = m->dt;
             c.duration = m->duration;
+            if (m->looping) c.flags |= kFlagLooping;
             for (std::size_t k = 0; k < m->rows.size(); ++k) {
                 const int d = static_cast<int>(k % F::kDims);
                 db->rows.push_back((m->rows[k] - db->mean[d]) / db->scale[d]);
@@ -756,8 +759,13 @@ namespace CB::engine::locomotion {
         }
         if (m_clip >= 0) {
             const Clip& c = db.clips[m_clip];
-            if (m_time >= c.duration - kEndMargin) m_searchNow = true;
-            m_time = (std::min)(m_time, c.duration);
+            /// @note A loop plays on into its next cycle; anything else searches before it runs out.
+            if ((c.flags & kFlagLooping) && c.duration > 0) {
+                m_time = std::fmod(m_time, c.duration);
+            } else {
+                if (m_time >= c.duration - kEndMargin) m_searchNow = true;
+                m_time = (std::min)(m_time, c.duration);
+            }
             if (in.inputsChanged && c.database >= 0 && !IsActive(in.active, c.database)) {
                 m_interrupt       = true;
                 m_interruptActive = in.active;
@@ -834,8 +842,10 @@ namespace CB::engine::locomotion {
             out.nextClip = m_pendingClip;
             out.nextTime = m_pendingTime;
         } else if (m_clip >= 0) {
-            out.nextClip = m_clip;
-            out.nextTime = (std::min)(m_time + dt * in.rate, db.clips[m_clip].duration);
+            out.nextClip     = m_clip;
+            const Clip& c    = db.clips[m_clip];
+            const double t   = m_time + dt * in.rate;
+            out.nextTime     = (c.flags & kFlagLooping) && c.duration > 0 ? std::fmod(t, c.duration) : (std::min)(t, c.duration);
         }
         return out;
     }

@@ -172,6 +172,7 @@ namespace CB::engine::locomotion {
         std::vector<char>             searchable;
         std::vector<std::uint8_t>     gait;     ///< per frame, a Gait from the Speed curve's band
         std::vector<float>            speed;    ///< per frame, the root's horizontal speed averaged over kClipSpeedWindow
+        bool                          looping = false;   ///< the clip loops (anim::FitLoop): its features wrap, its playback too
         std::vector<anim::AnimCurveDef> curves;   ///< the clip's curves, which its databases' gates read per row
         int                           frames   = 0;
         double                        dt       = 1.0 / 30.0;

@@ -23,6 +23,7 @@ namespace CB::engine::anim {
         std::vector<float>        features;      ///< frames × features::kDims, raw
         std::vector<float>        rootPositions; ///< frames × (x, y, z)
         std::vector<AnimCurveDef> curves;
+        int                       loopFrames = 0;   ///< anim::AppendClipFeatures' loop period, 0 = no loop
     };
 
     /// @return the fingerprint of an animation unit's text, as MmCachedClip::fingerprint stores it
