@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharSpeedProfile.h"
 
@@ -66,6 +67,15 @@ namespace CB::feature::controller::config {
             }
         }
 
+        /// @brief The Debug category's character controller page: the debug HUD's switch.
+        void __stdcall RenderDebugController()
+        {
+            bool on = hud::On();
+            if (ImGuiMCP::Checkbox("Character controller debug HUD", &on)) hud::SetOn(on);
+            ImGuiMCP::TextDisabled("Draws the player's capsule, floor rays, velocities, predicted path and motion matching state.");
+            ImGuiMCP::TextDisabled("Saved to settings.ini [Character] bDebugHud.");
+        }
+
         void Register()
         {
             if (!SKSEMenuFramework::IsInstalled()) {
@@ -80,7 +90,8 @@ namespace CB::feature::controller::config {
             }
             SKSEMenuFramework::SetSection("Community Behaviors");
             SKSEMenuFramework::AddSectionItem("Movement Speeds", RenderSpeeds);
-            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds).");
+            SKSEMenuFramework::AddSectionItem("Debug/Character Controller", RenderDebugController);
+            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Debug/Character Controller).");
         }
 
         [[maybe_unused]] const bool s_registered = platform::startup::OnDataLoaded(&Register, "config menu");
