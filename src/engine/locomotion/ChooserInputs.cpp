@@ -38,6 +38,41 @@ namespace CB::engine::locomotion {
         vy = (py - ay) / (kFutureTo - kFutureFrom);
     }
 
+    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py)
+    {
+        if (std::hypot(s.vx, s.vy) <= kMovingEpsilon) return -1.0f;
+        in.haveStick   = false;
+        in.turnInPlace = false;
+        float     path = 0.0f;
+        const int n    = static_cast<int>(std::lround(kPredictHorizon / kFutureStep));
+        for (int i = 0; i < n && std::hypot(s.vx, s.vy) > kMovingEpsilon; ++i) {
+            Step(s, in, caps, profile, px, py, kFutureStep);
+            const float dx = s.vx * kFutureStep, dy = s.vy * kFutureStep;
+            px += dx, py += dy;
+            path += std::hypot(dx, dy);
+        }
+        return path;
+    }
+
+    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py)
+    {
+        const float speed0 = std::hypot(s.vx, s.vy);
+        if (!in.haveStick || in.turnInPlace || speed0 <= kMovingEpsilon) return -1.0f;
+        if (in.stickX * s.vx + in.stickY * s.vy >= 0.0f) return -1.0f;
+        float     path = 0.0f, slowest = speed0, atSlowest = 0.0f;
+        const int n    = static_cast<int>(std::lround(kPredictHorizon / kFutureStep));
+        for (int i = 0; i < n; ++i) {
+            Step(s, in, caps, profile, px, py, kFutureStep);
+            const float dx = s.vx * kFutureStep, dy = s.vy * kFutureStep;
+            px += dx, py += dy;
+            path += std::hypot(dx, dy);
+            const float speed = std::hypot(s.vx, s.vy);
+            if (speed < slowest) slowest = speed, atSlowest = path;
+            else if (speed > slowest + kMovingEpsilon) return atSlowest;
+        }
+        return -1.0f;
+    }
+
     float FutureSpeed(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py)
     {
         float vx = 0.0f, vy = 0.0f;

@@ -20,6 +20,7 @@
 #include <array>
 #include <cmath>
 #include <locomotion/ChooserInputs.h>
+#include <locomotion/DistanceMatch.h>
 #include <locomotion/DeadBlend.h>
 #include <locomotion/SpeedProfile.h>
 #include <filesystem>
@@ -736,6 +737,52 @@ void SpeedProfileChecks() {
           "the factor is wanted over record, 1 when either is unset");
 }
 
+/// @brief Distance matching: curves by path from a marker, the lookup, advancing by distance, and the model's predictions.
+void DistanceMatchChecks() {
+    std::vector<float> stop;
+    float              y = 0.0f;
+    for (int f = 0; f < 40; ++f) {
+        const float step = f < 20 ? 10.0f : f < 30 ? 10.0f * (30 - f) / 10.0f : 0.0f;
+        y += f == 0 ? 0.0f : step;
+        stop.insert(stop.end(), { 0.0f, y, 0.0f });
+    }
+    const ps::DistanceCurve sc = ps::BuildDistanceCurve(stop, 40, 1.0 / 30.0, ps::DistanceMarker::Stop);
+    Check(sc.Valid() && std::fabs(sc.markerTime - 30.0 / 30.0) < 1.0e-9, "a stop's marker is the frame it comes to rest");
+    Check(sc.value.back() == 0.0f && sc.value.front() < -200.0f, "its curve is the distance left, negative before the stop");
+    const auto atZero = ps::TimeAtDistance(sc, 0.0f);
+    Check(atZero && sc.At(*atZero) == 0.0f && *atZero <= sc.markerTime, "0 left is where the root reaches its stop (at or before it rests)");
+    const auto at50 = ps::TimeAtDistance(sc, -50.0f);
+    Check(at50 && std::fabs(sc.At(*at50) + 50.0f) < 1.0e-3f, "a distance left finds the frame that has it left");
+    Check(!ps::TimeAtDistance(sc, -10000.0f), "a prediction beyond the curve finds nothing: the clip plays on by the clock");
+
+    std::vector<float> line;
+    for (int f = 0; f < 30; ++f) line.insert(line.end(), { 0.0f, f * 6.0f, 0.0f });
+    const ps::DistanceCurve lc = ps::BuildDistanceCurve(line, 30, 1.0 / 30.0, ps::DistanceMarker::Start);
+    const double            t1 = ps::AdvanceByDistance(lc, 0.2, 6.0f, 1.0 / 60.0, 0.6, 5.0);
+    Check(std::fabs(t1 - (0.2 + 1.0 / 30.0)) < 1.0e-6, "advancing by a frame's distance moves a frame of clip time");
+    Check(std::fabs(ps::AdvanceByDistance(lc, 0.2, 0.0f, 1.0 / 60.0, 0.6, 5.0) - (0.2 + 0.6 / 60.0)) < 1.0e-9, "standing still advances at the floor");
+    Check(std::fabs(ps::AdvanceByDistance(lc, 0.2, 1000.0f, 1.0 / 60.0, 0.6, 5.0) - (0.2 + 5.0 / 60.0)) < 1.0e-9, "a huge move is held to the ceiling");
+    Check(ps::RateForSpeed(180.0f, 90.0f, 0.8f, 1.2f) == 0.8f && ps::RateForSpeed(0.0f, 90.0f, 0.8f, 1.2f) == 1.0f, "loop rate: clamped, 1 for a still clip");
+
+    const ps::Profile& profile = ps::kPlayer;
+    ps::Caps           caps;
+    caps.forward = 300.0f;
+    ps::State run;
+    run.vy = 300.0f;
+    ps::Input in;
+    in.gait      = ps::Gait::Run;
+    in.haveStick = true;
+    in.stickY    = 1.0f;
+    const float stopDist = ps::PredictStopDistance(run, in, caps, profile, 0.0f, 0.0f);
+    Check(stopDist > 10.0f && stopDist < 300.0f, "a run predicts a short slide to rest: " + std::to_string(stopDist));
+    Check(ps::PredictStopDistance(ps::State{}, in, caps, profile, 0.0f, 0.0f) < 0.0f, "standing predicts no stop");
+    ps::Input back = in;
+    back.stickY    = -1.0f;
+    const float pivotDist = ps::PredictPivotDistance(run, back, caps, profile, 0.0f, 0.0f);
+    Check(pivotDist > 0.0f && pivotDist < 100.0f, "a stick turned back predicts a short way to the turn: " + std::to_string(pivotDist));
+    Check(ps::PredictPivotDistance(run, in, caps, profile, 0.0f, 0.0f) < 0.0f, "running with the stick is no pivot");
+}
+
 /// @brief A clip's takeoff: the first frame its root rises past kTakeoffRise, -1 when it stays on the ground.
 void TakeoffChecks() {
     std::vector<float> ground, jump;
@@ -1405,6 +1452,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     SpeedProfileChecks();
     ClipSpeedChecks();
     TakeoffChecks();
+    DistanceMatchChecks();
     LoopFitChecks();
     LoopFitReport();
     SchemaMeasureChecks();

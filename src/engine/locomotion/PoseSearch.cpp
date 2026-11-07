@@ -438,6 +438,8 @@ namespace CB::engine::locomotion {
         out->schemaRows = c.schemaRows;
         out->speed = WindowedRootSpeeds(c.rootPositions, c.frames, out->dt);
         out->takeoff = ClipTakeoff(c.rootPositions, c.frames, out->dt);
+        out->stopCurve  = BuildDistanceCurve(c.rootPositions, c.frames, out->dt, DistanceMarker::Stop);
+        out->pivotCurve = BuildDistanceCurve(c.rootPositions, c.frames, out->dt, DistanceMarker::Pivot);
         out->curves = c.curves;
         return out;
     }
@@ -469,6 +471,7 @@ namespace CB::engine::locomotion {
             text(d.standingCandidate), text(d.movingCandidate);
             out += std::to_string(d.schema) + '\x1f';
             out += d.pivots ? "1\x1e" : "0\x1e";
+            out += d.stops ? "1\x1e" : "0\x1e";
         }
         out += '\x1d';
         for (const anim::SchemaSpec& s : schemas) text(anim::SchemaText(s));
@@ -565,8 +568,10 @@ namespace CB::engine::locomotion {
                 p.loopingCostBias        = StrOr(*d, "loopingCostBias");
                 p.standingCandidate      = StrOr(*d, "standingCandidate");
                 p.movingCandidate        = StrOr(*d, "movingCandidate");
-                if (const auto* tags = d->FindField("tags"))
+                if (const auto* tags = d->FindField("tags")) {
                     p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
+                    p.stops  = std::find(tags->strs.begin(), tags->strs.end(), "Stops") != tags->strs.end();
+                }
                 if (const SchemaObject* s = d->HasField("schema") ? d->Child("schema") : nullptr) {
                     const auto it = std::find(schemaObjects.begin(), schemaObjects.end(), s);
                     p.schema      = static_cast<int>(it - schemaObjects.begin());
@@ -620,6 +625,7 @@ namespace CB::engine::locomotion {
             p.standing   = CompileExpression(d.standingCandidate, "database '" + p.name + "' standingCandidate", "no row is a standing candidate", warn);
             p.moving     = CompileExpression(d.movingCandidate, "database '" + p.name + "' movingCandidate", "no row is a moving candidate", warn);
             p.pivots     = d.pivots;
+            p.stops      = d.stops;
             db.databases.push_back(std::move(p));
         }
         for (std::size_t i = 0; i < spec.children.size(); ++i) {
@@ -815,6 +821,11 @@ namespace CB::engine::locomotion {
             c.takeoff  = m->takeoff;
             if (m->looping) c.flags |= kFlagLooping;
             c.loopPeriod = m->loopPeriod;
+            if (c.database >= 0 && !(c.flags & kFlagLooping)) {
+                const PoseDatabase& pd = db->databases[c.database];
+                if (pd.stops) c.distance = m->stopCurve;
+                else if (pd.pivots) c.distance = m->pivotCurve;
+            }
             for (std::size_t sp = 0; sp < db->spaces.size(); ++sp) {
                 if (!used[sp]) continue;
                 SchemaSpace& space = db->spaces[sp];

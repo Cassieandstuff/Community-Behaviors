@@ -114,6 +114,8 @@ namespace CB::feature {
         /// @note Narrow (FluidMotion's 0.85-1.2): the search picks the clip whose speed fits, the rate only trims what is left;
         ///       a wide range let a wrong clip play on at a skating rate.
         constexpr float kMinRate = 0.85f, kMaxRate = 1.2f;
+        /// @brief A pivot's play rate past its turn, advancing by the distance moved (Lyra's start and pivot clamps).
+        constexpr double kDistanceMinRate = 0.6, kDistanceMaxRate = 5.0;
         /// @brief Game units/s: a playing frame slower than this (standing, turning in place) plays at rate 1.
         constexpr float kRateClipStill = 25.0f;
         /// @brief Seconds airborne before the chooser's movement mode says air: the controller drops into InAir for a frame
@@ -508,6 +510,10 @@ namespace CB::feature {
             Clock::time_point queryAt{};
             /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
             std::atomic<float> timeToLand{ controller::motion::kNoLanding };
+            /// @brief The movement model's distances for distance matching (DistancesOf).
+            std::mutex        distancesLock;
+            ch::motion::Distances distances;
+            bool              haveDistances = false;
             /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
             Inputs            inputs = InitialInputs();
             InputMemory       memory;
@@ -547,6 +553,13 @@ namespace CB::feature {
             if (in.haveStick) m.stickYaw = std::atan2(in.stickX, in.stickY), m.haveStickYaw = true;
 
             ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, m.stickYaw, playingPivots, io);
+            {
+                const ch::motion::Distances d{ ps::PredictStopDistance(s, in, snap.caps, snap.profile, snap.px, snap.py),
+                                               ps::PredictPivotDistance(s, in, snap.caps, snap.profile, snap.px, snap.py), std::hypot(s.vx, s.vy) };
+                std::scoped_lock lock(match.distancesLock);
+                match.distances     = d;
+                match.haveDistances = true;
+            }
             const bool moving = io[kMovementState] == 1;
             io[kStance]       = player->IsSneaking() ? 1 : 0;
 
@@ -792,6 +805,14 @@ namespace CB::feature {
             /// @note The node masks what a Pivots database's playing frame rules out (NodeInputs): the controller never reads it.
             ComputeInputs(actor, match, deltaTime, false, match.inputs);
             WriteInputs(actor, match.inputs);
+            {
+                static const RE::BSFixedString toStop("MM_DistanceToStop"), toPivot("MM_DistanceToPivot");
+                ch::motion::Distances d;
+                if (DistancesOf(actor->GetFormID(), d)) {
+                    actor->SetGraphVariableFloat(toStop, d.toStop);
+                    actor->SetGraphVariableFloat(toPivot, d.toPivot);
+                }
+            }
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
             if (!WriteQuery(actor, match)) return;
@@ -1019,7 +1040,28 @@ namespace CB::feature {
         request.active  = ps::Choose(db, s.ctx);
         request.biases  = ps::EvaluateBiases(db, s.ctx);
 
-        const ps::MatchStep step = s.matcher.Update(db, request, timestep);
+        const double  wasTime = s.playingTime;
+        const int     wasClip = s.playingClip;
+        ps::MatchStep step    = s.matcher.Update(db, request, timestep);
+        /// @note Distance matching: a clip of a Stops or Pivots database plays by the movement model's predicted distance
+        ///       to its stop or turn, then (past a pivot's turn) by the distance moved; never backwards, and by the clock
+        ///       whenever the prediction runs out or falls outside the clip's curve.
+        if (step.clip >= 0 && step.clip == wasClip && step.nextClip == step.clip && step.clip < static_cast<int>(db.clips.size())) {
+            const Clip&           c = db.clips[step.clip];
+            ch::motion::Distances d;
+            if (c.distance.Valid() && c.database >= 0 && ch::motion::DistancesOf(actor->GetFormID(), d)) {
+                const bool          stops = db.databases[c.database].stops;
+                const float         left  = stops ? d.toStop : d.toPivot;
+                std::optional<double> t;
+                if (left >= 0.0f) t = ps::TimeAtDistance(c.distance, -left);
+                else if (!stops && wasTime >= c.distance.markerTime)
+                    t = ps::AdvanceByDistance(c.distance, wasTime, d.speed * timestep, timestep, kDistanceMinRate, kDistanceMaxRate);
+                if (t && *t >= wasTime && *t <= c.duration) {
+                    s.matcher.SetTime(*t);
+                    step.time = step.nextTime = *t;
+                }
+            }
+        }
         s.playingClip            = step.clip;
         s.playingTime            = step.time;
         /// @note The wind-up launches once the clip switched to for it (a search made with the chooser airborne) reaches
@@ -1123,6 +1165,15 @@ namespace CB::feature {
         actor->SetGraphVariableInt(clipName, step.nextClip);
         actor->SetGraphVariableFloat(timeName, fraction);
         return step.nextClip;
+    }
+
+    bool controller::motion::DistancesOf(RE::FormID actor, Distances& out)
+    {
+        CharacterMatch&  match = MatchOf(actor);
+        std::scoped_lock lock(match.distancesLock);
+        if (!match.haveDistances) return false;
+        out = match.distances;
+        return true;
     }
 
     const ps::Database* controller::motion::DatabaseFor(const ps::DatabaseSpec& spec, const ea::Rig& rig)

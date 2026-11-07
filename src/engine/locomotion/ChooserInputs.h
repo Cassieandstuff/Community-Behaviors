@@ -125,6 +125,21 @@ namespace CB::engine::locomotion {
     ///        ahead), world x and y, game units/s.
     void FutureVelocity(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float& vx, float& vy);
 
+    /// @brief Seconds the stop and pivot predictions step at most.
+    inline constexpr float kPredictHorizon = 3.0f;
+
+    /// @brief How far (game units, along the path) the character slides before it stops if the stick lets go now: the
+    ///        model stepped on with no input until still, at most kPredictHorizon.
+    /// @return -1 when it is not moving
+    /// @note  The model's own integrator, not a closed form: Unreal's PredictGroundMovementStopLocation assumes constant
+    ///        friction and drifts with the frame rate.
+    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py);
+
+    /// @brief How far (game units, along the path) the character goes before it turns round, when the stick points more
+    ///        than 90 degrees from the velocity: the model stepped on with the input held, up to its slowest point.
+    /// @return -1 when it is not pivoting (moving with the stick, or no turn within kPredictHorizon)
+    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py);
+
     /// @brief The inputs a frame's movement decides: mode, rotation, state, gait, starting, pivoting, spin and speed.
     /// @param stickYaw the stick's latest heading, held after its release
     /// @param playingPivots the playing child's database is tagged "Pivots": IsStarting and spins stay false

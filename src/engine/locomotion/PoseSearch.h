@@ -2,6 +2,7 @@
 
 #include <compile/MotionFeatures.h>
 #include <compile/MotionMatchingCache.h>
+#include <locomotion/DistanceMatch.h>
 #include <locomotion/Movement.h>
 #include <relay/Relay.h>
 
@@ -119,6 +120,9 @@ namespace CB::engine::locomotion {
         float        rangeEnd   = 0;  ///< <= 0 = the clip's end
         float        takeoff    = -1; ///< seconds: when the root first rises kTakeoffRise above its start (ClipTakeoff), -1 = never
         double       loopPeriod = 0;  ///< seconds a looping clip wraps at (its measured period, at most `duration`), 0 = not looping
+        /// @brief Its distance curve, for a clip in a Stops database (from its stop) or a Pivots one (from its turn);
+        ///        invalid otherwise. The node plays it by distance (DistanceMatch) while the movement model predicts one.
+        DistanceCurve distance;
     };
 
     /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
@@ -144,6 +148,7 @@ namespace CB::engine::locomotion {
         ///        that does not compile: no row).
         Expression  standing, moving;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
+        bool        stops  = false;   ///< its tags hold "Stops" (byte-exact): its clips play by distance to the stop
         int         space  = 0;       ///< the row space its candidates are measured and weighed in (Database::spaces)
     };
 
@@ -204,6 +209,7 @@ namespace CB::engine::locomotion {
         double                        dt       = 1.0 / 30.0;
         double                        duration = 0;
         float                         takeoff  = -1;   ///< ClipTakeoff's
+        DistanceCurve                 stopCurve, pivotCurve;   ///< BuildDistanceCurve from its stop and from its turn
         double                        loopPeriod = 0;  ///< the measured loop's period in seconds, 0 = none
     };
 
@@ -254,6 +260,7 @@ namespace CB::engine::locomotion {
     struct SpecDatabase {
         std::string name, baseCostBias, continuingPoseCostBias, loopingCostBias, standingCandidate, movingCandidate;
         bool        pivots = false;   ///< its tags hold "Pivots" (byte-exact)
+        bool        stops  = false;   ///< its tags hold "Stops" (byte-exact)
         int         schema = -1;      ///< its DatabaseSpec::schemas entry; -1 = none stated, the classic layout
     };
     /// @brief One CBPoseSearchChooserRow.
@@ -463,6 +470,12 @@ namespace CB::engine::locomotion {
         MatchStep Update(const Database& db, const MatchRequest& in, float dt);
         /// @brief Forget what plays: the next update with a query searches at once, with no pose to continue.
         void Restart();
+        /// @brief Play the current clip from `time` instead of the clock's (distance matching); ignored while a switch is
+        ///        pending, since the pick shows first.
+        void SetTime(double time)
+        {
+            if (m_clip >= 0 && m_pendingClip < 0) m_time = time;
+        }
 
     private:
         /// @brief A pick and when: the ban follows where it would have played to.

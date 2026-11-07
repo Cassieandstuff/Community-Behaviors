@@ -59,6 +59,19 @@ namespace CB::feature::controller::motion {
     /// @note  Thread-safe: the predictor (physics thread) writes it, the frame hook (update thread) reads it.
     void SetTimeToLand(RE::FormID actor, float seconds);
 
+    /// @brief What distance matching reads of a character, as of its latest movement frame.
+    struct Distances {
+        float toStop  = -1.0f;   ///< game units along the path to where it comes to rest if the stick lets go, -1 = not moving
+        float toPivot = -1.0f;   ///< game units along the path to where it turns round, -1 = not pivoting
+        float speed   = 0.0f;    ///< game units/s, horizontal: what a start advances by
+    };
+
+    /// @brief `actor`'s distances from the movement model (locomotion::PredictStopDistance, PredictPivotDistance).
+    /// @return false when no movement frame has published them (CB does not drive the actor)
+    /// @note  Thread-safe: the frame hook writes them, graph nodes read them. Also written to the graph variables
+    ///        MM_DistanceToStop and MM_DistanceToPivot where a graph declares them.
+    bool DistancesOf(RE::FormID actor, Distances& out);
+
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
     std::string Describe();
