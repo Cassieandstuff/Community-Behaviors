@@ -1167,6 +1167,38 @@ namespace CB::feature {
         return step.nextClip;
     }
 
+    std::shared_ptr<const ps::DistanceCurve> controller::motion::DistanceCurveOf(const std::string& name, ps::DistanceMarker marker)
+    {
+        static std::mutex                                                                       lock;
+        static std::map<std::pair<std::string, int>, std::shared_ptr<const ps::DistanceCurve>> curves;
+        const auto key = std::make_pair(name, static_cast<int>(marker));
+        {
+            std::scoped_lock held(lock);
+            if (const auto it = curves.find(key); it != curves.end()) return it->second;
+        }
+        std::optional<core::resolve::LoadOrderReader> reader;
+        {
+            std::scoped_lock held(g_store.lock);
+            reader = g_store.reader;
+        }
+        if (!reader || !reader->nativeAnimation) return nullptr;
+        std::shared_ptr<const ps::DistanceCurve> curve;
+        try {
+            std::string path = std::string(kProjectDir) + name;
+            std::replace(path.begin(), path.end(), '\\', '/');
+            if (const auto text = reader->nativeAnimation(path)) {
+                const ea::MmCachedClip c = ea::MeasureMmClip(name, path, *text, 0, nullptr, {});
+                auto built = std::make_shared<ps::DistanceCurve>(ps::BuildDistanceCurve(c.rootPositions, c.frames, c.frameDuration, marker));
+                if (built->Valid()) curve = std::move(built);
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("distance matching: '{}' could not be measured: {}", name, e.what());
+        }
+        if (!curve) LOG_WARN("distance matching: no distance curve for '{}' (CB ships no animation unit for it)", name);
+        std::scoped_lock held(lock);
+        return curves.emplace(key, curve).first->second;
+    }
+
     bool controller::motion::DistancesOf(RE::FormID actor, Distances& out)
     {
         CharacterMatch&  match = MatchOf(actor);
