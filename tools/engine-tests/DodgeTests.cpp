@@ -4,6 +4,7 @@
 #include "TestSupport.h"
 
 #include <locomotion/Dodge.h>
+#include <locomotion/Movement.h>
 
 #include <cmath>
 #include <string>
@@ -118,6 +119,22 @@ void StaminaChecks() {
     Check(loco::DodgeAffordable(souls, 0.0f, 0.0f), "a free dodge always goes");
 }
 
+void StickChecks() {
+    const auto none = loco::StickInputOf(0.05f, 0.0f, 0.0f, 0.0f, 123);
+    Check(none.intensity == 0 && none.direction == 123, "stick at rest: intensity 0, the direction held");
+
+    Check(loco::StickInputOf(0, 1, 0, 0, 0).direction == 0, "stick forward, camera and body ahead: 0");
+    Check(loco::StickInputOf(1, 0, 0, 0, 0).direction == 90, "stick right: 90");
+    Check(loco::StickInputOf(-1, 0, 0, 0, 0).direction == 270, "stick left: 270, never negative");
+    Check(loco::StickInputOf(0, -1, 0, 0, 0).direction == 180, "stick back: 180");
+    Check(loco::StickInputOf(0, 1, 90 * kDeg, 0, 0).direction == 90, "camera turned right: forward is the body's right");
+    Check(loco::StickInputOf(0, 1, 0, 90 * kDeg, 0).direction == 270, "body turned right: forward is the body's left");
+    Check(loco::StickInputOf(0, 1, 0, 0.1f * kDeg, 0).direction == 0, "just under 360 rounds to 0, not 360");
+
+    Check(loco::StickInputOf(0, 0.5f, 0, 0, 0).intensity == 50, "half push: 50");
+    Check(loco::StickInputOf(1, 1, 0, 0, 0).intensity == 100, "a keyboard diagonal is capped at 100");
+}
+
 }  // namespace
 
 void RunDodgeTests() {
@@ -125,6 +142,7 @@ void RunDodgeTests() {
     TapHoldChecks();
     DoubleTapChecks();
     StaminaChecks();
+    StickChecks();
 }
 
 }  // namespace CB::engine::tests

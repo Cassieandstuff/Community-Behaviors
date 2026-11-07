@@ -187,7 +187,8 @@ namespace CB::core::debug {
           "blending to MOVT's side and back speeds by direction. CB also owns sprinting: it stays on while toggled, "
           "pauses while blocking, airborne or (while strafing) moving more than 50 deg from the facing, and ends on "
           "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
-          "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
+          "bAnimationDriven, bSpeedSynced and bIsSynced. Every frame it writes the stick into the player's graph: "
+          "iCB_StickDirection (degrees clockwise from the facing, 0-359) and iCB_StickIntensity (0-100). Needs bCamera (in third person); off without it. AE only. "
           "Unproven in game." },
         { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
           "Horse movement model",

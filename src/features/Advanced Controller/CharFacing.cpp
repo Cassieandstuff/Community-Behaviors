@@ -177,6 +177,24 @@ namespace CB::feature::controller {
             controls->data.moveInputVec = RE::NiPoint2(0.0f, len < StickMoveThreshold() ? 0.0f : 1.0f);
         }
 
+        /// @brief Writes the player's stick into the graph as `iCB_StickDirection` and `iCB_StickIntensity`
+        ///        (locomotion::StickInputOf: degrees clockwise from the facing, percent), every frame.
+        /// @note  Why: vanilla's graphs have no stick variable; a dodge's 2D blend space binds to these. Int variables bind
+        ///        to float members: the binding converts. Every frame rather than on change, since a reloaded graph starts
+        ///        from its own defaults.
+        /// @note  Without CB's camera (`cameraYaw` = the facing) the stick reads relative to the body.
+        void PublishStick(RE::Actor* player, RE::NiPoint2 raw, float cameraYaw, float heading)
+        {
+            static const RE::BSFixedString direction("iCB_StickDirection");
+            static const RE::BSFixedString intensity("iCB_StickIntensity");
+            /// @note The player's frame only, one at a time.
+            static int held = 0;
+            const auto in   = CB::engine::locomotion::StickInputOf(raw.x, raw.y, cameraYaw, heading, held);
+            held            = in.direction;
+            player->SetGraphVariableInt(direction, in.direction);
+            player->SetGraphVariableInt(intensity, in.intensity);
+        }
+
         /// @brief Whether the player is doing something aimed (an attack or a bow, blocking, casting): then the body
         ///        faces the camera and strafes.
         bool Aiming(RE::Actor* actor)
@@ -418,6 +436,7 @@ namespace CB::feature::controller {
             EngineSpeed& es = d.engineSpeed;
 
             const float heading    = player->GetHeading(false);
+            PublishStick(player, raw, hold ? cameraYaw : heading, heading);
             const float engineFull = out->speed;
             /// @note The speed profile's, not the movement type record's (CharSpeedProfile): the engine's own stays in engineFull.
             Gait        gait       = GaitOf(player);

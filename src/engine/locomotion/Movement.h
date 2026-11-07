@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -159,6 +160,31 @@ namespace CB::engine::locomotion {
         if (stickX * stickX + stickY * stickY < kStickDeadzone * kStickDeadzone) return false;
         heading = cameraYaw + std::atan2(stickX, stickY);
         return true;
+    }
+
+    /// @brief The stick as a graph reads it (iCB_StickDirection, iCB_StickIntensity): whole degrees clockwise from the
+    ///        body's facing in [0, 360), and the length in percent, 0 inside kStickDeadzone and at most 100.
+    struct StickInput {
+        int direction = 0;
+        int intensity = 0;
+    };
+
+    /// @brief StickInput for the stick (x right, y forward) read relative to `cameraYaw`, seen from `bodyHeading`.
+    /// @note  Inside the deadzone the direction stays `held` (the last one), so a blend over direction does not jump
+    ///        as the stick comes to rest.
+    inline StickInput StickInputOf(float stickX, float stickY, float cameraYaw, float bodyHeading, int held)
+    {
+        StickInput  in;
+        const float len = std::sqrt(stickX * stickX + stickY * stickY);
+        if (len < kStickDeadzone) {
+            in.direction = held;
+            return in;
+        }
+        constexpr float kRadToDeg = 57.2957795f;
+        const float     relative  = WrapPi(cameraYaw + std::atan2(stickX, stickY) - bodyHeading) * kRadToDeg;
+        in.direction              = static_cast<int>(std::lround(relative < 0.0f ? relative + 360.0f : relative)) % 360;
+        in.intensity              = static_cast<int>(std::lround((std::min)(len, 1.0f) * 100.0f));
+        return in;
     }
 
     /// @brief Turns a movement frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move
