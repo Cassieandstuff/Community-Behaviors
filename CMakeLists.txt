@@ -364,5 +364,21 @@ if(CB_BUILD_CONVERTER)
     target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
     set_target_properties(imgui PROPERTIES CXX_STANDARD 17)
 
+    # ── Raven (the rewrite's UI toolkit) ──────────────────────────────────────
+    # Pinned by full commit: Raven's API is unstable and its history is a single line. Static, none of its examples,
+    # tests, tools or web view. Off until the rewrite lands; the GLFW + ImGui stack above stays the converter's UI.
+    option(CB_CONVERTER_RAVEN "Fetch and build Raven for the converter rewrite" OFF)
+    if(CB_CONVERTER_RAVEN)
+        FetchContent_Declare(raven
+            GIT_REPOSITORY https://github.com/oscar-soirey/Raven.git
+            GIT_TAG        4a05d6f11c79e5a6eae77d7fe26f702f5fea4331)
+        set(RAVEN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_WEB      OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_SHARED   OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(raven)
+    endif()
+
     add_subdirectory(src/converter)
 endif()
