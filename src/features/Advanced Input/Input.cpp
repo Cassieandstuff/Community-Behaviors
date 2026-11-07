@@ -43,6 +43,8 @@ namespace CB::feature::input {
         std::unordered_map<std::uint64_t, KeyState>  g_keys;
         std::array<Sample, kHistory>                 g_ring{};
         Axis2                                        g_left, g_right;   ///< sticks report only on change: held here
+        Key                                          g_lastKey;
+        std::uint64_t                                g_lastKeyFrame = 0;
 
         std::uint64_t Id(Key k) { return (static_cast<std::uint64_t>(k.device) << 32) | k.code; }
 
@@ -74,6 +76,8 @@ namespace CB::feature::input {
                         k.down      = true;
                         k.downFrame = g_frame;
                         k.downAt    = now;
+                        g_lastKey      = { device, b->GetIDCode() };
+                        g_lastKeyFrame = g_frame;
                     } else if (b->IsUp() && k.down) {
                         k.down     = false;
                         k.upFrame  = g_frame;
@@ -156,6 +160,14 @@ namespace CB::feature::input {
         std::scoped_lock lock(g_lock);
         const auto* k = Find(key);
         return k && Within(k->upFrame, 1) && k->lastHold <= maxHold;
+    }
+
+    bool LastPress(Key& key, std::uint64_t& frame)
+    {
+        std::scoped_lock lock(g_lock);
+        key   = g_lastKey;
+        frame = g_lastKeyFrame;
+        return g_lastKeyFrame != 0;
     }
 
     Axis2 Stick(bool right, std::uint32_t framesAgo)

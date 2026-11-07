@@ -3,6 +3,7 @@
 #include "CharMovementModel.h"
 #include "CharSprint.h"
 
+#include <features/Advanced Dodge/Dodge.h>
 #include <platform/game/Player.h>
 #include <platform/hooks/Override.h>
 
@@ -10,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <string_view>
 
 /// @file
 /// @brief The player's sprint under the movement model, replacing vanilla's per-frame evaluator: the key's toggle
@@ -17,6 +19,7 @@
 ///        cone, blocking or airborne (and restores it after), cancels it on stopping, empty stamina, over-encumbrance or
 ///        an attack, and asks the engine for SprintStart / SprintStop exactly as vanilla does. Also: jumping while
 ///        sprinting, and no sprint stamina drain out of combat.
+/// @note With Advanced Dodge's sprint tap the key is hold-to-sprint instead (dodge::SprintHoldIntent): a tap dodges.
 /// @note Vanilla's ~30 deg prevMoveVec cone is not applied: the model's direction rule (SprintDirectionAllowed) replaces
 ///       it, and CB's forward-only move input would pass it anyway.
 
@@ -50,6 +53,7 @@ namespace CB::feature::controller::sprint {
             bool        lastBit   = false;   ///< the toggle as CB left it, to see what changed it since
             double      lastRun   = -1.0e9;
             const void* place     = nullptr;   ///< the interior cell, or the exterior's worldspace
+            bool        holdSpent = false;     ///< hold mode: stamina ran out during this hold; the key must be let go first
         };
         Rules g_rules;
 
@@ -141,7 +145,15 @@ namespace CB::feature::controller::sprint {
 
             auto& flags = player->GetPlayerFlags();
             bool  bit   = flags.isSprinting;
-            if (r.suspended && bit && !r.lastBit) {
+            /// @note Hold mode (Advanced Dodge's sprint tap): the held key is the intent and vanilla's toggle is
+            ///       overwritten, so a suspend needs no memory: holding on resumes it.
+            bool       held     = false;
+            const bool holdMode = dodge::SprintHoldIntent(held);
+            if (holdMode) {
+                if (!held) r.holdSpent = false;
+                bit         = held && !r.holdSpent;
+                r.suspended = false;
+            } else if (r.suspended && bit && !r.lastBit) {
                 bit         = false;
                 r.suspended = false;
                 if (LogBudget()) LOG_INFO("sprint: toggled off while suspended");
@@ -157,12 +169,15 @@ namespace CB::feature::controller::sprint {
                     if (LogBudget()) LOG_INFO("sprint: cancelled ({})", cancel);
                     bit         = false;
                     r.suspended = false;
+                    /// @note Only running dry spends a hold: a sprint that empties stamina would flicker on again as it
+                    ///       regenerates. Every other cancel ends with its reason, as a suspend does.
+                    if (holdMode && std::string_view(cancel) == "stamina") r.holdSpent = true;
                 } else if (*suspend) {
                     why = suspend;
                     if (bit) {
-                        if (LogBudget()) LOG_INFO("sprint: suspended ({})", suspend);
+                        if (LogBudget() && !holdMode) LOG_INFO("sprint: suspended ({})", suspend);
                         bit         = false;
-                        r.suspended = true;
+                        r.suspended = !holdMode;
                     }
                 } else if (r.suspended) {
                     if (LogBudget()) LOG_INFO("sprint: resumed");

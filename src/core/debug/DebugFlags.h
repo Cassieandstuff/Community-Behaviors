@@ -151,6 +151,15 @@ namespace CB::core::debug {
           "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
           "each button's press/release times and the sticks and mouse over the last frames, for CB's controller to "
           "query. Passes every event on to the game unchanged. AE only. Unproven in game." },
+        { "adv_dodge", FlagKind::IniBool, "Dodge", "bAdvancedDodge", false, false,
+          "Advanced Dodge",
+          "The player dodges on CB's input: a tap of Sprint (hold to sprint), a key of its own, or a double tap of a "
+          "direction ([Dodge] iTrigger 0/1/2, set in SKSE Menu Framework > Community Behaviors > Advanced Dodge). The "
+          "direction is the move input's, relative to CB's camera, as one of 8 ways around the body (or none: N). CB "
+          "charges the stamina ([Dodge] iStaminaMode, fStaminaCost, bRequireFullStamina) and raises the graph event "
+          "AD_Dodge with AD_Direction (int, 0 = N, 1-8 = F, FR, R, BR, B, BL, L, FL) and AD_Angle (degrees clockwise "
+          "from the facing); it waits while the graph's AD_IsDodging is true. Nothing plays until a graph answers "
+          "AD_Dodge. Needs bAdvancedInput; the sprint tap needs bMovementModel. AE only. Unproven in game." },
         { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
           "Camera: thin objects block",
           "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "

@@ -5,13 +5,18 @@
 #include "CharMovementTuning.h"
 #include "CharSpeedProfile.h"
 
+#include <features/Advanced Dodge/Dodge.h>
+#include <features/Advanced Input/Input.h>
 #include <platform/startup/Startup.h>
 
 #include <SKSEMenuFramework.h>
 
+#include <format>
+#include <string>
+
 /// @file
 /// @brief The in-game config prototype: SKSE Menu Framework > Community Behaviors > Movement Speeds, editing the speed
-///        profile (CharSpeedProfile) live and saving it to settings.ini.
+///        profile (CharSpeedProfile) live and saving it to settings.ini; also Movement Tuning and Advanced Dodge.
 /// @warning The only translation unit that includes SKSEMenuFramework.h: the header's module handle is a per-TU static,
 ///          and every ImGui wrapper and registration call reads this TU's copy.
 
@@ -93,6 +98,102 @@ namespace CB::feature::controller::config {
             if (ImGuiMCP::Button("Reset to GASP's")) tuning::Reset();
         }
 
+        /// @brief Which dodge key the Advanced Dodge page is waiting for, and the input frame the wait began on.
+        /// @note  Render thread only.
+        enum class Capture { None, KeyboardOrMouse, Gamepad };
+        Capture       g_capture      = Capture::None;
+        std::uint64_t g_captureFrame = 0;
+
+        std::string KeyName(input::Key k)
+        {
+            if (k.device == input::Device::Mouse) return std::format("mouse button {}", k.code + 1);
+            if (k.code == 0) return "none";
+            return k.device == input::Device::Gamepad ? std::format("gamepad 0x{:X}", k.code) : std::format("scan code 0x{:02X}", k.code);
+        }
+
+        /// @brief A key row: its binding, a button that waits for the next press on its kind of device, and a clear.
+        bool EditKey(const char* label, input::Key& key, Capture kind)
+        {
+            ImGuiMCP::PushID(label);
+            bool changed = false;
+            if (g_capture == kind) {
+                input::Key    pressed;
+                std::uint64_t frame = 0;
+                const bool    pad   = kind == Capture::Gamepad;
+                if (input::LastPress(pressed, frame) && frame > g_captureFrame &&
+                    (pressed.device == input::Device::Gamepad) == pad && pressed.device != input::Device::VirtualKeyboard) {
+                    key       = pressed;
+                    changed   = true;
+                    g_capture = Capture::None;
+                }
+                ImGuiMCP::Text("%s: press a %s...", label, pad ? "gamepad button" : "key or mouse button");
+                ImGuiMCP::SameLine();
+                if (ImGuiMCP::Button("Cancel")) g_capture = Capture::None;
+            } else {
+                ImGuiMCP::Text("%s: %s", label, KeyName(key).c_str());
+                ImGuiMCP::SameLine();
+                if (ImGuiMCP::Button("Bind")) {
+                    g_capture      = kind;
+                    g_captureFrame = input::Frame();
+                }
+                ImGuiMCP::SameLine();
+                if (ImGuiMCP::Button("Clear")) {
+                    key     = { kind == Capture::Gamepad ? input::Device::Gamepad : input::Device::Keyboard, 0 };
+                    changed = true;
+                }
+            }
+            ImGuiMCP::PopID();
+            return changed;
+        }
+
+        /// @brief Advanced Dodge's settings, live; Save writes settings.ini [Dodge].
+        void __stdcall RenderDodge()
+        {
+            ImGuiMCP::TextWrapped("How the player asks to dodge and what it costs. The dodge goes where the move input points, "
+                                  "relative to the camera, as one of 8 ways around the body (no input: a backstep). Changes apply "
+                                  "at once; Save writes settings.ini [Dodge]. Needs bAdvancedDodge and bAdvancedInput.");
+            ImGuiMCP::Text("Last: %s", dodge::Status().c_str());
+            ImGuiMCP::Separator();
+
+            dodge::Settings s       = dodge::Current();
+            bool            changed = false;
+
+            static const char* const kTriggers[] = { "Tap Sprint (hold to sprint)", "Dodge key", "Double tap a direction" };
+            int                      trigger     = static_cast<int>(s.trigger);
+            if (ImGuiMCP::Combo("Input", &trigger, kTriggers, 3)) {
+                s.trigger = static_cast<loco::DodgeTrigger>(trigger);
+                changed   = true;
+            }
+            switch (s.trigger) {
+            case loco::DodgeTrigger::SprintTap:
+                changed |= ImGuiMCP::SliderFloat("Longest tap (s)", &s.tapMaxHold, 0.05f, 1.0f, "%.2f");
+                ImGuiMCP::TextDisabled("Sprint held longer than this sprints; needs bMovementModel (CB's sprint rules).");
+                break;
+            case loco::DodgeTrigger::DedicatedKey:
+                changed |= EditKey("Keyboard / mouse", s.keyboardKey, Capture::KeyboardOrMouse);
+                changed |= EditKey("Gamepad", s.gamepadKey, Capture::Gamepad);
+                break;
+            case loco::DodgeTrigger::DoubleTap:
+                changed |= ImGuiMCP::SliderFloat("Double tap window (s)", &s.doubleTapWindow, 0.05f, 1.0f, "%.2f");
+                ImGuiMCP::TextDisabled("Two pushes the same way, each from rest (keys or stick).");
+                break;
+            }
+
+            ImGuiMCP::SeparatorText("Stamina");
+            static const char* const kModes[] = { "Points", "Percent of maximum" };
+            int                      mode     = static_cast<int>(s.stamina.mode);
+            if (ImGuiMCP::Combo("Cost is", &mode, kModes, 2)) {
+                s.stamina.mode = static_cast<loco::DodgeCostMode>(mode);
+                changed        = true;
+            }
+            changed |= ImGuiMCP::DragFloat("Cost", &s.stamina.base, 0.5f, 0.0f, s.stamina.mode == loco::DodgeCostMode::Flat ? 500.0f : 100.0f, "%.1f");
+            changed |= ImGuiMCP::Checkbox("Needs the full cost (off: any stamina left will do)", &s.stamina.requireFull);
+
+            if (changed) dodge::Set(s);
+            ImGuiMCP::Separator();
+            if (ImGuiMCP::Button("Save")) dodge::Save();
+        }
+
         /// @brief The Debug category's character controller page: the debug HUD's switch.
         void __stdcall RenderDebugController()
         {
@@ -117,8 +218,9 @@ namespace CB::feature::controller::config {
             SKSEMenuFramework::SetSection("Community Behaviors");
             SKSEMenuFramework::AddSectionItem("Movement Speeds", RenderSpeeds);
             SKSEMenuFramework::AddSectionItem("Movement Tuning", RenderTuning);
+            SKSEMenuFramework::AddSectionItem("Advanced Dodge", RenderDodge);
             SKSEMenuFramework::AddSectionItem("Debug/Character Controller", RenderDebugController);
-            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Movement Tuning, Debug/Character Controller).");
+            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Movement Tuning, Advanced Dodge, Debug/Character Controller).");
         }
 
         [[maybe_unused]] const bool s_registered = platform::startup::OnDataLoaded(&Register, "config menu");

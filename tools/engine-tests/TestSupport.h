@@ -16,5 +16,6 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg);
 void RunBlendSpaceTests(const schema::SchemaRegistry& reg);
 void RunRootMotionTests(const schema::SchemaRegistry& reg);
 void RunSetDataTests(const schema::SchemaRegistry& reg);
+void RunDodgeTests();
 
 }  // namespace CB::engine::tests
