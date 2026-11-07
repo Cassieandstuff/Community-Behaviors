@@ -164,9 +164,17 @@ namespace CB::engine::locomotion {
         std::vector<float> rows;      ///< every row of the database, normalized, `dims` wide; empty when no database uses it
         std::vector<float> mean, scale, weight;   ///< per dim; a candidate's cost is the weighted sum of squared differences
         std::vector<int>   active;    ///< the dims weighted above 0, which alone the search reads
-        /// @brief Per dim: the query trajectory sample it is read from (the nearest in time) and the part of it (x, y, facing
-        ///        x, facing y, velocity x, velocity y, height); -1 = the playing frame's own row (the pose).
+        /// @brief Per dim: the query trajectory sample it is read from and the part of it (x, y, facing x, facing y,
+        ///        velocity x, velocity y, height); -1 = the playing frame's own row (the pose).
         std::vector<int>   querySample, queryPart;
+        /// @brief Per dim: a second query sample (-1 = none) and how far toward it (0..1) the value lies: a schema sample
+        ///        between two query sample times reads them interpolated (QuerySampleAt).
+        /// @note  Why: GASP's schemas sample at 0, 0.35 and 0.7 s, the query at -0.05, 1/3 and 2/3 s. Read from the nearest,
+        ///        every position was off by the speed times the gap (17 units at 0.7 s of a 518 sprint), which made clips
+        ///        about 5% slower than the character the best match: at a steady sprint the accelerating run-to-sprint
+        ///        transitions beat the sprint loop, and the search flipped between them every half second.
+        std::vector<int>   queryNext;
+        std::vector<float> queryBlend;
         std::vector<int>   group;     ///< per dim: what Candidate's costs sum it into (GroupOf classic, the feature typed)
     };
 
@@ -374,6 +382,15 @@ namespace CB::engine::locomotion {
     /// @brief At anim::features::kAhead's times, then kBack's.
     using QueryTrajectory = std::array<TrajectorySample, anim::features::kSamples>;
 
+    /// @brief The query samples a trajectory sample `time` seconds from now is read from: `lo`, and `hi` (-1 = none) a share
+    ///        `blend` of the way, the query samples bracketing the time (anim::features::SampleTime's), the nearest end past
+    ///        them. Time 0 lies between the nearest back and ahead samples.
+    struct QuerySampleAt {
+        int   lo = 0, hi = -1;
+        float blend = 0;
+    };
+    QuerySampleAt QuerySampleOf(double time);
+
     /// @brief One search's question.
     struct Query {
         QueryTrajectory samples{};
@@ -427,6 +444,11 @@ namespace CB::engine::locomotion {
     ///        short can only differ if its partial sum plus the bias rounds below the best, past float precision.
     std::vector<Candidate> TopCandidates(const Database& db, const Query& q, std::size_t n);
 
+    /// @brief Row `row` scored against `q` as TopCandidates scores a candidate, whatever the gates and bans; the playing row
+    ///        (q's current frame) also carries its database's continuing bias, as Search's `playing` does.
+    /// @pre   `row` is a row of `db`.
+    Candidate ScoreRow(const Database& db, const Query& q, int row);
+
     /// @brief What one character's graph asks of its Matcher this update.
     struct MatchRequest {
         /// @brief As Query's. @note Without one no search runs; what plays goes on.
@@ -459,7 +481,40 @@ namespace CB::engine::locomotion {
         SearchResult result;             ///< its answer, when `searched`
         float        searchMs = 0;
         std::vector<char> searchedActive;   ///< the pick it searched
+        /// @brief The question it searched with, when `searched`: its bans, dwell and margin included, so a debugger can
+        ///        score any row against what the search saw (ScoreRow, TopCandidates).
+        Query        query;
     };
+
+    /// @brief The playback rate's range: a clip plays at most this much slower or faster than authored; past it the feet
+    ///        slide rather than the animation visibly slowing or fast-forwarding.
+    /// @note  Narrow (FluidMotion's 0.85-1.2): the search picks the clip whose speed fits, the rate only trims what is left;
+    ///        a wide range let a wrong clip play on at a skating rate.
+    inline constexpr float kMinRate = 0.85f, kMaxRate = 1.2f;
+    inline constexpr float kRateClipStill = 25.0f;   ///< game units/s: a playing frame slower than this plays at rate 1
+    inline constexpr float kRateHalflife  = 0.15f;   ///< seconds for the rate to close half its gap to the target
+    inline constexpr float kRateStill     = 10.0f;   ///< game units/s asked for below which the rate goes back to 1
+
+    /// @brief A node's own playback rate while its speed is bound: `speed` over the playing frame's clip speed, held to
+    ///        [kMinRate, kMaxRate] and eased toward it (`rate`, `rateVelocity` carried frame to frame).
+    float NodeRate(const Database& db, int playingClip, double playingTime, float speed, float& rate, float& rateVelocity, float dt);
+
+    /// @brief The movement model's distances distance matching plays by.
+    struct Distances {
+        float toStop  = -1.0f;   ///< game units along the path to where it comes to rest if the stick lets go, -1 = not moving
+        float toPivot = -1.0f;   ///< game units along the path to where it turns round, -1 = not pivoting
+        float speed   = 0.0f;    ///< game units/s, horizontal: what a pivot past its turn advances by
+    };
+    /// @brief A pivot's play rate past its turn, advancing by the distance moved (Lyra's start and pivot clamps).
+    inline constexpr double kDistanceMinRate = 0.6, kDistanceMaxRate = 5.0;
+
+    /// @brief The time distance matching plays clip `clip` at instead of the clock's: a clip of a Stops database at the
+    ///        frame whose distance to its stop is d.toStop, of a Pivots one at its turn's (d.toPivot), past the turn by
+    ///        the distance moved.
+    /// @return nothing to play by the clock: not a distance clip, the prediction ran out or falls outside its curve, or it
+    ///         would play backwards (before `wasTime`) or past its end
+    /// @param wasTime the time `clip` played at last update; only a clip that went on playing (no switch) is matched
+    std::optional<double> DistanceMatchedTime(const Database& db, int clip, double wasTime, const Distances& d, float dt);
 
     /// @brief One character's motion matching, game-free: what plays, when a search is due, and the reselect ban.
     /// @note  Time is the timestep it is given, so a paused graph neither plays nor searches on a clock of its own.

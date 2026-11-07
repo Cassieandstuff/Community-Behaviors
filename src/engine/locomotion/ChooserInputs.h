@@ -129,16 +129,22 @@ namespace CB::engine::locomotion {
     inline constexpr float kPredictHorizon = 3.0f;
 
     /// @brief How far (game units, along the path) the character slides before it stops if the stick lets go now: the
-    ///        model stepped on with no input until still, at most kPredictHorizon.
-    /// @return -1 when it is not moving
+    ///        model stepped on with no input, the body (moving at bodyVx, bodyVy) following it through its ground velocity
+    ///        spring (GroundVelocityStep, its rate from 0 as the predictor starts it), until both are still, at most
+    ///        kPredictHorizon.
+    /// @return -1 when neither is moving
     /// @note  The model's own integrator, not a closed form: Unreal's PredictGroundMovementStopLocation assumes constant
     ///        friction and drifts with the frame rate.
-    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py);
+    /// @note  Why the body: the model alone brakes a run to rest in about 10 units, while the character, which moves at
+    ///        the body's velocity, slides about 57; a stop clip played by the model's distance jumped ahead and ran out
+    ///        before the character stopped.
+    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py, float bodyVx, float bodyVy);
 
-    /// @brief How far (game units, along the path) the character goes before it turns round, when the stick points more
-    ///        than 90 degrees from the velocity: the model stepped on with the input held, up to its slowest point.
+    /// @brief How far (game units, along the body's path) the character goes before it turns round, when the stick points
+    ///        more than 90 degrees from the model's velocity: the model stepped on with the input held and the body
+    ///        following it (as PredictStopDistance), up to the body's slowest point.
     /// @return -1 when it is not pivoting (moving with the stick, or no turn within kPredictHorizon)
-    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py);
+    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float bodyVx, float bodyVy);
 
     /// @brief The inputs a frame's movement decides: mode, rotation, state, gait, starting, pivoting, spin and speed.
     /// @param stickYaw the stick's latest heading, held after its release
@@ -147,5 +153,25 @@ namespace CB::engine::locomotion {
     ///        need what only a running character knows.
     void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float stickYaw,
                         bool playingPivots, ChooserInputs& io);
+
+    /// @brief GASP's Get_MMInterruptMode: the movement mode changed, or on the ground the movement state, the gait while
+    ///        moving, or the stance did.
+    bool InputsInterrupt(const ChooserInputs& before, const ChooserInputs& now);
+
+    /// @brief ShouldTurnInPlace: 50 deg (GASP's) between the facing and the orientation intent.
+    inline constexpr float kTurnInPlace = 0.87266463f;
+
+    /// @brief The orientation intent: strafing, toward the lock target from (px, py); orienting, the stick's latest
+    ///        heading (`haveStickYaw`), since the stop that raises a turn releases the stick (GASP's capsule likewise keeps
+    ///        the last input's rotation while its visual root lags behind); else the facing.
+    float TurnIntent(const State& s, const Input& in, float px, float py, bool haveStickYaw, float stickYaw);
+
+    /// @brief ShouldTurnInPlace for this frame, raised for `holdFor` seconds once asked.
+    /// @param hold seconds it stays raised, carried frame to frame
+    /// @param moving this frame's MovementState; `wasMoving` the previous frame's
+    /// @param lightStick the stick asks for a facing only (Input::turnInPlace): standing, it turns the body too
+    /// @note  Held kSearchInterval by the caller (`holdFor`): GASP searches every tick, CB's search runs at most that often,
+    ///        and a one-frame input would mostly miss it.
+    bool ShouldTurnInPlace(float& hold, bool moving, bool wasMoving, bool lightStick, float intent, float yaw, float holdFor, float dt);
 
 }  // namespace CB::engine::locomotion

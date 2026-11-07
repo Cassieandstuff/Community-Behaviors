@@ -62,9 +62,15 @@ namespace CB::engine::locomotion {
                     if (given && !std::isnan((*given)[d])) {
                         qv[d] = ((*given)[d] - sp.mean[d]) / sp.scale[d];
                     } else if (sp.querySample[d] >= 0) {
-                        const TrajectorySample& t = m_q.samples[sp.querySample[d]];
-                        const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
-                        qv[d] = (raw[sp.queryPart[d]] - sp.mean[d]) / sp.scale[d];
+                        const auto part = [&](int sample) {
+                            const TrajectorySample& t = m_q.samples[sample];
+                            const float raw[F::kPerSample] = { t.x, t.y, t.dirX, t.dirY, t.vx, t.vy, t.z };
+                            return raw[sp.queryPart[d]];
+                        };
+                        float value = part(sp.querySample[d]);
+                        if (d < static_cast<int>(sp.queryNext.size()) && sp.queryNext[d] >= 0)
+                            value += (part(sp.queryNext[d]) - value) * sp.queryBlend[d];
+                        qv[d] = (value - sp.mean[d]) / sp.scale[d];
                     } else if (curRow >= 0) {
                         qv[d] = sp.rows[static_cast<std::size_t>(curRow) * sp.dims + d];
                     }
@@ -114,13 +120,15 @@ namespace CB::engine::locomotion {
                 const bool path = d < F::kFootPos;
                 sp.querySample.push_back(path ? d / F::kPerSample : -1);
                 sp.queryPart.push_back(path ? d % F::kPerSample : 0);
+                sp.queryNext.push_back(-1);
+                sp.queryBlend.push_back(0.0f);
                 sp.group.push_back(GroupOf(d));
             }
             return sp;
         }
 
-        /// @brief A typed schema's space: its weights, each trajectory sample read from the query sample nearest its time,
-        ///        each dim's cost summed into its feature.
+        /// @brief A typed schema's space: its weights, each trajectory sample read from the query at its own time
+        ///        (QuerySampleOf), each dim's cost summed into its feature.
         SchemaSpace TypedSpace(const anim::SchemaSpec& spec, const anim::Rig& rig)
         {
             SchemaSpace sp;
@@ -133,12 +141,12 @@ namespace CB::engine::locomotion {
                 const anim::FeatureSpec& f = spec.features[k];
                 if (f.kind == anim::FeatureKind::Trajectory) {
                     for (const auto& smp : f.samples) {
-                        int nearest = 0;
-                        for (int s = 1; s < F::kSamples; ++s)
-                            if (std::fabs(F::SampleTime(s) - smp.time) < std::fabs(F::SampleTime(nearest) - smp.time)) nearest = s;
+                        const QuerySampleAt at = QuerySampleOf(smp.time);
                         for (int j = 0; j < F::kPerSample; ++j) {
-                            sp.querySample.push_back(nearest);
+                            sp.querySample.push_back(at.lo);
                             sp.queryPart.push_back(j);
+                            sp.queryNext.push_back(at.hi);
+                            sp.queryBlend.push_back(at.blend);
                             sp.group.push_back(static_cast<int>(k));
                         }
                     }
@@ -147,6 +155,8 @@ namespace CB::engine::locomotion {
                 for (int j = 0; j < anim::FeatureDims(f); ++j) {
                     sp.querySample.push_back(-1);
                     sp.queryPart.push_back(0);
+                    sp.queryNext.push_back(-1);
+                    sp.queryBlend.push_back(0.0f);
                     sp.group.push_back(static_cast<int>(k));
                 }
             }
@@ -954,18 +964,23 @@ namespace CB::engine::locomotion {
         return out;
     }
 
-    std::vector<Candidate> TopCandidates(const Database& db, const Query& q, std::size_t n)
-    {
-        std::vector<Candidate> out;
-        if (n == 0) return out;
-        Prepared   p(db, q);
-        const auto better = [](const Candidate& a, const Candidate& b) { return a.total < b.total || (a.total == b.total && a.row < b.row); };
-        ForEachCandidate(db, q, p.curRow, [&](int ci, int r, float b) {
-            const int                 space = SpaceOf(db, ci);
-            const SchemaSpace&        sp    = db.spaces[space];
-            const std::vector<float>& qv    = p.In(space);
-            const float*              row   = sp.rows.data() + static_cast<std::size_t>(r) * sp.dims;
-            Candidate                 c;
+    namespace {
+        /// @brief Row `r` of clip `ci` against the prepared query, its cost split by group or feature, `b` its bias.
+        Candidate Score(const Database& db, Prepared& p, int ci, int r, float b)
+        {
+            const int          space = SpaceOf(db, ci);
+            const SchemaSpace& sp    = db.spaces[space];
+            Candidate          c;
+            c.row   = r;
+            c.clip  = ci;
+            c.frame = r - db.clips[ci].first;
+            c.bias  = b;
+            if (sp.rows.empty()) {
+                c.total = 1.0e30f;
+                return c;
+            }
+            const std::vector<float>& qv  = p.In(space);
+            const float*              row = sp.rows.data() + static_cast<std::size_t>(r) * sp.dims;
             if (!sp.classic) c.featureCost.assign(sp.spec.features.size(), 0.0f);
             float sum = 0;
             for (const int d : sp.active) {
@@ -975,11 +990,28 @@ namespace CB::engine::locomotion {
                 if (sp.classic) c.groupCost[sp.group[d]] += part;
                 else c.featureCost[sp.group[d]] += part;
             }
-            c.row   = r;
-            c.clip  = ci;
-            c.frame = r - db.clips[ci].first;
             c.total = sum + b;
-            c.bias  = b;
+            return c;
+        }
+    }  // namespace
+
+    Candidate ScoreRow(const Database& db, const Query& q, int row)
+    {
+        Prepared  p(db, q);
+        const int ci = db.clipOf[row];
+        float     b  = BiasOf(db, q, ci);
+        if (row == p.curRow) b += BiasesOf(q, db.clips[ci].database).continuing;
+        return Score(db, p, ci, row, b);
+    }
+
+    std::vector<Candidate> TopCandidates(const Database& db, const Query& q, std::size_t n)
+    {
+        std::vector<Candidate> out;
+        if (n == 0) return out;
+        Prepared   p(db, q);
+        const auto better = [](const Candidate& a, const Candidate& b) { return a.total < b.total || (a.total == b.total && a.row < b.row); };
+        ForEachCandidate(db, q, p.curRow, [&](int ci, int r, float b) {
+            const Candidate c = Score(db, p, ci, r, b);
             /// @note The search's first bound: past it (or NaN) a row never wins there either.
             if (!(c.total < 1.0e30f)) return;
             if (out.size() < n) {
@@ -1095,7 +1127,8 @@ namespace CB::engine::locomotion {
             out.result    = Search(db, q);
             out.searchMs  = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
             out.searched  = true;
-            out.searchedActive = std::move(q.active);
+            out.searchedActive = q.active;
+            out.query          = std::move(q);
             if (out.result.wins) {
                 const int   clip = db.clipOf[out.result.bestRow];
                 const Clip& c    = db.clips[clip];
@@ -1113,6 +1146,56 @@ namespace CB::engine::locomotion {
         } else if (m_clip >= 0) {
             out.nextClip = m_clip;
             out.nextTime = m_time;
+        }
+        return out;
+    }
+
+    float NodeRate(const Database& db, int playingClip, double playingTime, float speed, float& rate, float& rateVelocity, float dt)
+    {
+        float target = 1.0f;
+        if (speed >= kRateStill && playingClip >= 0 && playingClip < static_cast<int>(db.clips.size())) {
+            const Clip& c         = db.clips[playingClip];
+            const int   row       = c.first + (c.frames > 0 ? FrameOf(c, playingTime) : 0);
+            const float clipSpeed = row >= 0 && row < static_cast<int>(db.rowSpeed.size()) ? db.rowSpeed[row] : 0.0f;
+            if (clipSpeed >= kRateClipStill) target = std::clamp(speed / clipSpeed, kMinRate, kMaxRate);
+        }
+        SpringDamperExact(rate, rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
+        rate = std::clamp(rate, kMinRate, kMaxRate);
+        return rate;
+    }
+
+    std::optional<double> DistanceMatchedTime(const Database& db, int clip, double wasTime, const Distances& d, float dt)
+    {
+        if (clip < 0 || clip >= static_cast<int>(db.clips.size())) return std::nullopt;
+        const Clip& c = db.clips[clip];
+        if (!c.distance.Valid() || c.database < 0) return std::nullopt;
+        const bool            stops = db.databases[c.database].stops;
+        const float           left  = stops ? d.toStop : d.toPivot;
+        std::optional<double> t;
+        if (left >= 0.0f) t = TimeAtDistance(c.distance, -left);
+        else if (!stops && wasTime >= c.distance.markerTime)
+            t = AdvanceByDistance(c.distance, wasTime, d.speed * dt, dt, kDistanceMinRate, kDistanceMaxRate);
+        if (t && *t >= wasTime && *t <= c.duration) return t;
+        return std::nullopt;
+    }
+
+    QuerySampleAt QuerySampleOf(double time)
+    {
+        /// @note The query's samples in time order: the back ones (furthest first), then the ahead ones.
+        std::array<int, F::kSamples> order{};
+        int                          n = 0;
+        for (int k = static_cast<int>(F::kBack.size()) - 1; k >= 0; --k) order[n++] = static_cast<int>(F::kAhead.size()) + k;
+        for (int k = 0; k < static_cast<int>(F::kAhead.size()); ++k) order[n++] = k;
+        QuerySampleAt out;
+        if (time <= F::SampleTime(order.front())) return { order.front(), -1, 0.0f };
+        if (time >= F::SampleTime(order.back())) return { order.back(), -1, 0.0f };
+        for (int i = 0; i + 1 < n; ++i) {
+            const double a = F::SampleTime(order[i]), b = F::SampleTime(order[i + 1]);
+            if (time < a || time > b) continue;
+            const float blend = static_cast<float>((time - a) / (b - a));
+            if (blend < 1.0e-4f) return { order[i], -1, 0.0f };
+            if (blend > 1.0f - 1.0e-4f) return { order[i + 1], -1, 0.0f };
+            return { order[i], order[i + 1], blend };
         }
         return out;
     }

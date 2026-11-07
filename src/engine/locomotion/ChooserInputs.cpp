@@ -1,4 +1,5 @@
 #include <locomotion/ChooserInputs.h>
+#include <locomotion/Pogo.h>
 
 #include <cmath>
 #include <cstring>
@@ -38,35 +39,40 @@ namespace CB::engine::locomotion {
         vy = (py - ay) / (kFutureTo - kFutureFrom);
     }
 
-    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py)
+    float PredictStopDistance(State s, Input in, const Caps& caps, const Profile& profile, float px, float py, float bodyVx, float bodyVy)
     {
-        if (std::hypot(s.vx, s.vy) <= kMovingEpsilon) return -1.0f;
+        const auto moving = [&] { return std::hypot(s.vx, s.vy) > kMovingEpsilon || std::hypot(bodyVx, bodyVy) > kMovingEpsilon; };
+        if (!moving()) return -1.0f;
         in.haveStick   = false;
         in.turnInPlace = false;
-        float     path = 0.0f;
+        float     path = 0.0f, ax = 0.0f, ay = 0.0f;
         const int n    = static_cast<int>(std::lround(kPredictHorizon / kFutureStep));
-        for (int i = 0; i < n && std::hypot(s.vx, s.vy) > kMovingEpsilon; ++i) {
+        for (int i = 0; i < n && moving(); ++i) {
             Step(s, in, caps, profile, px, py, kFutureStep);
-            const float dx = s.vx * kFutureStep, dy = s.vy * kFutureStep;
+            const float ox = bodyVx, oy = bodyVy;
+            GroundVelocityStep(bodyVx, bodyVy, ax, ay, s.vx, s.vy, kFutureStep);
+            const float dx = (ox + bodyVx) * 0.5f * kFutureStep, dy = (oy + bodyVy) * 0.5f * kFutureStep;
             px += dx, py += dy;
             path += std::hypot(dx, dy);
         }
         return path;
     }
 
-    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py)
+    float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float bodyVx, float bodyVy)
     {
-        const float speed0 = std::hypot(s.vx, s.vy);
-        if (!in.haveStick || in.turnInPlace || speed0 <= kMovingEpsilon) return -1.0f;
+        const float speed0 = std::hypot(bodyVx, bodyVy);
+        if (!in.haveStick || in.turnInPlace || std::hypot(s.vx, s.vy) <= kMovingEpsilon || speed0 <= kMovingEpsilon) return -1.0f;
         if (in.stickX * s.vx + in.stickY * s.vy >= 0.0f) return -1.0f;
-        float     path = 0.0f, slowest = speed0, atSlowest = 0.0f;
+        float     path = 0.0f, slowest = speed0, atSlowest = 0.0f, ax = 0.0f, ay = 0.0f;
         const int n    = static_cast<int>(std::lround(kPredictHorizon / kFutureStep));
         for (int i = 0; i < n; ++i) {
             Step(s, in, caps, profile, px, py, kFutureStep);
-            const float dx = s.vx * kFutureStep, dy = s.vy * kFutureStep;
+            const float ox = bodyVx, oy = bodyVy;
+            GroundVelocityStep(bodyVx, bodyVy, ax, ay, s.vx, s.vy, kFutureStep);
+            const float dx = (ox + bodyVx) * 0.5f * kFutureStep, dy = (oy + bodyVy) * 0.5f * kFutureStep;
             px += dx, py += dy;
             path += std::hypot(dx, dy);
-            const float speed = std::hypot(s.vx, s.vy);
+            const float speed = std::hypot(bodyVx, bodyVy);
             if (speed < slowest) slowest = speed, atSlowest = path;
             else if (speed > slowest + kMovingEpsilon) return atSlowest;
         }
@@ -104,6 +110,31 @@ namespace CB::engine::locomotion {
                           std::fabs(WrapPi(std::atan2(futureX, futureY) - velYaw)) >= (strafe ? kPivotStrafe : kPivotOrient);
         io[kShouldSpinTransition] = !playingPivots && speed >= kSpinSpeed && std::fabs(WrapPi(velYaw - s.yaw)) >= kSpinAngle;
         io.real[kSpeed2D]         = speed;
+    }
+
+    bool InputsInterrupt(const ChooserInputs& before, const ChooserInputs& now)
+    {
+        if (before[kMovementMode] != now[kMovementMode]) return true;
+        if (now[kMovementMode] != 0) return false;
+        return before[kMovementState] != now[kMovementState] || (now[kMovementState] == 1 && before[kGait] != now[kGait]) ||
+               before[kStance] != now[kStance];
+    }
+
+    float TurnIntent(const State& s, const Input& in, float px, float py, bool haveStickYaw, float stickYaw)
+    {
+        if (in.mode == Mode::Strafe) {
+            const float dx = in.targetX - px, dy = in.targetY - py;
+            return in.haveTarget && dx * dx + dy * dy > 1.0f ? std::atan2(dx, dy) : s.yaw;
+        }
+        return haveStickYaw ? stickYaw : s.yaw;
+    }
+
+    bool ShouldTurnInPlace(float& hold, bool moving, bool wasMoving, bool lightStick, float intent, float yaw, float holdFor, float dt)
+    {
+        const bool asked = !moving && (wasMoving || lightStick);
+        if (asked && std::fabs(WrapPi(intent - yaw)) >= kTurnInPlace) hold = holdFor;
+        else hold = hold - dt > 0.0f ? hold - dt : 0.0f;
+        return hold > 0.0f;
     }
 
 }  // namespace CB::engine::locomotion

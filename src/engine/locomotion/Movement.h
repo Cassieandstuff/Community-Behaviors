@@ -161,6 +161,31 @@ namespace CB::engine::locomotion {
         return true;
     }
 
+    /// @brief The player's stick lengths (0..1): from `move` the player moves (below it, past kStickDeadzone, the stick only
+    ///        turns them in place), and from `run` a running player runs (between the two they walk). The game reads them
+    ///        from settings.ini [Character] fStickMoveThreshold and fStickRunThreshold.
+    /// @note  Why fixed speeds: the clips cover each gait at one speed, so a slower stick slid (GASP's own advice is its
+    ///        Fixed Speed - Walk/Run stick mode).
+    struct StickThresholds {
+        float move = 0.35f;
+        float run  = 0.8f;
+    };
+
+    /// @return the gait a stick `deflection` long moves at: Walk for a running player's stick under t.run, else `gait`
+    inline Gait StickGait(Gait gait, bool haveStick, float deflection, const StickThresholds& t)
+    {
+        return gait == Gait::Run && haveStick && deflection < t.run ? Gait::Walk : gait;
+    }
+
+    /// @brief The stick on the model's input: the direction it asks for (world heading `stickHeading`) and, under t.move,
+    ///        a facing only (Input::turnInPlace).
+    inline void ApplyStick(Input& in, bool haveStick, float stickHeading, float deflection, const StickThresholds& t)
+    {
+        in.haveStick = haveStick;
+        if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
+        in.turnInPlace = haveStick && deflection < t.move;
+    }
+
     /// @brief Turns a movement frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move
     ///        direction relative to that new heading (a MovementFrame's turn[2] and angles[2]).
     /// @param worldDir the direction to move in (world yaw), or kNoDirection to leave `direction` as it is

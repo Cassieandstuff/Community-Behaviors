@@ -60,11 +60,8 @@ namespace CB::feature::controller::motion {
     void SetTimeToLand(RE::FormID actor, float seconds);
 
     /// @brief What distance matching reads of a character, as of its latest movement frame.
-    struct Distances {
-        float toStop  = -1.0f;   ///< game units along the path to where it comes to rest if the stick lets go, -1 = not moving
-        float toPivot = -1.0f;   ///< game units along the path to where it turns round, -1 = not pivoting
-        float speed   = 0.0f;    ///< game units/s, horizontal: what a start advances by
-    };
+    /// @brief The movement model's distances distance matching plays by (the engine's).
+    using Distances = CB::engine::locomotion::Distances;
 
     /// @brief `actor`'s distances from the movement model (locomotion::PredictStopDistance, PredictPivotDistance).
     /// @return false when no movement frame has published them (CB does not drive the actor)
