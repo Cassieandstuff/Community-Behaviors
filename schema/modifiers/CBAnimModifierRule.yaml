@@ -1,0 +1,13 @@
+name:      CBAnimModifierRule
+parent:    null
+size:      32
+# A CBAnimModifier rule: when `when` holds, the clip plays `animation`. The highest priority wins; equal priorities keep
+# list order. `when` is a condition expression (CB's condition language): its slots read the modifier's behavior
+# variables (GraphVar("IsBlocking")) or ask the game about the actor (IsFemale(), IsEquippedType(1, 3)). Empty always
+# holds; one that does not compile never does.
+fields:
+  - { name: name,      type: string }   # the rule's key: a later layer's rule of the same name replaces it
+  - { name: when,      type: string }
+  - { name: animation, type: string }   # the file, byte-exact, from Data (meshes\... ; meshes\ is added when absent)
+  - { name: priority,  type: int32 }
+  - { skip: 4 }

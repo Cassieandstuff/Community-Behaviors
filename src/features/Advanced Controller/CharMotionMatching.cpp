@@ -18,6 +18,7 @@
 #include <core/discover/ServeKey.h>
 #include <core/resolve/CacheKey.h>
 #include <disk/Disk.h>
+#include <platform/game/Character.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 #include <platform/profile/Profile.h>
@@ -450,15 +451,7 @@ namespace CB::feature {
             return out;
         }
 
-        /// @return the actor whose graph holds `character`, null when it is not an actor's
-        /// @note   context.m_character is the graph's own characterInstance (CharSkeletonWatch compares them).
-        RE::Actor* ActorOf(const ::hkbCharacter* character)
-        {
-            const auto* graph = reinterpret_cast<const RE::BShkbAnimationGraph*>(reinterpret_cast<const char*>(character) -
-                                                                                 offsetof(RE::BShkbAnimationGraph, characterInstance));
-            RE::Actor*  actor = graph->holder;
-            return actor && actor->Is(RE::FormType::ActorCharacter) ? actor : nullptr;
-        }
+        using platform::game::ActorOf;
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {

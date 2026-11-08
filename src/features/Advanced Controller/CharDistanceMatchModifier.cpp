@@ -5,6 +5,7 @@
 
 #include <locomotion/DistanceMatch.h>
 #include <platform/classes/ClassRegistry.h>
+#include <platform/game/Character.h>
 
 #include <algorithm>
 #include <atomic>
@@ -37,15 +38,7 @@ namespace CB::feature::controller {
         [[maybe_unused]] const bool s_declared =
             platform::classes::Declare({ kClassName, sizeof(DistanceMatchModifier), &Finish, &Cleanup, &Vtable });
 
-        /// @return the actor whose graph holds `character`, null when it is not an actor's
-        RE::Actor* ActorOf(const ::hkbCharacter* character)
-        {
-            if (!character) return nullptr;
-            const auto* graph = reinterpret_cast<const RE::BShkbAnimationGraph*>(reinterpret_cast<const char*>(character) -
-                                                                                 offsetof(RE::BShkbAnimationGraph, characterInstance));
-            RE::Actor*  actor = graph->holder;
-            return actor && actor->Is(RE::FormType::ActorCharacter) ? actor : nullptr;
-        }
+        using platform::game::ActorOf;
 
         loco::DistanceMarker MarkerOf(::hkInt8 source)
         {

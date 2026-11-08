@@ -57,6 +57,11 @@ namespace CB::core::debug {
           "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
+        { "anim_modifier", FlagKind::IniBool, "AnimModifier", "bEnable", false, false,
+          "Conditional animations (CBAnimModifier)",
+          "Let CBAnimModifier nodes play their own animations in place of their clip's when a rule's condition holds "
+          "(CB's OAR replacement). Unproven in game. Off = every CBAnimModifier does nothing and its clip plays as "
+          "authored; the class still registers, so graphs holding it load either way." },
         { "sequencer_disable", FlagKind::MarkerFile, "", "sequencer.disable", false, false,
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "

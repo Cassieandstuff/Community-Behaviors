@@ -1,0 +1,14 @@
+name:      CBAnimModifier
+parent:    hkbModifier
+size:      128
+runtime:
+  source: self
+# CB's own modifier: conditional animations, CB's replacement for OAR. A modifier generator wraps it over (a subtree
+# holding) `clip`; the clip activates first, then this. When a rule's `when` holds, the clip plays that rule's
+# animation instead of its own; when none holds, the clip plays its own animationName (the root), untouched. Its
+# animations are its own files, loaded by path, never roster slots. Registered at startup by CB (platform/classes)
+# from THIS descriptor; no `signature:` (the loader derives it).
+fields:
+  - { name: clip,  type: ptr, ref: hkbClipGenerator }   # the clip whose animation it replaces; not a child
+  - { name: rules, type: structarray, ref: CBAnimModifierRule, roster: field:name }
+  - { skip: 24 }   # runtime: the animation it plays and its state (not serialized)
