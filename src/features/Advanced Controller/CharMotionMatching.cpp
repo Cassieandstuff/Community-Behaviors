@@ -477,8 +477,6 @@ namespace CB::feature {
             float airFor = 0;         ///< seconds the controller has been airborne without a break
             float landedFor = -1;     ///< seconds since touching down, -1 = not landed since the last air time
             bool  heavy = false;
-            bool  haveStickYaw = false;
-            float stickYaw = 0;       ///< the stick's latest heading (held after its release)
             float turnHold = 0;       ///< seconds ShouldTurnInPlace stays raised
         };
 
@@ -535,10 +533,7 @@ namespace CB::feature {
             if (!mv::Current(player->GetFormID(), snap)) return false;
             const mv::State& s      = snap.state;
             const mv::Input& in     = snap.input;
-            const bool       wasMoving = io[kMovementState] == 1;
-            if (in.haveStick) m.stickYaw = std::atan2(in.stickX, in.stickY), m.haveStickYaw = true;
-
-            ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, m.stickYaw, playingPivots, io);
+            ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, playingPivots, io);
             const auto* cc = player->GetCharController();
             {
                 /// @note The body's velocity (the controller's), which follows the model through the ground velocity spring:
@@ -579,10 +574,7 @@ namespace CB::feature {
             io[kJustLandedLight] = landed && !m.heavy;
             io[kJustLandedHeavy] = landed && m.heavy;
 
-            /// @note A light stick (mv::Input::turnInPlace) raises it too while standing: the body turns toward the stick.
-            const float intent     = ps::TurnIntent(s, in, snap.px, snap.py, m.haveStickYaw, m.stickYaw);
-            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, wasMoving, in.turnInPlace, intent, s.yaw,
-                                                           static_cast<float>(ps::kSearchInterval), dt);
+            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), s.yaw, static_cast<float>(ps::kSearchInterval), dt);
 
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();

@@ -60,6 +60,7 @@ namespace CB::feature::controller::hud {
         const ImU32 kAirborne = IM_COL32(120, 140, 255, 255);
         const ImU32 kStick      = IM_COL32(255, 220, 40, 255);
         const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
+        const ImU32 kWantFacing = IM_COL32(230, 90, 230, 255);   ///< the desired facing (locomotion::State::desiredYaw)
         const ImU32 kPast       = IM_COL32(210, 30, 30, 255);   ///< where the player was (the query's past)
         constexpr float kRadToDeg = 57.29578f;
 
@@ -290,6 +291,7 @@ namespace CB::feature::controller::hud {
             if (haveCtrl && haveMove) {
                 Tick(dl, proj, c.feet, c.radius, mv.yaw, kFacingTick);
                 if (mv.haveStick) RingArrow(dl, proj, c.feet, c.radius, mv.stickYaw, kStick);
+                if (mv.haveDesired) RingArrow(dl, proj, c.feet, c.radius, mv.desiredYaw, kWantFacing);
             }
 
             if (havePred) {
@@ -339,6 +341,7 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("%s   speed %.0f / cap %.0f   engine %.0f   slope x%.2f", mv.strafe ? "strafe" : "orient", mv.speed, mv.cap, mv.full,
                             mv.slope);
                 if (mv.haveStick) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(mv.stickYaw - mv.yaw)) * kRadToDeg);
+                if (mv.haveDesired) ImGui::Text("facing %.0f deg from the desired facing", std::fabs(WrapPi(mv.desiredYaw - mv.yaw)) * kRadToDeg);
             }
             if (sprint::State st; sprint::Current(st))
                 ImGui::Text("sprint %s%s%s%s", st.sprinting ? "on" : "off", st.wanted ? "   wanted" : "", st.suspended ? "   suspended" : "",

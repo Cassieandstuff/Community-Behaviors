@@ -147,12 +147,11 @@ namespace CB::engine::locomotion {
     float PredictPivotDistance(State s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float bodyVx, float bodyVy);
 
     /// @brief The inputs a frame's movement decides: mode, rotation, state, gait, starting, pivoting, spin and speed.
-    /// @param stickYaw the stick's latest heading, held after its release
     /// @param playingPivots the playing child's database is tagged "Pivots": IsStarting and spins stay false
     /// @note  `io` keeps its gait while the input names none. The rest (stance, landings, turning in place, time to land)
     ///        need what only a running character knows.
-    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float stickYaw,
-                        bool playingPivots, ChooserInputs& io);
+    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, bool playingPivots,
+                        ChooserInputs& io);
 
     /// @brief GASP's Get_MMInterruptMode: the movement mode changed, or on the ground the movement state, the gait while
     ///        moving, or the stance did.
@@ -161,17 +160,18 @@ namespace CB::engine::locomotion {
     /// @brief ShouldTurnInPlace: 50 deg (GASP's) between the facing and the orientation intent.
     inline constexpr float kTurnInPlace = 0.87266463f;
 
-    /// @brief The orientation intent: strafing, toward the lock target from (px, py); orienting, the stick's latest
-    ///        heading (`haveStickYaw`), since the stop that raises a turn releases the stick (GASP's capsule likewise keeps
-    ///        the last input's rotation while its visual root lags behind); else the facing.
-    float TurnIntent(const State& s, const Input& in, float px, float py, bool haveStickYaw, float stickYaw);
+    /// @brief The orientation intent: the desired facing (State::desiredYaw: the stick's latest heading, the strafe
+    ///        target's while strafing), else the facing.
+    float TurnIntent(const State& s);
 
     /// @brief ShouldTurnInPlace for this frame, raised for `holdFor` seconds once asked.
     /// @param hold seconds it stays raised, carried frame to frame
-    /// @param moving this frame's MovementState; `wasMoving` the previous frame's
-    /// @param lightStick the stick asks for a facing only (Input::turnInPlace): standing, it turns the body too
+    /// @param moving this frame's MovementState
+    /// @note  Asked whenever the character stands kTurnInPlace or more off its intent. GASP asks only on the stop or
+    ///        while aiming, its root lagging a capsule that snapped; CB's facing is still turning toward the intent then
+    ///        (Step), so a released flick's turn plays a turn clip to its end rather than an idle sliding its feet.
     /// @note  Held kSearchInterval by the caller (`holdFor`): GASP searches every tick, CB's search runs at most that often,
     ///        and a one-frame input would mostly miss it.
-    bool ShouldTurnInPlace(float& hold, bool moving, bool wasMoving, bool lightStick, float intent, float yaw, float holdFor, float dt);
+    bool ShouldTurnInPlace(float& hold, bool moving, float intent, float yaw, float holdFor, float dt);
 
 }  // namespace CB::engine::locomotion

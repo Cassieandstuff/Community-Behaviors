@@ -670,6 +670,81 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 }
 
 /// @brief A clip through the same text-to-cached-clip path the plugin measures with.
+/// @brief The desired facing (State::desiredYaw): set by the stick or the strafe target, held, turned to standing.
+void DesiredFacingChecks() {
+    const ps::Profile& profile = ps::kPlayer;
+    ps::Caps           caps;
+    caps.forward         = 300.0f;
+    constexpr float dt   = 1.0f / 60.0f;
+    constexpr float kHalf = 1.5707963f, kPi = 3.14159265f;
+    const auto step = [&](ps::State& s, const ps::Input& in, int frames) {
+        for (int i = 0; i < frames; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, dt);
+    };
+    const auto off = [](float a, float b) { return std::fabs(ps::WrapPi(a - b)); };
+
+    {
+        ps::State s;
+        Check(std::isnan(s.desiredYaw), "a new state has no desired facing");
+        ps::Input flick;
+        flick.haveStick = flick.turnInPlace = true;
+        flick.stickX = 1.0f, flick.stickY = 0.0f;   // 90 degrees right
+        step(s, flick, 6);
+        Check(off(s.desiredYaw, kHalf) < 1.0e-5f && s.yaw < kHalf * 0.5f, "a 0.1 s flick sets the desired facing, the body barely turned");
+        float before = s.yaw, fastest = 0.0f;
+        for (int i = 0; i < 120; ++i) {
+            ps::Step(s, ps::Input{}, caps, profile, 0.0f, 0.0f, dt);
+            fastest = (std::max)(fastest, std::fabs(s.yaw - before) / dt);
+            before  = s.yaw;
+        }
+        Check(off(s.yaw, kHalf) < 0.02f, "released, the body turns all the way to it");
+        Check(fastest <= profile.turnInPlaceRate + 1.0e-3f, "no faster than the turn-in-place cap");
+        step(s, ps::Input{}, 600);
+        Check(off(s.yaw, kHalf) < 0.02f && off(s.desiredYaw, kHalf) < 1.0e-5f, "and holds it: standing, it never decays");
+        Check(std::hypot(s.vx, s.vy) < 1.0e-3f, "never moving");
+    }
+    {
+        ps::State s;
+        s.vy = 300.0f;
+        ps::Input north;
+        north.gait = ps::Gait::Run, north.haveStick = true, north.stickY = 1.0f;
+        step(s, north, 30);
+        ps::State stop = s;
+        step(stop, ps::Input{}, 180);
+        Check(std::hypot(stop.vx, stop.vy) < 1.0f && off(stop.yaw, 0.0f) < 0.02f, "an ordinary stop faces the way it ran");
+
+        ps::Input south = north;
+        south.stickY    = -1.0f;
+        step(s, south, 2);
+        Check(off(s.desiredYaw, kPi) < 1.0e-5f, "a flick back sets the desired facing behind");
+        Check(off(s.yaw, 0.0f) < 0.05f, "while moving, the facing follows the velocity, not the desired facing");
+        step(s, ps::Input{}, 180);
+        Check(std::hypot(s.vx, s.vy) < 1.0f && off(s.yaw, kPi) < 0.02f, "released, it stops, then turns in place to face it");
+    }
+    {
+        ps::State s;
+        s.desiredYaw = 0.0f;
+        ps::Input aim;
+        aim.mode = ps::Mode::Strafe, aim.haveTarget = true, aim.targetX = 1000.0f;   // east
+        aim.haveStick = true, aim.stickY = 1.0f, aim.turnInPlace = true;            // a light stick north
+        step(s, aim, 60);
+        Check(off(s.desiredYaw, kHalf) < 1.0e-5f && off(s.yaw, kHalf) < 0.02f, "strafing, the target sets it ahead of the stick");
+        step(s, ps::Input{}, 120);
+        Check(off(s.yaw, kHalf) < 0.02f, "ending the aim standing keeps the aim's facing");
+    }
+    {
+        ps::Profile none = profile;
+        none.desiredFacing = false;
+        ps::State s;
+        ps::Input flick;
+        flick.haveStick = flick.turnInPlace = true;
+        flick.stickX = 1.0f, flick.stickY = 0.0f;
+        for (int i = 0; i < 6; ++i) ps::Step(s, flick, caps, none, 0.0f, 0.0f, dt);
+        const float turned = s.yaw;
+        for (int i = 0; i < 120; ++i) ps::Step(s, ps::Input{}, caps, none, 0.0f, 0.0f, dt);
+        Check(std::isnan(s.desiredYaw) && turned > 0.0f && s.yaw < kHalf * 0.5f, "a profile without one turns only while the stick is held");
+    }
+}
+
 void ChooserInputChecks() {
     const ps::Profile& profile = ps::kPlayer;
     ps::Caps           caps;
@@ -683,7 +758,7 @@ void ChooserInputChecks() {
         const float yaw = stickDegrees * 3.14159265f / 180.0f;
         in.stickX = std::sin(yaw), in.stickY = std::cos(yaw);
         ps::ChooserInputs io = ps::InitialChooserInputs();
-        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, yaw, pivots, io);
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, pivots, io);
         return io;
     };
     const ps::ChooserInputs cruising = inputs(300.0f, 0.0f, true);
@@ -703,7 +778,7 @@ void ChooserInputChecks() {
         in.turnInPlace = true;
         in.stickX = 1.0f, in.stickY = 0.0f;   // 90 degrees right
         ps::ChooserInputs io = ps::InitialChooserInputs();
-        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, 1.5707963f, false, io);
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, false, io);
         Check(io[ps::kMovementState] == 0, "a light stick is not moving");
         for (int i = 0; i < 15; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
         Check(std::hypot(s.vx, s.vy) < 1.0e-3f, "it never gains a velocity");
@@ -721,7 +796,7 @@ void ChooserInputChecks() {
     ps::ChooserInputs     spinning = ps::InitialChooserInputs();
     ps::State             backward;
     backward.vy = -200.0f;
-    ps::MovementInputs(backward, ps::Input{}, caps, profile, 0.0f, 0.0f, 0.0f, false, spinning);
+    ps::MovementInputs(backward, ps::Input{}, caps, profile, 0.0f, 0.0f, false, spinning);
     Check(spinning[ps::kShouldSpinTransition] == 1, "moving against the facing spins");
     Check(spinning[ps::kGait] == 1, "an input naming no gait keeps the last");
 
@@ -1547,21 +1622,15 @@ void MatchNodeChecks() {
     Check(ps::InputsInterrupt(a, b), "leaving the ground does");
 
     float hold = 0.0f;
-    Check(ps::ShouldTurnInPlace(hold, false, true, false, 1.0f, 0.0f, 0.1f, 1.0f / 60.0f) && hold == 0.1f, "a stop facing 57 degrees off the intent turns");
-    Check(ps::ShouldTurnInPlace(hold, false, false, false, 0.0f, 0.0f, 0.1f, 0.05f), "and is held");
-    Check(!ps::ShouldTurnInPlace(hold, false, false, false, 0.0f, 0.0f, 0.1f, 0.06f), "until the hold runs out");
-    Check(!ps::ShouldTurnInPlace(hold, true, true, false, 3.0f, 0.0f, 0.1f, 1.0f / 60.0f), "moving never turns in place");
-    Check(ps::ShouldTurnInPlace(hold, false, false, true, -1.0f, 0.0f, 0.1f, 1.0f / 60.0f), "a light stick standing turns");
-    Check(!ps::ShouldTurnInPlace(hold = 0.0f, false, false, true, 0.5f, 0.0f, 0.1f, 1.0f / 60.0f), "not under 50 degrees");
-    ps::State   s;
-    ps::Input   in;
-    in.mode       = ps::Mode::Strafe;
-    in.haveTarget = true;
-    in.targetX    = 10.0f;
-    Check(std::fabs(ps::TurnIntent(s, in, 0.0f, 0.0f, true, 2.0f) - 1.5707963f) < 1.0e-5f, "strafing, the intent is the target");
-    in.mode = ps::Mode::Orient;
-    Check(ps::TurnIntent(s, in, 0.0f, 0.0f, true, 2.0f) == 2.0f && ps::TurnIntent(s, in, 0.0f, 0.0f, false, 2.0f) == 0.0f,
-          "orienting, the stick's last heading, else the facing");
+    Check(ps::ShouldTurnInPlace(hold, false, 1.0f, 0.0f, 0.1f, 1.0f / 60.0f) && hold == 0.1f, "standing 57 degrees off the intent turns");
+    Check(ps::ShouldTurnInPlace(hold, false, 0.0f, 0.0f, 0.1f, 0.05f), "and is held");
+    Check(!ps::ShouldTurnInPlace(hold, false, 0.0f, 0.0f, 0.1f, 0.06f), "until the hold runs out");
+    Check(!ps::ShouldTurnInPlace(hold, true, 3.0f, 0.0f, 0.1f, 1.0f / 60.0f), "moving never turns in place");
+    Check(!ps::ShouldTurnInPlace(hold = 0.0f, false, 0.5f, 0.0f, 0.1f, 1.0f / 60.0f), "not under 50 degrees");
+    ps::State s;
+    Check(ps::TurnIntent(s) == 0.0f, "without a desired facing, the intent is the facing");
+    s.desiredYaw = 2.0f;
+    Check(ps::TurnIntent(s) == 2.0f, "else the desired facing");
 
     const ps::StickThresholds t;
     Check(ps::StickGait(ps::Gait::Run, true, 0.5f, t) == ps::Gait::Walk && ps::StickGait(ps::Gait::Run, true, 0.9f, t) == ps::Gait::Run,
@@ -1610,6 +1679,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     DatabaseChecks(reg, tmp);
     AgreementChecks(reg, tmp);
     MatcherChecks(reg, tmp);
+    DesiredFacingChecks();
     ChooserInputChecks();
     MatchNodeChecks();
     WeightChecks();

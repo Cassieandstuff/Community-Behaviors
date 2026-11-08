@@ -86,8 +86,8 @@ namespace CB::engine::locomotion {
         return std::hypot(vx, vy);
     }
 
-    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, [[maybe_unused]] float stickYaw,
-                        bool playingPivots, ChooserInputs& io)
+    void MovementInputs(const State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, bool playingPivots,
+                        ChooserInputs& io)
     {
         const float speed  = std::hypot(s.vx, s.vy);
         const bool  moving = speed > kMovingEpsilon && in.haveStick && !in.turnInPlace;
@@ -120,19 +120,11 @@ namespace CB::engine::locomotion {
                before[kStance] != now[kStance];
     }
 
-    float TurnIntent(const State& s, const Input& in, float px, float py, bool haveStickYaw, float stickYaw)
-    {
-        if (in.mode == Mode::Strafe) {
-            const float dx = in.targetX - px, dy = in.targetY - py;
-            return in.haveTarget && dx * dx + dy * dy > 1.0f ? std::atan2(dx, dy) : s.yaw;
-        }
-        return haveStickYaw ? stickYaw : s.yaw;
-    }
+    float TurnIntent(const State& s) { return std::isnan(s.desiredYaw) ? s.yaw : s.desiredYaw; }
 
-    bool ShouldTurnInPlace(float& hold, bool moving, bool wasMoving, bool lightStick, float intent, float yaw, float holdFor, float dt)
+    bool ShouldTurnInPlace(float& hold, bool moving, float intent, float yaw, float holdFor, float dt)
     {
-        const bool asked = !moving && (wasMoving || lightStick);
-        if (asked && std::fabs(WrapPi(intent - yaw)) >= kTurnInPlace) hold = holdFor;
+        if (!moving && std::fabs(WrapPi(intent - yaw)) >= kTurnInPlace) hold = holdFor;
         else hold = hold - dt > 0.0f ? hold - dt : 0.0f;
         return hold > 0.0f;
     }

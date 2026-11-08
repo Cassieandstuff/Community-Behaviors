@@ -465,6 +465,8 @@ namespace CB::feature::controller {
                 ///       toward the speaker (when one resolves), with the model's halflife.
                 s.vx = s.vy = 0.0f;
                 s.yaw       = heading + WrapPi(s.yaw - heading);
+                /// @note The speaker owns the facing: the desired facing goes, or the player turns back once it ends.
+                s.desiredYaw = kNoDirection;
                 if (haveSpeaker) {
                     const RE::NiPoint3 at   = player->GetPosition();
                     const float        dx   = speakerAt.x - at.x, dy = speakerAt.y - at.y;
@@ -574,6 +576,8 @@ namespace CB::feature::controller {
                 h.yaw       = s.yaw;
                 h.haveStick = haveStick;
                 h.stickYaw  = stickHeading;
+                h.haveDesired = !std::isnan(s.desiredYaw);
+                h.desiredYaw  = s.desiredYaw;
                 hud::Publish(h);
             }
         }
@@ -811,6 +815,9 @@ namespace CB::feature::controller {
             const float turned = heading + out->turn[2] * deltaTime;
             const move::Profile profile = tuning::Current();
             move::Step(s, in, caps, profile, pos.x, pos.y, deltaTime);
+            /// @note The facing is the engine's, so the desired facing is too: the AI turns an NPC itself, and its last
+            ///       walking direction would hold ShouldTurnInPlace up while it faced anything else.
+            s.desiredYaw = turned;
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;

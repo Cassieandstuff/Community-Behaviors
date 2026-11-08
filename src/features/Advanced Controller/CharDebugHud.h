@@ -87,13 +87,16 @@ namespace CB::feature::controller::hud {
     };
 
     /// @brief The movement model's frame (game units/s, Skyrim headings): the speed handed on, its cap for the current
-    ///        direction, the engine's forward speed and the slope factor in the cap, the facing and the stick.
+    ///        direction, the engine's forward speed and the slope factor in the cap, the facing, the stick and the
+    ///        desired facing.
     struct Movement {
         bool  strafe = false;
         float speed = 0, cap = 0, full = 0, slope = 1;
         float yaw       = 0;
         bool  haveStick = false;
         float stickYaw  = 0;
+        bool  haveDesired = false;
+        float desiredYaw  = 0;   ///< locomotion::State::desiredYaw
     };
 
     /// @brief Motion matching's last search: the clip and frame it chose, that frame's biased cost, the search's time
