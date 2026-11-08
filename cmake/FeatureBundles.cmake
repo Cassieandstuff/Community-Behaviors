@@ -37,6 +37,10 @@ function(cb_feature_bundles)
             continue()
         endif()
         get_filename_component(_name "${_src}" NAME)   # "<Name>.hky" — original case, it names the bundle
+        if(_name MATCHES "^_")   # a leading underscore parks a bundle: kept in the repo, never built or deployed
+            message(STATUS "cb_feature_bundles: ${_name} parked (leading underscore), skipped")
+            continue()
+        endif()
         file(GLOB_RECURSE _inputs CONFIGURE_DEPENDS "${_src}/*")
         set(_out "${FB_PACKED_DIR}/${_name}")
         add_custom_command(
