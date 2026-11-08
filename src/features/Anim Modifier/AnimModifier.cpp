@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -165,6 +166,19 @@ namespace CB::feature::replacer {
             return set->m_bindings[at]->m_binding;
         }
 
+        /// @brief Logs `what` once per (clip template, file): the first swap, or the first give-up, of each pair.
+        void NoteOnce(const ::hkbClipGenerator* clip, const char* file, const char* what)
+        {
+            static std::mutex                                 lock;
+            static std::unordered_set<std::string>            noted;
+            const std::string                                 key = std::to_string(reinterpret_cast<std::uintptr_t>(clip)) + '|' + what + '|' + (file ? file : "");
+            {
+                std::scoped_lock guard(lock);
+                if (!noted.insert(key).second) return;
+            }
+            LOG_INFO("[anim modifier] clip '{}': {} '{}'", clip && clip->m_name.cString() ? clip->m_name.cString() : "", what, file ? file : "");
+        }
+
         /// @brief Warns once per clip template that a CBAnimModifier cannot reach it.
         void WarnUnreached(const ::hkbClipGenerator* clip, const char* why)
         {
@@ -224,13 +238,15 @@ namespace CB::feature::replacer {
             m_state &= ~kPending;
             return;
         }
+        const char* path = from->m_rules[m_rule].m_animation.cString();
         if (!atActivate && clip.m_time > kLateSwap) {
+            NoteOnce(m_clip, path, "still loading after the swap window, keeps its own animation this time:");
             m_state &= ~kPending;
             return;
         }
-        const char*                     path = from->m_rules[m_rule].m_animation.cString();
         platform::anim::LoadedAnimation file = anim::Acquire(anim::IdOf(path ? path : ""));
         if (!file) {
+            if (atActivate) NoteOnce(m_clip, path, "not loaded yet, asked the engine to stream in");
             m_state |= kPending;
             return;
         }
@@ -240,6 +256,7 @@ namespace CB::feature::replacer {
             return;
         }
         m_playing = std::move(file);
+        NoteOnce(m_clip, path, "plays");
     }
 
     void AnimModifier::activate(const ::hkbContext& context)
