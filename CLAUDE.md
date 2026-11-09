@@ -164,6 +164,10 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   avoid triggering the multi-minute `generate-base-master` regen.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
+  The session-grants toggles can give that yes for a whole session:
+
+perm(build, /cmake\s+--build/): You may build without asking only while `build` is granted; configure with `-DBUILDER_DEPLOY=OFF` unless `deploy` is granted too.
+perm(deploy, /BUILDER_DEPLOY=ON/i): You may deploy over the live MO2 mod and tools folder without asking only while `deploy` is granted.
 - **Tracy profiler** — the Tracy 0.13.1 client is built into the plugin (FetchContent → `tracy_client`) and stays
   inert unless settings.ini `[Debug] bTracy=true`; then it records while a Tracy **0.13.1** viewer on the same machine
   is connected (localhost only, on demand). Instrument only through `<platform/profile/Profile.h>`'s `CB_ZONE` /
