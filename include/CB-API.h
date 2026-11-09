@@ -388,7 +388,8 @@ namespace mm {
 
 // ── cb::relay ────────────────────────────────────────────────────────────────
 /// Animation Relay's game-free core: an expression compiled once and evaluated per pass over caller-supplied variables.
-/// RegisterCoreBuiltins gives GraphVar alone, so an expression calling a game-state function does not compile here.
+/// RegisterCoreBuiltins gives GraphVar alone, so an expression calling a game-state function does not compile here; Check
+/// typechecks one against the catalog instead, which declares every function the game binds.
 namespace relay {
     using Value          = CB::engine::relay::Value;           ///< Bool, Int or Float; read with AsBool / AsFloat / AsInt
     using VType          = CB::engine::relay::VType;
@@ -401,6 +402,19 @@ namespace relay {
     using CB::engine::relay::RegisterCoreBuiltins;             ///< register GraphVar; before the first Compile
     using CB::engine::relay::Intern;                           ///< the process-lifetime copy of a string, byte-exact
     using CB::engine::relay::SetWarnSink;                      ///< where the registry's warnings go
+
+    using SyntaxNode   = CB::engine::relay::SyntaxNode;        ///< an expression as written: spellings byte-exact
+    using ParseResult  = CB::engine::relay::ParseResult;       ///< the tree, or why it does not parse and where
+    using CallableInfo = CB::engine::relay::CallableInfo;      ///< a catalog function: name, returns, params, category, doc
+    using ParamInfo    = CB::engine::relay::ParamInfo;         ///< an argument: name, type, the choice table it takes
+    using Choice       = CB::engine::relay::Choice;            ///< one named value of a choice table
+
+    using CB::engine::relay::Parse;                            ///< text → syntax tree, resolving no name
+    using CB::engine::relay::Print;                            ///< syntax tree → text that parses back to it
+    using CB::engine::relay::Check;                            ///< parses and typechecks against the catalog, bound or not
+    using CB::engine::relay::ListCallables;                    ///< every function the grammar can call
+    using CB::engine::relay::FindCallable;                     ///< one of them by exact name; null when absent
+    using CB::engine::relay::Choices;                          ///< a choice table by name ("Hand", "WEAPON_TYPE")
 }  // namespace relay
 
 // ── cb::trace ──────────────────────────────────────────────────────────────────

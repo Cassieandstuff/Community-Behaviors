@@ -148,6 +148,14 @@ namespace {
         cb::relay::Value rv = cexpr.Evaluate(ectx);
         bool rb = rv.AsBool(); (void)rb;
         float rf = cb::relay::Value::Float(1.0f).AsFloat(); (void)rf;
+        const cb::relay::ParseResult parsed = cb::relay::Parse("IsSneaking() && GraphVar('x') == 1");
+        std::string printed = cb::relay::Print(parsed.root); (void)printed;
+        bool checks = cb::relay::Check("IsSneaking()", err); (void)checks;
+        for (const cb::relay::CallableInfo& callable : cb::relay::ListCallables())
+            for (const cb::relay::ParamInfo& param : callable.params) (void)cb::relay::Choices(param.choices).size();
+        const cb::relay::CallableInfo* found = cb::relay::FindCallable("GraphVar"); (void)found;
+        const cb::relay::SyntaxNode::Kind kind = parsed.root.kind; (void)kind;
+        const cb::relay::Choice choice{ "Left", 1 }; (void)choice;
         cb::relay::VType rt = rv.type; (void)rt;
 
         // cb::mm — the database and scoring the game runs

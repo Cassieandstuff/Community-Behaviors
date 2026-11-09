@@ -28,6 +28,7 @@
 #include <map>
 #include <process.h>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -100,6 +101,78 @@ void RelayChecks() {
     Check(!relay::Compile("GraphVar(1)", err).Valid() && err.find("GraphVar") != std::string::npos, "a number where a string belongs is refused");
     Check(!relay::Compile("GraphVar(1 + 1)", err).Valid(), "an expression where a string belongs is refused");
     Check(relay::Compile("GraphVar('Speed') + 1", err).Valid(), "the right type compiles");
+
+    // Parse / Print: the editor's round trip
+    for (const char* text : { "IsEquippedType(1, 1) && (GraphVar(\"bIsInMT\") == 1 || !IsSneaking())", "GraphVar('Speed') + 1", "-0.05",
+                              "(1 + 2) * 3 / 2", "0x1F", "a - (b - c)", "a - b - c", "!(a && b)", "-(1 + 2)", "Random() < 0.5 || Level >= 10" }) {
+        const relay::ParseResult parsed = relay::Parse(text);
+        Check(parsed.ok, std::string("'") + text + "' parses: " + parsed.error);
+        Check(relay::Print(parsed.root) == text, std::string("'") + text + "' prints back as written: " + relay::Print(parsed.root));
+    }
+    {
+        const relay::ParseResult spaced = relay::Parse("  GraphVar( 'Speed' )>1&&x ");
+        Check(spaced.ok && relay::Print(spaced.root) == "GraphVar('Speed') > 1 && x", "print normalizes spacing, keeps the quote");
+        Check(spaced.root.kind == relay::SyntaxNode::Kind::Binary && spaced.root.text == "&&", "&& binds loosest here");
+        Check(spaced.root.children[0].begin == 2 && spaced.root.children[1].end == 26, "nodes carry their source range");
+
+        const auto leaf = [](relay::SyntaxNode::Kind kind, std::string text) {
+            relay::SyntaxNode n;
+            n.kind = kind;
+            n.text = std::move(text);
+            return n;
+        };
+        const auto binary = [](std::string op, relay::SyntaxNode l, relay::SyntaxNode r) {
+            relay::SyntaxNode n;
+            n.kind = relay::SyntaxNode::Kind::Binary;
+            n.text = std::move(op);
+            n.children.push_back(std::move(l));
+            n.children.push_back(std::move(r));
+            return n;
+        };
+        using K = relay::SyntaxNode::Kind;
+        Check(relay::Print(binary("*", binary("+", leaf(K::Number, "1"), leaf(K::Number, "2")), leaf(K::Number, "3"))) == "(1 + 2) * 3",
+              "print wraps a looser left operand");
+        Check(relay::Print(binary("-", leaf(K::Name, "a"), binary("-", leaf(K::Name, "b"), leaf(K::Name, "c")))) == "a - (b - c)",
+              "print wraps an equally loose right operand");
+        relay::SyntaxNode quoted = leaf(K::String, "say \"hi\"");
+        Check(relay::Print(quoted) == "'say \"hi\"'", "a string holding its own quote prints with the other");
+
+        const relay::ParseResult open = relay::Parse("GraphVar(\"bIsInMT) == 1");
+        Check(!open.ok && open.error == "unterminated string literal" && open.errorAt == 9, "a parse error says where: " + open.error);
+        Check(relay::Parse("NotAFunction(1)").ok, "parsing resolves no name");
+        Check(!relay::Parse("1 +").ok && !relay::Parse("a b").ok && !relay::Parse("").ok, "broken text does not parse");
+    }
+
+    // Catalog + Check: the game's vocabulary, offline
+    {
+        std::string err;
+        Check(relay::Check("IsSneaking()", err), "a declared game function checks offline: " + err);
+        Check(relay::Check("IsEquippedType(1, 0) && GraphVar('x') > 2", err), "a declared call with arguments checks: " + err);
+        err.clear();
+        Check(!relay::Check("IsEquippedType(1)", err) && err.find("IsEquippedType") != std::string::npos, "the catalog's arity holds: " + err);
+        err.clear();
+        Check(!relay::Check("NotAFunction()", err) && err.find("NotAFunction") != std::string::npos, "an unknown function fails Check: " + err);
+        err.clear();
+        Check(!relay::Check("HasKeyword('ArmorHeavy')", err), "a string where a keyword belongs is refused");
+        err.clear();
+        Check(!relay::Check("issneaking()", err), "the catalog compares names exactly");
+        err.clear();
+        Check(!relay::Compile("IsSneaking", err).Valid() && err.find("IsSneaking") != std::string::npos, "Compile still refuses an unbound bare call");
+
+        std::set<std::string_view> names;
+        for (const relay::CallableInfo& c : relay::ListCallables()) {
+            Check(names.insert(c.name).second, std::string("catalog names are unique: ") + std::string(c.name));
+            Check(!c.category.empty() && !c.doc.empty(), std::string(c.name) + " has a category and a doc");
+            for (const relay::ParamInfo& p : c.params)
+                Check(p.choices.empty() || !relay::Choices(p.choices).empty(), std::string(c.name) + "." + std::string(p.name) + " names a choice table that exists");
+        }
+        Check(relay::FindCallable("GraphVar") && !relay::FindCallable("graphvar"), "FindCallable is exact");
+        const auto unbound = relay::Unbound();
+        Check(std::ranges::find(unbound, std::string_view("IsSneaking")) != unbound.end(), "offline, the game's functions stay unbound");
+        Check(std::ranges::find(unbound, std::string_view("GraphVar")) == unbound.end(), "RegisterCoreBuiltins binds GraphVar");
+        Check(!relay::Bind("NotInCatalog", nullptr, err), "Bind refuses a name the catalog lacks");
+        Check(!relay::Bind("GraphVar", nullptr, err) && err.find("already") != std::string::npos, "Bind refuses a second binding");
+    }
 
     static std::vector<std::string> warned;
     relay::SetWarnSink([](std::string_view m) { warned.emplace_back(m); });

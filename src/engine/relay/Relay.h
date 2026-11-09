@@ -156,7 +156,86 @@ namespace CB::engine::relay {
 
     // Parse + resolve (callables against the registry, arg literals against the load order) + typecheck.
     // On failure returns an invalid expr and fills `err`.
+    /// @note A catalog function nothing has bound (a game function, offline) does not compile: motion matching's offline
+    ///       database build relies on that to warn that a gate cannot hold there. An editor checks with Check instead.
     CompiledExpr Compile(std::string_view source, std::string& err);
+
+    // ── Syntax: an expression as written ──────────────────────────────────────────────────────────
+    /// @brief One node of a parsed expression. Spellings are kept byte-exact: a number's digits, a string's text and quote.
+    struct SyntaxNode {
+        enum class Kind : std::uint8_t {
+            Number,   ///< `text` = its spelling ("1", "0.5", "0x1F")
+            String,   ///< `text` = what is between the quotes, `quote` = the quote character
+            Name,     ///< a bare identifier: a nullary function written without parentheses, or a literal the ArgResolver resolves
+            Call,     ///< `text` = the function's name, `children` = its arguments
+            Unary,    ///< `text` = "!", "-" or "+", `children` = { operand }
+            Binary,   ///< `text` = the operator, `children` = { left, right }
+            Group,    ///< parentheses as written, `children` = { inner }
+        };
+        Kind                    kind = Kind::Number;
+        std::string             text;
+        char                    quote = '"';
+        std::uint32_t           begin = 0;   ///< byte offset of its first character in the source
+        std::uint32_t           end   = 0;   ///< one past its last
+        std::vector<SyntaxNode> children;
+    };
+
+    struct ParseResult {
+        bool          ok = false;
+        SyntaxNode    root;
+        std::string   error;        ///< why it does not parse; empty when ok
+        std::uint32_t errorAt = 0;  ///< byte offset the error points at
+    };
+
+    /// @brief The syntax tree of `source`, resolving no name: an unknown function still parses.
+    ParseResult Parse(std::string_view source);
+
+    /// @brief Text for `node` that parses back to the same tree, Group nodes aside.
+    /// @note  Parentheses come from Group nodes and from precedence: a child binding looser than its parent, or a right
+    ///        operand binding as loosely (the operators associate left), is wrapped. One space each side of a binary
+    ///        operator, none inside a call or after a unary one.
+    std::string Print(const SyntaxNode& node);
+
+    /// @brief Whether `source` parses and typechecks against the catalog and the registry, bound or not.
+    /// @note  For an editor: a game function is declared offline but bound only in the plugin, where Compile and Check agree.
+    bool Check(std::string_view source, std::string& err);
+
+    // ── Catalog: every function CB declares, bound or not ─────────────────────────────────────────
+    /// @brief One argument of a catalog function.
+    struct ParamInfo {
+        std::string_view name;
+        VType            type;
+        std::string_view choices;   ///< the Choices table an Int argument takes its values from; empty = any value
+    };
+
+    /// @brief A function the grammar can call: its signature and what an editor shows of it.
+    struct CallableInfo {
+        std::string_view           name;       ///< as written in an expression, byte-exact
+        VType                      returns;
+        std::span<const ParamInfo> params;
+        std::string_view           category;   ///< an editor's group: Graph, Values, Actor, Movement, Equipment, Forms, World
+        std::string_view           doc;        ///< one line: what it answers
+    };
+
+    /// @brief One named value of a choice table.
+    struct Choice {
+        std::string_view name;   ///< as the game's own enumerator spells it, without its k
+        std::int32_t     value;
+    };
+
+    std::span<const CallableInfo> ListCallables();
+    /// @return null when `name` (byte-exact) is not in the catalog
+    const CallableInfo* FindCallable(std::string_view name);
+    /// @return empty when no table is called `table`
+    std::span<const Choice> Choices(std::string_view table);
+
+    /// @brief Register `fn` as the implementation of the catalog function `name`, with the catalog's signature.
+    /// @return false with `err` when `name` is not in the catalog or is already bound
+    bool Bind(std::string_view name, FunctionFn fn, std::string& err);
+
+    /// @brief The catalog functions nothing has bound yet.
+    /// @note  The plugin binds every one at startup and logs an error per name this returns; offline, the game's stay unbound.
+    std::vector<std::string_view> Unbound();
 
     // Resolves a bare-identifier literal argument (keyword/form EditorID, AV name, …) to a Value.
     // Set by the config loader (Inc 3, reuses the linker/oracle). Unset → such identifiers fail to compile.

@@ -126,6 +126,9 @@ struct Field {
                                          ///<        attribute: no serde, size or signature effect.
     bool        expression = false;      ///< @brief `expression: true` — the string names variables in its text, so a rename has to
                                          ///<        rewrite it. A member attribute: no serde, size or signature effect.
+    bool        relay = false;           ///< @brief `relay: true` — the string is an Animation Relay expression (<relay/Relay.h>),
+                                         ///<        which an editor builds from the relay catalog. A member attribute: no serde, size
+                                         ///<        or signature effect.
     bool        required = false;        ///< @brief `required: true` — an editor reports this pointer or list empty as an error. A
                                          ///<        member attribute: no serde, size or signature effect.
     std::string stateRef;                ///< @brief `stateref: machine|from|to` — the scalar is a stateId: of the machine holding

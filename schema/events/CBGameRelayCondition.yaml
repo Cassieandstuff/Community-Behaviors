@@ -7,7 +7,7 @@ runtime:
 # from the behavior it runs in. Usable wherever an hkbCondition is (a state machine transition's `condition`). Laid out
 # as hkbExpressionCondition is. Registered at startup by CB (platform/classes) from THIS descriptor; no `signature:` (the
 # loader derives it). Not `expression: true`: that rewrites Havok-grammar text on a variable rename, and Relay names a
-# variable as GraphVar("x").
+# variable as GraphVar("x"). `relay: true` marks the field as Relay text for an editor.
 fields:
-  - { name: expression, type: string }   # Relay text, byte-exact
+  - { name: expression, type: string, relay: true }   # Relay text, byte-exact
   - { skip: 8 }    # runtime: the compiled expression (not serialized)

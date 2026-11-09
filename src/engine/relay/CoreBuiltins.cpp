@@ -30,7 +30,8 @@ namespace CB::engine::relay {
         if (std::exchange(registered, true)) return;
         static constexpr std::array kP_String{ VType::String };
         RegisterPrimitive("GraphVar", VType::Float, kP_String, &Prim_GraphVar);
-        RegisterFunction("GraphVar", VType::Float, kP_String, &Fn_GraphVar);
+        std::string err;
+        Bind("GraphVar", &Fn_GraphVar, err);
     }
 
 }  // namespace CB::engine::relay

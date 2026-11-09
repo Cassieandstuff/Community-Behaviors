@@ -282,6 +282,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     }
                     f.required     = childStr(fn, "required") == "true";
                     f.expression   = childStr(fn, "expression") == "true";
+                    f.relay        = childStr(fn, "relay") == "true";
                     f.rosterRef    = childStr(fn, "rosterref");
                     f.stateRef     = childStr(fn, "stateref");
                     if (!f.stateRef.empty() && f.stateRef != "machine" && f.stateRef != "from" && f.stateRef != "to") {
