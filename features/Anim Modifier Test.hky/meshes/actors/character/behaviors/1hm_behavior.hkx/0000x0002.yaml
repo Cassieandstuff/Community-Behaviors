@@ -1,0 +1,15 @@
+id: 0000x0002
+class: CBAnimModifier
+userData: 0
+name: 'CBTest_1HM_Idle_AnimModifier'
+enable: true
+clip: 0001x00e4
+rules:
+  'InCombat':
+    when: 'IsInCombat()'
+    animation: 'meshes\actors\character\animations\Bow_IdleHeld.hkx'
+    priority: 10
+  'Always':
+    when: ''
+    animation: 'meshes\actors\character\animations\H2H_Idle.hkx'
+    priority: 0

@@ -264,6 +264,8 @@ namespace CB::feature::replacer {
         m_playing.Reset();
         m_rule  = -1;
         m_state = 0;
+        static std::once_flag firstActivate;
+        std::call_once(firstActivate, [] { LOG_INFO("[anim modifier] first activation: [AnimModifier] bEnable reads {}", Enabled()); });
         if (!Enabled()) return;
 
         const AnimModifier* from = Template(context);
@@ -317,6 +319,11 @@ namespace CB::feature::replacer {
         return false;
     }
 
-    ::hkbNode* AnimModifier::cloneNode(::hkbBehaviorGraph& rootBehavior) const { return new AnimModifier(*this); }
+    ::hkbNode* AnimModifier::cloneNode(::hkbBehaviorGraph& rootBehavior) const
+    {
+        static std::once_flag firstClone;
+        std::call_once(firstClone, [this] { LOG_INFO("[anim modifier] first clone of '{}'", m_name.cString() ? m_name.cString() : ""); });
+        return new AnimModifier(*this);
+    }
 
 }  // namespace CB::feature::replacer
