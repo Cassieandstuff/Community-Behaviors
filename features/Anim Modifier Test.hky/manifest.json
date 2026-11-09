@@ -2,6 +2,6 @@
     "name": "Anim Modifier Test",
     "version": "0.0.1",
     "author": "Cassieandstuff",
-    "description": "Test only, not for release: wraps vanilla 1hm_behavior's 1HM_Idle clip (WeapIdleMSG slot 0, one-handed weapon with an empty left hand) in a CBAnimModifier. In combat it plays Staff_Idle; otherwise it plays 2HM_Idle. Needs [AnimModifier] bEnable=true; with it off, the vanilla idle plays.",
+    "description": "Test only, not for release: wraps 0_master's 1HM_Idle clip (the Weap_1HM_Idle_Behavior state 1HM_Idle, the drawn one-handed idle) in a CBAnimModifier. In combat it plays Bow_IdleHeld; otherwise H2H_Idle. Needs [AnimModifier] bEnable=true; with it off, the vanilla idle plays.",
     "masters": []
 }

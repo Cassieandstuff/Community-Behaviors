@@ -267,7 +267,10 @@ namespace CB::feature::replacer {
         if (!Enabled()) return;
 
         const AnimModifier* from = Template(context);
-        if (!from) return;
+        if (!from) {
+            WarnUnreached(m_clip, "a CBAnimModifier clone has no template in the character's graph: its rules cannot be read");
+            return;
+        }
         ::hkbClipGenerator* clip = ActiveClip(context);
         if (!clip) {
             if (m_clip) WarnUnreached(m_clip, "a CBAnimModifier activated without it: wrap the modifier over a subtree that holds its clip");
@@ -275,6 +278,7 @@ namespace CB::feature::replacer {
         }
         m_rule = Pick(*from, context, platform::game::ActorOf(context.m_character));
         if (m_rule >= 0) TrySwap(context, *clip, true);
+        else NoteOnce(m_clip, nullptr, "no rule holds, plays its own animation");
     }
 
     void AnimModifier::update(const ::hkbContext& context, ::hkReal timestep)

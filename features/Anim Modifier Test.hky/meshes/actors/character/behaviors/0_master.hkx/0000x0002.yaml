@@ -3,13 +3,13 @@ class: CBAnimModifier
 userData: 0
 name: 'CBTest_1HM_Idle_AnimModifier'
 enable: true
-clip: 0001x00e4
+clip: 0001x03fa
 rules:
   'InCombat':
     when: 'IsInCombat()'
-    animation: 'meshes\actors\character\animations\Staff_Idle.hkx'
+    animation: 'meshes\actors\character\animations\Bow_IdleHeld.hkx'
     priority: 10
   'Always':
     when: ''
-    animation: 'meshes\actors\character\animations\2HM_Idle.HKX'
+    animation: 'meshes\actors\character\animations\H2H_Idle.hkx'
     priority: 0
