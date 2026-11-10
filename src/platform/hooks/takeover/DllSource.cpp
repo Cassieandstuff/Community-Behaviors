@@ -40,6 +40,14 @@ namespace CB::platform::hooks {
 
     }  // namespace
 
+    std::uintptr_t PluginBody(std::string_view mangled)
+    {
+        const auto* names = detail::ShimFunctionMangled();
+        for (std::size_t i = 0, n = detail::ShimFunctionCount(); i < n; ++i)
+            if (names[i] && mangled == names[i] && cb_impl_table[i] && cb_impl_table[i] != cb_stub_table[i]) return cb_impl_table[i];
+        return 0;
+    }
+
     DllSource::DllSource()
     {
         const auto* funcs   = detail::ShimFunctions();
