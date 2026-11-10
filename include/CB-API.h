@@ -89,6 +89,7 @@
 #include "locomotion/Pogo.h"
 #include "locomotion/ChooserInputs.h"
 #include "locomotion/DeadBlend.h"
+#include "locomotion/SpeedProfile.h"
 #include "codec/resource/PathKey.h"
 
 namespace cb {
@@ -306,6 +307,11 @@ namespace mm {
     using CB::engine::locomotion::RigFromSkeleton;             ///< a parsed skeleton unit → its Rig
     using CB::engine::locomotion::SchemaSpecOf;                ///< a parsed CBPoseSearchSchema → its SchemaSpec
 
+    using DatabaseSpec     = CB::engine::locomotion::DatabaseSpec;    ///< what a database is built from, whoever holds the selector
+    using SpecChild        = CB::engine::locomotion::SpecChild;
+    using SpecDatabase     = CB::engine::locomotion::SpecDatabase;
+    using SpecChooserRow   = CB::engine::locomotion::SpecChooserRow;
+    using CB::engine::locomotion::SpecOf;                      ///< a parsed CBPoseSearchGenerator → its DatabaseSpec
     using CB::engine::locomotion::RootSelector;                ///< a graph → its CBPoseSearchGenerator, or null
     using CB::engine::locomotion::BuildDatabase;               ///< selector + clips → the SearchDatabase
     using CB::engine::locomotion::Choose;                      ///< the chooser's pick, per database
@@ -354,12 +360,36 @@ namespace mm {
     using CB::engine::locomotion::kRowMoving;
     using CB::engine::locomotion::kFlagDisableReselection;     ///< SearchClip::flags bits (kMmDisableReselection's values)
     using CB::engine::locomotion::kFlagLooping;
+
+    // One character's matching over time, as the game's node runs it: the Matcher, the node's playback rate and distance
+    // matching, and the inputs' memory the frame hook keeps. A simulation drives these exactly as the game does.
+    using Matcher      = CB::engine::locomotion::Matcher;        ///< what plays, when a search is due, the reselect ban
+    using MatchRequest = CB::engine::locomotion::MatchRequest;   ///< what one update asks of it
+    using MatchStep    = CB::engine::locomotion::MatchStep;      ///< what one update did, its search's query included
+    using Distances    = CB::engine::locomotion::Distances;      ///< the movement model's distances to its stop and turn
+    using CB::engine::locomotion::ScoreRow;                    ///< any row scored against a query, per feature
+    using CB::engine::locomotion::NodeRate;                    ///< the node's playback rate while its speed is bound
+    using CB::engine::locomotion::DistanceMatchedTime;         ///< the time a Stops or Pivots clip plays at
+    using CB::engine::locomotion::InputsInterrupt;             ///< GASP's interrupt on a change of inputs
+    using CB::engine::locomotion::TurnIntent;                  ///< the facing a turn in place turns toward
+    using CB::engine::locomotion::ShouldTurnInPlace;           ///< ShouldTurnInPlace and its hold
+    using CB::engine::locomotion::FutureVelocity;              ///< GASP's future velocity (IsPivoting's)
+    using CB::engine::locomotion::PredictStopDistance;         ///< the model's slide to a stop
+    using CB::engine::locomotion::PredictPivotDistance;        ///< the model's run-in to a turn
+    using CB::engine::locomotion::kSearchInterval;             ///< seconds between searches
+    using CB::engine::locomotion::kSwitchFloor;                ///< seconds after a switch before another search
+    using CB::engine::locomotion::kMinDwell;                   ///< seconds a pick plays before another replaces it
+    using CB::engine::locomotion::kSwitchMargin;               ///< the share of the playing cost a candidate must beat
+    using CB::engine::locomotion::kMinRate;                    ///< the node's playback rate range
+    using CB::engine::locomotion::kMaxRate;
+    using CB::engine::locomotion::kTurnInPlace;                ///< ShouldTurnInPlace's angle
     inline constexpr int kFeatureDims = CB::engine::anim::features::kDims;   ///< floats per SearchDatabase row
 }  // namespace mm
 
 // ── cb::relay ────────────────────────────────────────────────────────────────
 /// Animation Relay's game-free core: an expression compiled once and evaluated per pass over caller-supplied variables.
-/// RegisterCoreBuiltins gives GraphVar alone, so an expression calling a game-state function does not compile here.
+/// RegisterCoreBuiltins gives GraphVar alone, so an expression calling a game-state function does not compile here; Check
+/// typechecks one against the catalog instead, which declares every function the game binds.
 namespace relay {
     using Value          = CB::engine::relay::Value;           ///< Bool, Int or Float; read with AsBool / AsFloat / AsInt
     using VType          = CB::engine::relay::VType;
@@ -372,6 +402,19 @@ namespace relay {
     using CB::engine::relay::RegisterCoreBuiltins;             ///< register GraphVar; before the first Compile
     using CB::engine::relay::Intern;                           ///< the process-lifetime copy of a string, byte-exact
     using CB::engine::relay::SetWarnSink;                      ///< where the registry's warnings go
+
+    using SyntaxNode   = CB::engine::relay::SyntaxNode;        ///< an expression as written: spellings byte-exact
+    using ParseResult  = CB::engine::relay::ParseResult;       ///< the tree, or why it does not parse and where
+    using CallableInfo = CB::engine::relay::CallableInfo;      ///< a catalog function: name, returns, params, category, doc
+    using ParamInfo    = CB::engine::relay::ParamInfo;         ///< an argument: name, type, the choice table it takes
+    using Choice       = CB::engine::relay::Choice;            ///< one named value of a choice table
+
+    using CB::engine::relay::Parse;                            ///< text → syntax tree, resolving no name
+    using CB::engine::relay::Print;                            ///< syntax tree → text that parses back to it
+    using CB::engine::relay::Check;                            ///< parses and typechecks against the catalog, bound or not
+    using CB::engine::relay::ListCallables;                    ///< every function the grammar can call
+    using CB::engine::relay::FindCallable;                     ///< one of them by exact name; null when absent
+    using CB::engine::relay::Choices;                          ///< a choice table by name ("Hand", "WEAPON_TYPE")
 }  // namespace relay
 
 // ── cb::trace ──────────────────────────────────────────────────────────────────
@@ -427,6 +470,11 @@ namespace locomotion {
     using CB::engine::locomotion::ClipUphill;
     using CB::engine::locomotion::JumpLaunch;
     using CB::engine::locomotion::FiniteBone;              ///< whether a bone's translation and rotation are finite
+    using StickThresholds = CB::engine::locomotion::StickThresholds;   ///< the stick lengths that move, and run
+    using CB::engine::locomotion::StickGait;               ///< a running player's light stick walks
+    using CB::engine::locomotion::ApplyStick;              ///< the stick on the model's input (turn in place under the move threshold)
+    using SpeedProfile    = CB::engine::locomotion::SpeedProfile;      ///< a movement type's walk and run speeds
+    using CB::engine::locomotion::DefaultSpeedProfile;     ///< the built-in speeds the controller moves at (GASP's loops)
 }  // namespace locomotion
 
 }  // namespace cb

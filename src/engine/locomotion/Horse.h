@@ -38,6 +38,7 @@ namespace CB::engine::locomotion {
             .digInBraking        = 412.0f,
             .digInFacingHalflife = 0.08f,
             .digInMaxLead        = 1.0471976f,
+            .desiredFacing       = false,
         };
         /// @brief Trot's speed as a fraction of the way from walk to canter (vanilla has no trot speed).
         float trotFraction = 0.4f;

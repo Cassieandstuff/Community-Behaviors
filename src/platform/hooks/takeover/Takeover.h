@@ -50,6 +50,12 @@ namespace CB::platform::hooks {
     ///       holds runs it (CB's implementation, or an Override chain ending in it).
     [[nodiscard]] std::uintptr_t* FindCell(std::string_view mangled, std::string* why = nullptr);
 
+    /// @return the address of the plugin's own compiled body for `mangled` (an SDK body the export ships), or 0 when the
+    ///         plugin has none and the name binds to vanilla through the shim.
+    /// @note  The plugin's other shipped bodies call this one directly, never through vanilla's entry or a cell: an
+    ///        Override must also sit on it, or those calls skip its subscribers.
+    [[nodiscard]] std::uintptr_t PluginBody(std::string_view mangled);
+
     /// @brief Restores vanilla for any replaced function whose body another plugin patched after InstallTakeover
     ///        (a call-site hook inside it would otherwise sit in code that no longer runs). Logs the summary.
     /// @pre Called at kDataLoaded, once every plugin has installed its hooks.

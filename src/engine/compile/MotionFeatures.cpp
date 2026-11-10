@@ -83,6 +83,32 @@ namespace CB::engine::anim {
 
         constexpr double kPi = 3.14159265358979323846;
 
+        /// @brief The root path `at` frames in (fractional, clamped to the path): its position, forward and velocity, each
+        ///        interpolated between the frames either side.
+        /// @note  Why not the nearest frame: a schema samples at 0.35 s and -0.05 s, 10.5 and 1.5 frames at 30 fps; rounded,
+        ///        the rows held the path a frame short (17 units at a sprint) while the query asks for the time itself.
+        struct PathSample {
+            MotionVec pos, dir, vel;
+        };
+        PathSample PathAt(const std::vector<MotionVec>& path, const std::vector<MotionQuat>& rot, double at, double dt)
+        {
+            const int    span = static_cast<int>(path.size());
+            const double c    = std::clamp(at, 0.0, static_cast<double>(span - 1));
+            const int    j0   = (std::min)(static_cast<int>(std::floor(c)), span - 1);
+            const int    j1   = (std::min)(j0 + 1, span - 1);
+            const double a    = c - j0;
+            const auto   lerp = [a](const MotionVec& x, const MotionVec& y) { return x * (1.0 - a) + y * a; };
+            return { lerp(path[j0], path[j1]), lerp(Rotate(rot[j0], { 0, 1, 0 }), Rotate(rot[j1], { 0, 1, 0 })),
+                     lerp(Velocity(path, j0, dt), Velocity(path, j1, dt)) };
+        }
+
+        /// @return frames to `seconds`, rounded away from zero: the margin a sample that far needs on both sides of it
+        int FramesSpanning(double seconds, double dt)
+        {
+            const double f = seconds / dt;
+            return static_cast<int>(f >= 0 ? std::ceil(f - 1.0e-6) : -std::ceil(-f - 1.0e-6));
+        }
+
         /// @brief The measuring constants, as hky-tool's earlier tagger tuned them against the clips (Skyrim units).
         constexpr double kStandSpeed      = 15.0;   ///< units/s: below this the root is standing
         constexpr int    kSmoothHalf      = 3;      ///< root signals: moving average over this many frames each side
@@ -376,7 +402,7 @@ namespace CB::engine::anim {
         using namespace features;
         const int n = m.frames;
         std::array<int, kSamples> offset{};
-        for (int s = 0; s < kSamples; ++s) offset[s] = static_cast<int>(std::lround(SampleTime(s) / m.dt));
+        for (int s = 0; s < kSamples; ++s) offset[s] = FramesSpanning(SampleTime(s), m.dt);
         const std::size_t base = rows.size();
         rows.resize(base + static_cast<std::size_t>(n) * kDims);
         AppendRows(m, offset, m.rootPos, m.rootRot, 0, rows.data() + base);
@@ -397,16 +423,15 @@ namespace CB::engine::anim {
     {
         using namespace features;
         const int n    = m.frames;
-        const int span = static_cast<int>(rootPos.size());
         for (int i = 0; i < n; ++i) {
             float* r = out + static_cast<std::size_t>(i) * kDims;
             const MotionQuat& q = rootRot[i + lead];
             const MotionVec&  p = rootPos[i + lead];
             for (int s = 0; s < kSamples; ++s) {
-                const int       j   = std::clamp(i + lead + offset[s], 0, span - 1);
-                const MotionVec pos = ToLocal(q, rootPos[j] - p);
-                const MotionVec dir = ToLocal(q, Rotate(rootRot[j], { 0, 1, 0 }));
-                const MotionVec vel = ToLocal(q, Velocity(rootPos, j, m.dt));
+                const PathSample at  = PathAt(rootPos, rootRot, i + lead + SampleTime(s) / m.dt, m.dt);
+                const MotionVec  pos = ToLocal(q, at.pos - p);
+                const MotionVec  dir = ToLocal(q, at.dir);
+                const MotionVec  vel = ToLocal(q, at.vel);
                 const double    len = std::hypot(dir.x, dir.y);
                 float*          o   = r + SampleAt(s);
                 o[kSamplePos]          = static_cast<float>(pos.x);
@@ -627,7 +652,7 @@ namespace CB::engine::anim {
         int ahead = 0, back = 0;
         for (const auto& f : schema.features)
             for (const auto& smp : f.samples) {
-                const int o = static_cast<int>(std::lround(smp.time / dt));
+                const int o = FramesSpanning(smp.time, dt);
                 ahead = (std::max)(ahead, o), back = (std::max)(back, -o);
             }
         /// @note A loop's root runs on across its seam (Unroll); anything else's holds at its ends.
@@ -638,7 +663,6 @@ namespace CB::engine::anim {
             Unroll(m, loopFrames, back + 1, ahead + 1, path, pathRot);
             lead = back + 1;
         }
-        const int span = static_cast<int>(path.size());
 
         const int        dims = SchemaDims(schema);
         std::vector<float> rows(static_cast<std::size_t>(n) * dims, 0.0f);
@@ -656,10 +680,10 @@ namespace CB::engine::anim {
                 switch (f.kind) {
                 case FeatureKind::Trajectory:
                     for (const auto& smp : f.samples) {
-                        const int       j   = std::clamp(i + lead + static_cast<int>(std::lround(smp.time / dt)), 0, span - 1);
-                        const MotionVec pos = ToLocal(q, path[j] - p);
-                        const MotionVec dir = ToLocal(q, Rotate(pathRot[j], { 0, 1, 0 }));
-                        const MotionVec vel = ToLocal(q, Velocity(path, j, dt));
+                        const PathSample at  = PathAt(path, pathRot, i + lead + smp.time / dt, dt);
+                        const MotionVec  pos = ToLocal(q, at.pos - p);
+                        const MotionVec  dir = ToLocal(q, at.dir);
+                        const MotionVec  vel = ToLocal(q, at.vel);
                         const double    len = std::hypot(dir.x, dir.y);
                         r[kSamplePos]          = static_cast<float>(pos.x);
                         r[kSamplePos + 1]      = static_cast<float>(pos.y);

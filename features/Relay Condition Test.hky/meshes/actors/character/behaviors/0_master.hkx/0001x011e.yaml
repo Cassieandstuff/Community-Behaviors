@@ -1,0 +1,6 @@
+id: 0001x011e
+class: hkbStateMachine
+wildcardTransitions:
+  transitions:
+    '0001x0000':
+      condition: 0000x0001

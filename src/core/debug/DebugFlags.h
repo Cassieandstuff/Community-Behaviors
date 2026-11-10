@@ -57,6 +57,10 @@ namespace CB::core::debug {
           "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
+        { "relay_condition_trace", FlagKind::IniBool, "Debug", "bRelayConditionTrace", false, false,
+          "Game condition trace (CBGameRelayCondition)",
+          "Log each CBGameRelayCondition's first result for each character, then every change, with its expression and "
+          "the actor's form ID. Off = no logging; the conditions work either way." },
         { "sequencer_disable", FlagKind::MarkerFile, "", "sequencer.disable", false, false,
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "

@@ -59,6 +59,23 @@ namespace CB::feature::controller::motion {
     /// @note  Thread-safe: the predictor (physics thread) writes it, the frame hook (update thread) reads it.
     void SetTimeToLand(RE::FormID actor, float seconds);
 
+    /// @brief What distance matching reads of a character, as of its latest movement frame.
+    /// @brief The movement model's distances distance matching plays by (the engine's).
+    using Distances = CB::engine::locomotion::Distances;
+
+    /// @brief `actor`'s distances from the movement model (locomotion::PredictStopDistance, PredictPivotDistance).
+    /// @return false when no movement frame has published them (CB does not drive the actor)
+    /// @note  Thread-safe: the frame hook writes them, graph nodes read them. Also written to the graph variables
+    ///        MM_DistanceToStop and MM_DistanceToPivot where a graph declares them.
+    bool DistancesOf(RE::FormID actor, Distances& out);
+
+    /// @brief The distance curve of the clip `animationName` (byte-exact, below the character folder) from `marker`,
+    ///        measured from its animation unit on first use and kept.
+    /// @return null when CB ships no unit for it, or before the load order is read (asked again later)
+    /// @note  Thread-safe. The first ask for a clip measures it on the asking thread (a few milliseconds).
+    std::shared_ptr<const CB::engine::locomotion::DistanceCurve> DistanceCurveOf(const std::string& animationName,
+                                                                                 CB::engine::locomotion::DistanceMarker marker);
+
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
     std::string Describe();

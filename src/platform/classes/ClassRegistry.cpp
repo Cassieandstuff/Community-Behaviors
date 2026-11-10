@@ -74,9 +74,13 @@ namespace CB::platform::classes {
             return s;
         }
 
-        /// @brief The game's hkClass for a parent or a member's target class, by name; null for any other.
-        /// @note The link shim binds these to the exe's own class objects, so names and parent chains read the same,
-        ///       which is what the registries and the parent-chain class tests use.
+        ::hkClass* ExeClass(::hkBuiltinTypeRegistry* registry, const char* name);
+
+        /// @brief The game's hkClass for a parent or a member's target class, by name; null for a name the exe does not
+        ///        register.
+        /// @note The link shim binds the named ones to the exe's own class objects; any other comes from the exe's
+        ///       class-name registry, the same object. Either way names and parent chains read the same, which is what
+        ///       the registries and the parent-chain class tests use.
         const ::hkClass* GameClass(const std::string& name)
         {
             if (name == "hkbGenerator") return &::hkbGeneratorClass;
@@ -84,7 +88,9 @@ namespace CB::platform::classes {
             if (name == "hkbModifier") return &::hkbModifierClass;
             if (name == "hkbBindable") return &::hkbBindableClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
-            return nullptr;
+            if (name.starts_with("CB")) return nullptr;
+            ::hkBuiltinTypeRegistry* registry = ::hkBuiltinTypeRegistry::s_instance;
+            return registry ? ExeClass(registry, name.c_str()) : nullptr;
         }
 
         bool Build(Entry& e, const sc::SchemaRegistry& schema, std::string& why);

@@ -439,10 +439,12 @@ namespace CB::feature::controller {
             PublishStick(player, raw, hold ? cameraYaw : heading, heading);
             const float engineFull = out->speed;
             /// @note The speed profile's, not the movement type record's (CharSpeedProfile): the engine's own stays in engineFull.
+            const float deflection = std::hypot(raw.x, raw.y);
+            const CB::engine::locomotion::StickThresholds thresholds{ StickMoveThreshold(), StickRunThreshold() };
             Gait        gait       = GaitOf(player);
             float       full       = speed::Forward(player, gait, engineFull);
-            if (gait == Gait::Run && haveStick && std::hypot(raw.x, raw.y) < StickRunThreshold()) {
-                gait = Gait::Walk;
+            if (const Gait moving = CB::engine::locomotion::StickGait(gait, haveStick, deflection, thresholds); moving != gait) {
+                gait = moving;
                 full = speed::WalkOfRun(player, full);
             }
             const float engineDir = out->angles[2];
@@ -482,6 +484,8 @@ namespace CB::feature::controller {
                 ///       toward the speaker (when one resolves), with the model's halflife.
                 s.vx = s.vy = 0.0f;
                 s.yaw       = heading + WrapPi(s.yaw - heading);
+                /// @note The speaker owns the facing: the desired facing goes, or the player turns back once it ends.
+                s.desiredYaw = kNoDirection;
                 if (haveSpeaker) {
                     const RE::NiPoint3 at   = player->GetPosition();
                     const float        dx   = speakerAt.x - at.x, dy = speakerAt.y - at.y;
@@ -513,9 +517,7 @@ namespace CB::feature::controller {
             in.mode      = Aiming(player) ? move::Mode::Strafe : move::Mode::Orient;
             in.gait      = gait;
             in.airborne  = Airborne(player);
-            in.haveStick = haveStick;
-            if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
-            in.turnInPlace = haveStick && std::hypot(raw.x, raw.y) < StickMoveThreshold();
+            CB::engine::locomotion::ApplyStick(in, haveStick, stickHeading, deflection, thresholds);
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
@@ -593,6 +595,8 @@ namespace CB::feature::controller {
                 h.yaw       = s.yaw;
                 h.haveStick = haveStick;
                 h.stickYaw  = stickHeading;
+                h.haveDesired = !std::isnan(s.desiredYaw);
+                h.desiredYaw  = s.desiredYaw;
                 hud::Publish(h);
             }
         }
@@ -830,6 +834,9 @@ namespace CB::feature::controller {
             const float turned = heading + out->turn[2] * deltaTime;
             const move::Profile profile = tuning::Current();
             move::Step(s, in, caps, profile, pos.x, pos.y, deltaTime);
+            /// @note The facing is the engine's, so the desired facing is too: the AI turns an NPC itself, and its last
+            ///       walking direction would hold ShouldTurnInPlace up while it faced anything else.
+            s.desiredYaw = turned;
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;

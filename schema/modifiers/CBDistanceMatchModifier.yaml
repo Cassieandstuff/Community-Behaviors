@@ -1,0 +1,20 @@
+name:      CBDistanceMatchModifier
+parent:    hkbModifier
+size:      120
+runtime:
+  source: self
+# CB's own modifier: plays a user-controlled clip by distance instead of the clock (distance matching). While active it
+# writes the clip's time, as a fraction of its duration, to the REAL variable named by timeVariable, which the clip
+# generator's userControlledTimeFraction binds. A stop plays by the character's predicted distance to rest, a pivot by
+# its distance to the turn and then by the distance moved, a start by the distance moved, and DISTANCE by the bound
+# `distance` (distance left to the clip's stop). The clip's distance curve is measured from its animation when CB ships
+# it as a unit. Registered at startup by CB (platform/classes) from THIS descriptor; no `signature:` (the loader derives it).
+fields:
+  - { name: animationName, type: string }   # the clip it plays, byte-exact, as its clip generator names it
+  - { name: timeVariable,  type: string }   # the REAL graph variable it writes the clip's time fraction to, byte-exact
+  - { name: distance,      type: float }    # DISTANCE: game units left to the clip's stop, < 0 = none (play by the clock)
+  - { name: source,        type: int8, enum: DistanceSource }
+  - { skip: 3 }
+  - { name: minRate,       type: float }    # advancing by distance: the slowest play rate; 0 with maxRate 0 = 0.6
+  - { name: maxRate,       type: float }    # ... the fastest; 0 with minRate 0 = 5
+  - { skip: 8 }    # runtime: the clip time it plays (not serialized)

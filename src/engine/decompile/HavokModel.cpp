@@ -82,7 +82,7 @@ bool IsNodeClass(const std::string& className) {
         "hkbRigidBodyRagdollControlsModifier", "hkbPoweredRagdollControlsModifier", "hkbKeyframeBonesModifier",
         "BSLookAtModifier", "BSInterpValueModifier", "BSEventEveryNEventsModifier", "BSGetTimeStepModifier",
         "hkbTransformVectorModifier", "BSDecomposeVectorModifier", "BSLimbIKModifier", "BSTweenerModifier",
-        "BSPassByTargetTriggerModifier", "BSTimerModifier", "CBDamageModifier",
+        "BSPassByTargetTriggerModifier", "BSTimerModifier", "CBDamageModifier", "CBDistanceMatchModifier",
     };
     return kNodes.count(className) != 0;
 }

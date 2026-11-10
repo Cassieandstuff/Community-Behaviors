@@ -47,6 +47,8 @@ namespace CB::platform::hooks {
         const char* const*           ShimFunctionMangled();
         /// @return the decorated names of the bodies the SDK ships, null-terminated.
         const char* const*           ShimShipped();
+        /// @return each shipped body's match tier ("exact", "structural", "parked"), in ShimShipped's order.
+        const char* const*           ShimShippedTier();
         std::size_t                  ShimFunctionCount();
 
     }  // namespace detail

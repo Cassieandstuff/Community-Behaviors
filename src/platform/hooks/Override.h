@@ -51,10 +51,23 @@ namespace CB::platform::hooks {
     struct Override : Chain<Override<F>, typename detail::CellSignature<decltype(F), typename Identity<F>::This>::type> {
         static constexpr const char* name = Identity<F>::name;
 
+        /// @note When the plugin ships its own body of the function, its other shipped bodies call that body directly,
+        ///       past vanilla's entry and the cell, so the chain also sits on the body itself: every route runs the
+        ///       subscribers once. (bhkCharacterController::UpdatePhysics, shipped, called CB's getState body directly
+        ///       and skipped the state wrapper's Override on vanilla's entry.)
         static bool Attach(void* detour, void** original, std::string& why, const char*& how)
         {
-            std::string cellWhy;
+            std::string          cellWhy;
+            const std::uintptr_t body = PluginBody(Identity<F>::mangled);
             if (std::uintptr_t* cell = FindCell(Identity<F>::mangled, &cellWhy)) {
+                if (body) {
+                    /// @note The cell then runs the chain, whose original is the body's trampoline; the body's own
+                    ///       detour runs the chain for the plugin's direct calls.
+                    if (!detail::AttachEntry(body, detour, original, why)) return false;
+                    *cell = reinterpret_cast<std::uintptr_t>(detour);
+                    how   = "the takeover's cell and CB's own body";
+                    return true;
+                }
                 *original = reinterpret_cast<void*>(*cell);
                 *cell     = reinterpret_cast<std::uintptr_t>(detour);
                 how       = "the takeover's cell";
@@ -65,8 +78,16 @@ namespace CB::platform::hooks {
                 why = cellWhy.empty() ? std::string("no pin on this runtime") : cellWhy + ", and no pin on this runtime";
                 return false;
             }
+            if (!detail::AttachEntry(engine::Resolve(s), detour, original, why)) return false;
             how = "an entry detour";
-            return detail::AttachEntry(engine::Resolve(s), detour, original, why);
+            if (body) {
+                /// @note Vanilla runs the function (the takeover left it), so the original is vanilla's; the plugin's
+                ///       direct calls reach the chain through the body's detour and end in vanilla too.
+                void* unused = nullptr;
+                if (!detail::AttachEntry(body, detour, &unused, why)) return false;
+                how = "an entry detour and CB's own body";
+            }
+            return true;
         }
     };
 

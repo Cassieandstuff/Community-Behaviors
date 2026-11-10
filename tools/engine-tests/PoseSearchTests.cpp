@@ -20,12 +20,15 @@
 #include <array>
 #include <cmath>
 #include <locomotion/ChooserInputs.h>
+#include <locomotion/DistanceMatch.h>
 #include <locomotion/DeadBlend.h>
+#include <locomotion/Pogo.h>
 #include <locomotion/SpeedProfile.h>
 #include <filesystem>
 #include <map>
 #include <process.h>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -98,6 +101,78 @@ void RelayChecks() {
     Check(!relay::Compile("GraphVar(1)", err).Valid() && err.find("GraphVar") != std::string::npos, "a number where a string belongs is refused");
     Check(!relay::Compile("GraphVar(1 + 1)", err).Valid(), "an expression where a string belongs is refused");
     Check(relay::Compile("GraphVar('Speed') + 1", err).Valid(), "the right type compiles");
+
+    // Parse / Print: the editor's round trip
+    for (const char* text : { "IsEquippedType(1, 1) && (GraphVar(\"bIsInMT\") == 1 || !IsSneaking())", "GraphVar('Speed') + 1", "-0.05",
+                              "(1 + 2) * 3 / 2", "0x1F", "a - (b - c)", "a - b - c", "!(a && b)", "-(1 + 2)", "Random() < 0.5 || Level >= 10" }) {
+        const relay::ParseResult parsed = relay::Parse(text);
+        Check(parsed.ok, std::string("'") + text + "' parses: " + parsed.error);
+        Check(relay::Print(parsed.root) == text, std::string("'") + text + "' prints back as written: " + relay::Print(parsed.root));
+    }
+    {
+        const relay::ParseResult spaced = relay::Parse("  GraphVar( 'Speed' )>1&&x ");
+        Check(spaced.ok && relay::Print(spaced.root) == "GraphVar('Speed') > 1 && x", "print normalizes spacing, keeps the quote");
+        Check(spaced.root.kind == relay::SyntaxNode::Kind::Binary && spaced.root.text == "&&", "&& binds loosest here");
+        Check(spaced.root.children[0].begin == 2 && spaced.root.children[1].end == 26, "nodes carry their source range");
+
+        const auto leaf = [](relay::SyntaxNode::Kind kind, std::string text) {
+            relay::SyntaxNode n;
+            n.kind = kind;
+            n.text = std::move(text);
+            return n;
+        };
+        const auto binary = [](std::string op, relay::SyntaxNode l, relay::SyntaxNode r) {
+            relay::SyntaxNode n;
+            n.kind = relay::SyntaxNode::Kind::Binary;
+            n.text = std::move(op);
+            n.children.push_back(std::move(l));
+            n.children.push_back(std::move(r));
+            return n;
+        };
+        using K = relay::SyntaxNode::Kind;
+        Check(relay::Print(binary("*", binary("+", leaf(K::Number, "1"), leaf(K::Number, "2")), leaf(K::Number, "3"))) == "(1 + 2) * 3",
+              "print wraps a looser left operand");
+        Check(relay::Print(binary("-", leaf(K::Name, "a"), binary("-", leaf(K::Name, "b"), leaf(K::Name, "c")))) == "a - (b - c)",
+              "print wraps an equally loose right operand");
+        relay::SyntaxNode quoted = leaf(K::String, "say \"hi\"");
+        Check(relay::Print(quoted) == "'say \"hi\"'", "a string holding its own quote prints with the other");
+
+        const relay::ParseResult open = relay::Parse("GraphVar(\"bIsInMT) == 1");
+        Check(!open.ok && open.error == "unterminated string literal" && open.errorAt == 9, "a parse error says where: " + open.error);
+        Check(relay::Parse("NotAFunction(1)").ok, "parsing resolves no name");
+        Check(!relay::Parse("1 +").ok && !relay::Parse("a b").ok && !relay::Parse("").ok, "broken text does not parse");
+    }
+
+    // Catalog + Check: the game's vocabulary, offline
+    {
+        std::string err;
+        Check(relay::Check("IsSneaking()", err), "a declared game function checks offline: " + err);
+        Check(relay::Check("IsEquippedType(1, 0) && GraphVar('x') > 2", err), "a declared call with arguments checks: " + err);
+        err.clear();
+        Check(!relay::Check("IsEquippedType(1)", err) && err.find("IsEquippedType") != std::string::npos, "the catalog's arity holds: " + err);
+        err.clear();
+        Check(!relay::Check("NotAFunction()", err) && err.find("NotAFunction") != std::string::npos, "an unknown function fails Check: " + err);
+        err.clear();
+        Check(!relay::Check("HasKeyword('ArmorHeavy')", err), "a string where a keyword belongs is refused");
+        err.clear();
+        Check(!relay::Check("issneaking()", err), "the catalog compares names exactly");
+        err.clear();
+        Check(!relay::Compile("IsSneaking", err).Valid() && err.find("IsSneaking") != std::string::npos, "Compile still refuses an unbound bare call");
+
+        std::set<std::string_view> names;
+        for (const relay::CallableInfo& c : relay::ListCallables()) {
+            Check(names.insert(c.name).second, std::string("catalog names are unique: ") + std::string(c.name));
+            Check(!c.category.empty() && !c.doc.empty(), std::string(c.name) + " has a category and a doc");
+            for (const relay::ParamInfo& p : c.params)
+                Check(p.choices.empty() || !relay::Choices(p.choices).empty(), std::string(c.name) + "." + std::string(p.name) + " names a choice table that exists");
+        }
+        Check(relay::FindCallable("GraphVar") && !relay::FindCallable("graphvar"), "FindCallable is exact");
+        const auto unbound = relay::Unbound();
+        Check(std::ranges::find(unbound, std::string_view("IsSneaking")) != unbound.end(), "offline, the game's functions stay unbound");
+        Check(std::ranges::find(unbound, std::string_view("GraphVar")) == unbound.end(), "RegisterCoreBuiltins binds GraphVar");
+        Check(!relay::Bind("NotInCatalog", nullptr, err), "Bind refuses a name the catalog lacks");
+        Check(!relay::Bind("GraphVar", nullptr, err) && err.find("already") != std::string::npos, "Bind refuses a second binding");
+    }
 
     static std::vector<std::string> warned;
     relay::SetWarnSink([](std::string_view m) { warned.emplace_back(m); });
@@ -512,6 +587,29 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     if (!dbp) return;
     const ps::Database& db = *dbp;
 
+    {
+        /// @note A debugger scores any row against what a search saw: ScoreRow agrees with TopCandidates and Search.
+        ps::Matcher      m;
+        ps::MatchRequest in;
+        for (ps::TrajectorySample& v : in.samples) v = { normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng), normal(rng) };
+        in.desiredX  = 200.0f;
+        in.haveQuery = true;
+        const ps::MatchStep first = m.Update(db, in, 1.0f / 60.0f);
+        Check(first.searched && first.query.currentClip == -1 && first.query.samples[3].x == in.samples[3].x, "a search hands back the question it asked");
+        const std::vector<ps::Candidate> top = ps::TopCandidates(db, first.query, 1);
+        Check(!top.empty() && top[0].row == first.result.bestRow, "the top candidate is the search's best");
+        const ps::Candidate scored = ps::ScoreRow(db, first.query, first.result.bestRow);
+        Check(std::fabs(scored.total - first.result.best) < 1.0e-4f && scored.groupCost == top[0].groupCost, "ScoreRow scores it as they do");
+        double t = 0;
+        ps::MatchStep s;
+        do s = m.Update(db, in, 1.0f / 60.0f), t += 1.0 / 60.0;
+        while (!s.searched && t < 1.0);
+        Check(s.searched && s.result.playingRow >= 0, "a later search has a playing row");
+        if (s.result.playingRow >= 0)
+            Check(std::fabs(ps::ScoreRow(db, s.query, s.result.playingRow).total - s.result.playing) < 1.0e-4f,
+                  "the playing row scores with its continuing bias, as the search's playing cost");
+    }
+
     const ps::DatabaseSpec described = ps::SpecOf(*unit.selector);
     Check(described.children.size() == db.clips.size() && described.databases.size() == db.databases.size(), "a spec states the selector's rows");
     ps::DatabaseSpec moved = described;
@@ -645,6 +743,81 @@ void MatcherChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
 }
 
 /// @brief A clip through the same text-to-cached-clip path the plugin measures with.
+/// @brief The desired facing (State::desiredYaw): set by the stick or the strafe target, held, turned to standing.
+void DesiredFacingChecks() {
+    const ps::Profile& profile = ps::kPlayer;
+    ps::Caps           caps;
+    caps.forward         = 300.0f;
+    constexpr float dt   = 1.0f / 60.0f;
+    constexpr float kHalf = 1.5707963f, kPi = 3.14159265f;
+    const auto step = [&](ps::State& s, const ps::Input& in, int frames) {
+        for (int i = 0; i < frames; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, dt);
+    };
+    const auto off = [](float a, float b) { return std::fabs(ps::WrapPi(a - b)); };
+
+    {
+        ps::State s;
+        Check(std::isnan(s.desiredYaw), "a new state has no desired facing");
+        ps::Input flick;
+        flick.haveStick = flick.turnInPlace = true;
+        flick.stickX = 1.0f, flick.stickY = 0.0f;   // 90 degrees right
+        step(s, flick, 6);
+        Check(off(s.desiredYaw, kHalf) < 1.0e-5f && s.yaw < kHalf * 0.5f, "a 0.1 s flick sets the desired facing, the body barely turned");
+        float before = s.yaw, fastest = 0.0f;
+        for (int i = 0; i < 120; ++i) {
+            ps::Step(s, ps::Input{}, caps, profile, 0.0f, 0.0f, dt);
+            fastest = (std::max)(fastest, std::fabs(s.yaw - before) / dt);
+            before  = s.yaw;
+        }
+        Check(off(s.yaw, kHalf) < 0.02f, "released, the body turns all the way to it");
+        Check(fastest <= profile.turnInPlaceRate + 1.0e-3f, "no faster than the turn-in-place cap");
+        step(s, ps::Input{}, 600);
+        Check(off(s.yaw, kHalf) < 0.02f && off(s.desiredYaw, kHalf) < 1.0e-5f, "and holds it: standing, it never decays");
+        Check(std::hypot(s.vx, s.vy) < 1.0e-3f, "never moving");
+    }
+    {
+        ps::State s;
+        s.vy = 300.0f;
+        ps::Input north;
+        north.gait = ps::Gait::Run, north.haveStick = true, north.stickY = 1.0f;
+        step(s, north, 30);
+        ps::State stop = s;
+        step(stop, ps::Input{}, 180);
+        Check(std::hypot(stop.vx, stop.vy) < 1.0f && off(stop.yaw, 0.0f) < 0.02f, "an ordinary stop faces the way it ran");
+
+        ps::Input south = north;
+        south.stickY    = -1.0f;
+        step(s, south, 2);
+        Check(off(s.desiredYaw, kPi) < 1.0e-5f, "a flick back sets the desired facing behind");
+        Check(off(s.yaw, 0.0f) < 0.05f, "while moving, the facing follows the velocity, not the desired facing");
+        step(s, ps::Input{}, 180);
+        Check(std::hypot(s.vx, s.vy) < 1.0f && off(s.yaw, kPi) < 0.02f, "released, it stops, then turns in place to face it");
+    }
+    {
+        ps::State s;
+        s.desiredYaw = 0.0f;
+        ps::Input aim;
+        aim.mode = ps::Mode::Strafe, aim.haveTarget = true, aim.targetX = 1000.0f;   // east
+        aim.haveStick = true, aim.stickY = 1.0f, aim.turnInPlace = true;            // a light stick north
+        step(s, aim, 60);
+        Check(off(s.desiredYaw, kHalf) < 1.0e-5f && off(s.yaw, kHalf) < 0.02f, "strafing, the target sets it ahead of the stick");
+        step(s, ps::Input{}, 120);
+        Check(off(s.yaw, kHalf) < 0.02f, "ending the aim standing keeps the aim's facing");
+    }
+    {
+        ps::Profile none = profile;
+        none.desiredFacing = false;
+        ps::State s;
+        ps::Input flick;
+        flick.haveStick = flick.turnInPlace = true;
+        flick.stickX = 1.0f, flick.stickY = 0.0f;
+        for (int i = 0; i < 6; ++i) ps::Step(s, flick, caps, none, 0.0f, 0.0f, dt);
+        const float turned = s.yaw;
+        for (int i = 0; i < 120; ++i) ps::Step(s, ps::Input{}, caps, none, 0.0f, 0.0f, dt);
+        Check(std::isnan(s.desiredYaw) && turned > 0.0f && s.yaw < kHalf * 0.5f, "a profile without one turns only while the stick is held");
+    }
+}
+
 void ChooserInputChecks() {
     const ps::Profile& profile = ps::kPlayer;
     ps::Caps           caps;
@@ -658,7 +831,7 @@ void ChooserInputChecks() {
         const float yaw = stickDegrees * 3.14159265f / 180.0f;
         in.stickX = std::sin(yaw), in.stickY = std::cos(yaw);
         ps::ChooserInputs io = ps::InitialChooserInputs();
-        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, yaw, pivots, io);
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, pivots, io);
         return io;
     };
     const ps::ChooserInputs cruising = inputs(300.0f, 0.0f, true);
@@ -678,7 +851,7 @@ void ChooserInputChecks() {
         in.turnInPlace = true;
         in.stickX = 1.0f, in.stickY = 0.0f;   // 90 degrees right
         ps::ChooserInputs io = ps::InitialChooserInputs();
-        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, 1.5707963f, false, io);
+        ps::MovementInputs(s, in, caps, profile, 0.0f, 0.0f, false, io);
         Check(io[ps::kMovementState] == 0, "a light stick is not moving");
         for (int i = 0; i < 15; ++i) ps::Step(s, in, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
         Check(std::hypot(s.vx, s.vy) < 1.0e-3f, "it never gains a velocity");
@@ -696,7 +869,7 @@ void ChooserInputChecks() {
     ps::ChooserInputs     spinning = ps::InitialChooserInputs();
     ps::State             backward;
     backward.vy = -200.0f;
-    ps::MovementInputs(backward, ps::Input{}, caps, profile, 0.0f, 0.0f, 0.0f, false, spinning);
+    ps::MovementInputs(backward, ps::Input{}, caps, profile, 0.0f, 0.0f, false, spinning);
     Check(spinning[ps::kShouldSpinTransition] == 1, "moving against the facing spins");
     Check(spinning[ps::kGait] == 1, "an input naming no gait keeps the last");
 
@@ -734,6 +907,67 @@ void SpeedProfileChecks() {
     Check(loco::SpeedSection("NPCDefault") == "Speed.NPCDefault", "the section is Speed.<MNAM>, byte-exact");
     Check(loco::SpeedFactor(148.0f, 80.0f) == 1.85f && loco::SpeedFactor(0.0f, 80.0f) == 1.0f && loco::SpeedFactor(148.0f, 0.0f) == 1.0f,
           "the factor is wanted over record, 1 when either is unset");
+}
+
+/// @brief Distance matching: curves by path from a marker, the lookup, advancing by distance, and the model's predictions.
+void DistanceMatchChecks() {
+    std::vector<float> stop;
+    float              y = 0.0f;
+    for (int f = 0; f < 40; ++f) {
+        const float step = f < 20 ? 10.0f : f < 30 ? 10.0f * (30 - f) / 10.0f : 0.0f;
+        y += f == 0 ? 0.0f : step;
+        stop.insert(stop.end(), { 0.0f, y, 0.0f });
+    }
+    const ps::DistanceCurve sc = ps::BuildDistanceCurve(stop, 40, 1.0 / 30.0, ps::DistanceMarker::Stop);
+    Check(sc.Valid() && std::fabs(sc.markerTime - 30.0 / 30.0) < 1.0e-9, "a stop's marker is the frame it comes to rest");
+    Check(sc.value.back() == 0.0f && sc.value.front() < -200.0f, "its curve is the distance left, negative before the stop");
+    const auto atZero = ps::TimeAtDistance(sc, 0.0f);
+    Check(atZero && sc.At(*atZero) == 0.0f && *atZero <= sc.markerTime, "0 left is where the root reaches its stop (at or before it rests)");
+    const auto at50 = ps::TimeAtDistance(sc, -50.0f);
+    Check(at50 && std::fabs(sc.At(*at50) + 50.0f) < 1.0e-3f, "a distance left finds the frame that has it left");
+    Check(!ps::TimeAtDistance(sc, -10000.0f), "a prediction beyond the curve finds nothing: the clip plays on by the clock");
+
+    std::vector<float> line;
+    for (int f = 0; f < 30; ++f) line.insert(line.end(), { 0.0f, f * 6.0f, 0.0f });
+    const ps::DistanceCurve lc = ps::BuildDistanceCurve(line, 30, 1.0 / 30.0, ps::DistanceMarker::Start);
+    const double            t1 = ps::AdvanceByDistance(lc, 0.2, 6.0f, 1.0 / 60.0, 0.6, 5.0);
+    Check(std::fabs(t1 - (0.2 + 1.0 / 30.0)) < 1.0e-6, "advancing by a frame's distance moves a frame of clip time");
+    Check(std::fabs(ps::AdvanceByDistance(lc, 0.2, 0.0f, 1.0 / 60.0, 0.6, 5.0) - (0.2 + 0.6 / 60.0)) < 1.0e-9, "standing still advances at the floor");
+    Check(std::fabs(ps::AdvanceByDistance(lc, 0.2, 1000.0f, 1.0 / 60.0, 0.6, 5.0) - (0.2 + 5.0 / 60.0)) < 1.0e-9, "a huge move is held to the ceiling");
+    Check(ps::RateForSpeed(180.0f, 90.0f, 0.8f, 1.2f) == 0.8f && ps::RateForSpeed(0.0f, 90.0f, 0.8f, 1.2f) == 1.0f, "loop rate: clamped, 1 for a still clip");
+
+    const ps::Profile& profile = ps::kPlayer;
+    ps::Caps           caps;
+    caps.forward = 300.0f;
+    ps::State run;
+    run.vy = 300.0f;
+    ps::Input in;
+    in.gait      = ps::Gait::Run;
+    in.haveStick = true;
+    in.stickY    = 1.0f;
+    const float stopDist = ps::PredictStopDistance(run, in, caps, profile, 0.0f, 0.0f, run.vx, run.vy);
+    Check(stopDist > 10.0f && stopDist < 300.0f, "a run predicts a short slide to rest: " + std::to_string(stopDist));
+    Check(ps::PredictStopDistance(ps::State{}, in, caps, profile, 0.0f, 0.0f, 0.0f, 0.0f) < 0.0f, "standing predicts no stop");
+    {
+        /// @note The body slides on after the model has stopped: the distance is the body's, as the character moves at it.
+        ps::State   body = run;
+        ps::Input   none;
+        float       bx = run.vx, by = run.vy, ax = 0.0f, ay = 0.0f, travelled = 0.0f;
+        for (int i = 0; i < 180; ++i) {
+            ps::Step(body, none, caps, profile, 0.0f, 0.0f, 1.0f / 60.0f);
+            const float oy = by;
+            ps::GroundVelocityStep(bx, by, ax, ay, body.vx, body.vy, 1.0f / 60.0f);
+            travelled += (oy + by) * 0.5f / 60.0f;
+        }
+        Check(std::fabs(stopDist - travelled) < 1.0f, "the slide is the body's, " + std::to_string(travelled) + ": " + std::to_string(stopDist));
+        ps::State stopped;
+        Check(ps::PredictStopDistance(stopped, none, caps, profile, 0.0f, 0.0f, 0.0f, 120.0f) > 5.0f, "a model already at rest still has the body's slide left");
+    }
+    ps::Input back = in;
+    back.stickY    = -1.0f;
+    const float pivotDist = ps::PredictPivotDistance(run, back, caps, profile, 0.0f, 0.0f, run.vx, run.vy);
+    Check(pivotDist > 0.0f && pivotDist < 150.0f, "a stick turned back predicts a short way to the turn: " + std::to_string(pivotDist));
+    Check(ps::PredictPivotDistance(run, in, caps, profile, 0.0f, 0.0f, run.vx, run.vy) < 0.0f, "running with the stick is no pivot");
 }
 
 /// @brief A clip's takeoff: the first frame its root rises past kTakeoffRise, -1 when it stays on the ground.
@@ -874,6 +1108,15 @@ void SchemaMeasureChecks() {
     const float* last = rows->data() + 30 * 23;
     Check(std::fabs(last[1]) < 0.01f, "the last frame's future holds at the clip's end");
 
+    anim::SchemaSpec between;
+    anim::FeatureSpec off;
+    off.kind    = anim::FeatureKind::Trajectory;
+    off.samples = { { 0.35f, 1, 0, 0, 0 }, { -0.05f, 1, 0, 0, 0 } };
+    between.features = { off };
+    const auto fractional = anim::MeasureSchema(def, rig, between, 0, err);
+    Check(fractional && std::fabs((*fractional)[10 * 14 + 1] - 35.0f) < 0.01f && std::fabs((*fractional)[10 * 14 + 7 + 1] + 5.0f) < 0.01f,
+          "a sample between frames reads the path at its own time (0.35 s: 35 ahead, -0.05 s: 5 back), not the nearest frame's");
+
     const auto looped = anim::MeasureSchema(def, rig, schema, 30, err);
     Check(looped && std::fabs((*looped)[30 * 23 + 1] - 50.0f) < 0.01f, "a loop's last frame sees its next cycle ahead");
 
@@ -947,6 +1190,53 @@ void TypedSpaceChecks() {
     Check(missing && missing->clips[0].frames == 0, "a clip without the schema's rows is never chosen");
     Check(std::any_of(warned.begin(), warned.end(), [](const std::string& m) { return m.find("Curve only") != std::string::npos; }),
           "and is warned of by the schema's name");
+
+    // A schema sampling between the query's times reads the query there: a clip moving as the character does costs nothing.
+    const ps::QuerySampleAt zero = ps::QuerySampleOf(0.0);
+    Check(zero.lo == static_cast<int>(F::kAhead.size()) && zero.hi == 0 && std::fabs(zero.blend - 0.2f) < 1.0e-5f, "0 s lies a fifth of the way from -0.05 to 0.2");
+    const ps::QuerySampleAt late = ps::QuerySampleOf(0.7);
+    Check(late.lo == 3 && late.hi == 4 && std::fabs(late.blend - 0.1f) < 1.0e-4f, "0.7 s a tenth of the way from 2/3 to 1");
+    Check(ps::QuerySampleOf(0.5).hi == -1 && ps::QuerySampleOf(0.5).lo == 2, "a query time is read as is");
+    Check(ps::QuerySampleOf(3.0).lo == 4 && ps::QuerySampleOf(-3.0).lo == F::kSamples - 1, "past either end, the end");
+
+    anim::SchemaSpec path;
+    path.name = "Path";
+    anim::FeatureSpec trajectory;
+    trajectory.kind = anim::FeatureKind::Trajectory;
+    for (const float t : { -0.05f, 0.0f, 0.35f, 0.7f }) trajectory.samples.push_back({ t, 1.0f, 1.0f, 1.0f, 0.0f });
+    path.features.push_back(trajectory);
+    const std::uint64_t pathKey = anim::SchemaKey(path, rig);
+    ps::DatabaseSpec    lines;
+    lines.schemas.push_back(path);
+    ps::SpecDatabase walk;
+    walk.name   = "Lines";
+    walk.schema = 0;
+    lines.databases.push_back(walk);
+    std::map<std::string, anim::MmCachedClip> moving;
+    for (const float speed : { 300.0f, 500.0f }) {
+        const std::string name = "line" + std::to_string(static_cast<int>(speed));
+        anim::MmCachedClip c = LineClip(name, 30, speed, 0.0f);
+        anim::MmCachedClip::SchemaRows block;
+        block.key = pathKey;
+        for (int f = 0; f < 30; ++f)
+            for (const auto& smp : trajectory.samples) block.rows.insert(block.rows.end(), { 0.0f, speed * smp.time, 0.0f, 1.0f, 0.0f, speed, 0.0f });
+        c.schemaRows.push_back(block);
+        moving[name] = c;
+        ps::SpecChild child;
+        child.clip     = name;
+        child.database = "Lines";
+        lines.children.push_back(child);
+    }
+    const auto lineSource = [&](const std::string& name, const ps::ClipNeeds&) -> const anim::MmCachedClip& { return moving.at(name); };
+    const auto lineDb     = ps::BuildDatabase(lines, &rig, lineSource, [](const std::string&) {});
+    Check(lineDb != nullptr, "a trajectory schema's database builds");
+    if (!lineDb) return;
+    ps::Query q;
+    for (int s = 0; s < F::kSamples; ++s) q.samples[s] = { 0.0f, static_cast<float>(300.0 * F::SampleTime(s)), 0.0f, 1.0f, 0.0f, 300.0f, 0.0f };
+    q.desiredY = 300.0f;
+    const ps::Candidate same = ps::ScoreRow(*lineDb, q, lineDb->clips[0].first + 10);
+    Check(same.total < 1.0e-4f, "a clip moving at the character's speed costs nothing: " + std::to_string(same.total));
+    Check(ps::Search(*lineDb, q).bestRow < lineDb->clips[0].first + lineDb->clips[0].frames, "and is the best");
 }
 
 /// @brief The bundle generator writes a database's schema with its features, and binds the selector's speed: parsed back,
@@ -1391,13 +1681,80 @@ void MeasureChecks() {
 
 }  // namespace
 
+/// @brief The node's game-free side: the interrupt, the turn in place and its hold, the stick, the rate and distance matching.
+void MatchNodeChecks() {
+    ps::ChooserInputs a = ps::InitialChooserInputs(), b = a;
+    Check(!ps::InputsInterrupt(a, b), "the same inputs do not interrupt");
+    b[ps::kGait] = 2;
+    Check(!ps::InputsInterrupt(a, b), "a gait change while idle does not interrupt");
+    a[ps::kMovementState] = b[ps::kMovementState] = 1;
+    Check(ps::InputsInterrupt(a, b), "a gait change while moving does");
+    b = a, b[ps::kStance] = 1;
+    Check(ps::InputsInterrupt(a, b), "a stance change does");
+    b = a, b[ps::kMovementMode] = 1;
+    Check(ps::InputsInterrupt(a, b), "leaving the ground does");
+
+    float hold = 0.0f;
+    Check(ps::ShouldTurnInPlace(hold, false, 1.0f, 0.0f, 0.1f, 1.0f / 60.0f) && hold == 0.1f, "standing 57 degrees off the intent turns");
+    Check(ps::ShouldTurnInPlace(hold, false, 0.0f, 0.0f, 0.1f, 0.05f), "and is held");
+    Check(!ps::ShouldTurnInPlace(hold, false, 0.0f, 0.0f, 0.1f, 0.06f), "until the hold runs out");
+    Check(!ps::ShouldTurnInPlace(hold, true, 3.0f, 0.0f, 0.1f, 1.0f / 60.0f), "moving never turns in place");
+    Check(!ps::ShouldTurnInPlace(hold = 0.0f, false, 0.5f, 0.0f, 0.1f, 1.0f / 60.0f), "not under 50 degrees");
+    ps::State s;
+    Check(ps::TurnIntent(s) == 0.0f, "without a desired facing, the intent is the facing");
+    s.desiredYaw = 2.0f;
+    Check(ps::TurnIntent(s) == 2.0f, "else the desired facing");
+
+    const ps::StickThresholds t;
+    Check(ps::StickGait(ps::Gait::Run, true, 0.5f, t) == ps::Gait::Walk && ps::StickGait(ps::Gait::Run, true, 0.9f, t) == ps::Gait::Run,
+          "a running player's stick under the run threshold walks");
+    Check(ps::StickGait(ps::Gait::Sprint, true, 0.5f, t) == ps::Gait::Sprint && ps::StickGait(ps::Gait::Run, false, 0.0f, t) == ps::Gait::Run,
+          "a sprint, or no stick, keeps the gait");
+    ps::Input stick;
+    ps::ApplyStick(stick, true, 1.5707963f, 0.2f, t);
+    Check(stick.haveStick && stick.turnInPlace && std::fabs(stick.stickX - 1.0f) < 1.0e-6f, "a light stick asks for a facing only");
+    ps::ApplyStick(stick, true, 0.0f, 0.5f, t);
+    Check(!stick.turnInPlace && std::fabs(stick.stickY - 1.0f) < 1.0e-6f, "past the move threshold it moves");
+
+    ps::Database db;
+    ps::Clip     clip;
+    clip.first = 0, clip.frames = 40, clip.dt = 1.0 / 30.0, clip.duration = 39.0 / 30.0, clip.database = 0;
+    db.clips.push_back(clip);
+    db.rowSpeed.assign(40, 200.0f);
+    float rate = 1.0f, rateVelocity = 0.0f;
+    for (int i = 0; i < 300; ++i) ps::NodeRate(db, 0, 0.5, 220.0f, rate, rateVelocity, 1.0f / 60.0f);
+    Check(std::fabs(rate - 1.1f) < 1.0e-3f, "the rate eases to the speed over the clip's: " + std::to_string(rate));
+    for (int i = 0; i < 300; ++i) ps::NodeRate(db, 0, 0.5, 1000.0f, rate, rateVelocity, 1.0f / 60.0f);
+    Check(std::fabs(rate - ps::kMaxRate) < 1.0e-3f, "held to the most");
+    for (int i = 0; i < 300; ++i) ps::NodeRate(db, 0, 0.5, 0.0f, rate, rateVelocity, 1.0f / 60.0f);
+    Check(std::fabs(rate - 1.0f) < 1.0e-3f, "standing goes back to 1");
+
+    ps::PoseDatabase stops;
+    stops.stops = true;
+    db.databases.push_back(stops);
+    std::vector<float> path;
+    for (int f = 0; f < 40; ++f) path.insert(path.end(), { 0.0f, (std::min)(f, 30) * 6.0f, 0.0f });
+    db.clips[0].distance = ps::BuildDistanceCurve(path, 40, 1.0 / 30.0, ps::DistanceMarker::Stop);
+    ps::Distances d;
+    d.toStop = 60.0f;
+    const auto at = ps::DistanceMatchedTime(db, 0, 0.0, d, 1.0f / 60.0f);
+    Check(at && std::fabs(*at - 20.0 / 30.0) < 1.0e-3, "a stop plays the frame with as far left to go as the model predicts");
+    Check(!ps::DistanceMatchedTime(db, 0, 0.9, d, 1.0f / 60.0f), "never backwards");
+    d.toStop = 10000.0f;
+    Check(!ps::DistanceMatchedTime(db, 0, 0.0, d, 1.0f / 60.0f), "a prediction past the curve plays by the clock");
+    db.databases[0].stops = false;
+    Check(!ps::DistanceMatchedTime(db, 0, 0.0, ps::Distances{}, 1.0f / 60.0f), "a pivot without a turn ahead before its marker plays by the clock");
+}
+
 void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     const fs::path tmp = fs::temp_directory_path() / ("cb-pose-search-" + std::to_string(_getpid()));
     RelayChecks();
     DatabaseChecks(reg, tmp);
     AgreementChecks(reg, tmp);
     MatcherChecks(reg, tmp);
+    DesiredFacingChecks();
     ChooserInputChecks();
+    MatchNodeChecks();
     WeightChecks();
     DeadBlendChecks();
     DeadBlendSideChecks();
@@ -1405,6 +1762,7 @@ void RunPoseSearchTests(const schema::SchemaRegistry& reg) {
     SpeedProfileChecks();
     ClipSpeedChecks();
     TakeoffChecks();
+    DistanceMatchChecks();
     LoopFitChecks();
     LoopFitReport();
     SchemaMeasureChecks();

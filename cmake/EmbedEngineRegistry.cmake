@@ -30,13 +30,20 @@ string(ASCII 5 _sdkMark)
 # skipped, and an SDK row whose name engine.yaml already has yields to it. Their `header` paths are matched to the
 # SDK tree by file name (the converted rows keep the old havok/ paths).
 set(_shipped "")
+set(_shippedTier "")
 if(DEFINED SDK_ROOT)
     # The bodies the SDK ships, the only functions the takeover jumps: the plugin also holds inline copies of other
-    # functions, built by another compiler and never compared with the exe.
+    # functions, built by another compiler and never compared with the exe. Each carries its match tier (exact,
+    # structural, parked); a row without one predates tiers, when only exact bodies shipped.
     file(STRINGS "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" _definedRows REGEX "mangled:")
     foreach(_row IN LISTS _definedRows)
         if(_row MATCHES "mangled: \"([^\"]*)\"")
             string(APPEND _shipped "    \"${CMAKE_MATCH_1}\",\n")
+            set(_tier "exact")
+            if(_row MATCHES "tier:[ ]*\"([a-z]+)\"")
+                set(_tier "${CMAKE_MATCH_1}")
+            endif()
+            string(APPEND _shippedTier "    \"${_tier}\",\n")
         endif()
     endforeach()
     foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Referenced.yaml")
@@ -66,7 +73,7 @@ string(REGEX MATCHALL "(^|\n)${_sdkMark}?[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|code|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|code|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig|tier):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
@@ -157,11 +164,19 @@ foreach(_l IN LISTS _lines)
             continue()
         endif()
     endif()
+    set(_rowMangled "")
     if(_l MATCHES "mangled:[ ]*\"([^\"]*)\"")
+        set(_rowMangled "${CMAKE_MATCH_1}")
         list(APPEND _seenMangled "${CMAKE_MATCH_1}")
     endif()
     if(_name IN_LIST _names)
         if(_fromSdk)
+            # Two SDK rows naming one exe function (R_<va>) under different decorations: an inherited virtual and its
+            # base's, or an identical-code fold (bhkConstraint::GetCinfoSize and bhkSerializable::GetCinfoSize). The
+            # second decoration binds to the first row's stub; skipping it left that decoration unresolved.
+            if(_kind STREQUAL "func" AND _rowMangled AND NOT _rowMangled MATCHES "^\\?__" AND DEFINED _slot_${_name})
+                string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_rowMangled}=cb_shim_${_slot_${_name}}\")\n")
+            endif()
             math(EXPR _skipped "${_skipped}+1")
             continue()
         endif()
@@ -228,6 +243,7 @@ foreach(_l IN LISTS _lines)
         list(JOIN _header "|" _header)
     endif()
     if(_kind STREQUAL "func")
+        set(_slot_${_name} ${_nf})
         math(EXPR _off "${_nf}*8")
         string(APPEND _shimStubs "cb_shim_${_nf} PROC PUBLIC\n    jmp QWORD PTR [cb_shim_slots + ${_off}]\ncb_shim_${_nf} ENDP\n")
         string(APPEND _shimMiss "cb_shim_miss_${_nf} PROC\n    mov eax, ${_nf}\n    jmp cb_shim_miss_common\ncb_shim_miss_${_nf} ENDP\n")
@@ -553,6 +569,10 @@ const char* const kShipped[] = {
 ${_shipped}    nullptr,
 };
 const char* const*           ShimShipped() { return kShipped; }
+const char* const kShippedTier[] = {
+${_shippedTier}    nullptr,
+};
+const char* const*           ShimShippedTier() { return kShippedTier; }
 std::size_t                 ShimFunctionCount() { return kFuncCount; }
 
 } // namespace CB::platform::hooks::detail

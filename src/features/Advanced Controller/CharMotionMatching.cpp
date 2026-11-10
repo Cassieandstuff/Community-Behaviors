@@ -18,6 +18,7 @@
 #include <core/discover/ServeKey.h>
 #include <core/resolve/CacheKey.h>
 #include <disk/Disk.h>
+#include <platform/game/Character.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 #include <platform/profile/Profile.h>
@@ -109,21 +110,11 @@ namespace CB::feature {
             return lod;
         }
 
-        /// @brief The playback rate's range: a clip plays at most this much slower or faster than authored; past it the
-        ///        feet slide rather than the animation visibly slowing or fast-forwarding.
-        /// @note Narrow (FluidMotion's 0.85-1.2): the search picks the clip whose speed fits, the rate only trims what is left;
-        ///       a wide range let a wrong clip play on at a skating rate.
-        constexpr float kMinRate = 0.85f, kMaxRate = 1.2f;
-        /// @brief Game units/s: a playing frame slower than this (standing, turning in place) plays at rate 1.
-        constexpr float kRateClipStill = 25.0f;
         /// @brief Seconds airborne before the chooser's movement mode says air: the controller drops into InAir for a frame
         ///        or two on downslopes and steps, which interrupted the search into a jump. A jump, or a real fall, says air at once.
         constexpr float kAirDebounce  = 0.15f;
         constexpr float kFallingSpeed = 250.0f;   ///< game units/s downward: falling, whatever the time
-        /// @brief Seconds for the rate to close half its gap to the target.
-        constexpr float kRateHalflife = 0.15f;
-        /// @brief Below this asked-for speed (game units/s) the gait's rate stays as it was: standing has no speed to match.
-        constexpr float kRateStill = 10.0f;
+        constexpr float kGameUnitsPerHavok = 69.991251f;
 
         /// @brief The chooser's inputs, as the MotionMatching graph declares them.
         using Inputs         = ps::ChooserInputs;
@@ -137,7 +128,6 @@ namespace CB::feature {
         constexpr Inputs InitialInputs() { return ps::InitialChooserInputs(); }
 
         /// @brief GASP's thresholds (its AnimBP's), centimetres at 0.7 game units each.
-        constexpr float kTurnInPlace     = 0.87266463f;   ///< ShouldTurnInPlace: 50 deg
         constexpr float kLandHold        = 0.2f;          ///< seconds JustLanded* stays true after touching down
         /// @brief JustLandedHeavy's vertical speed (700 cm/s). @warning Assumed: GASP's HeavyLandSpeedThreshold was not
         ///        exported with the sample's assets.
@@ -461,15 +451,7 @@ namespace CB::feature {
             return out;
         }
 
-        /// @return the actor whose graph holds `character`, null when it is not an actor's
-        /// @note   context.m_character is the graph's own characterInstance (CharSkeletonWatch compares them).
-        RE::Actor* ActorOf(const ::hkbCharacter* character)
-        {
-            const auto* graph = reinterpret_cast<const RE::BShkbAnimationGraph*>(reinterpret_cast<const char*>(character) -
-                                                                                 offsetof(RE::BShkbAnimationGraph, characterInstance));
-            RE::Actor*  actor = graph->holder;
-            return actor && actor->Is(RE::FormType::ActorCharacter) ? actor : nullptr;
-        }
+        using platform::game::ActorOf;
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
@@ -488,8 +470,6 @@ namespace CB::feature {
             float airFor = 0;         ///< seconds the controller has been airborne without a break
             float landedFor = -1;     ///< seconds since touching down, -1 = not landed since the last air time
             bool  heavy = false;
-            bool  haveStickYaw = false;
-            float stickYaw = 0;       ///< the stick's latest heading (held after its release)
             float turnHold = 0;       ///< seconds ShouldTurnInPlace stays raised
         };
 
@@ -508,6 +488,10 @@ namespace CB::feature {
             Clock::time_point queryAt{};
             /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
             std::atomic<float> timeToLand{ controller::motion::kNoLanding };
+            /// @brief The movement model's distances for distance matching (DistancesOf).
+            std::mutex        distancesLock;
+            ch::motion::Distances distances;
+            bool              haveDistances = false;
             /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
             Inputs            inputs = InitialInputs();
             InputMemory       memory;
@@ -542,15 +526,27 @@ namespace CB::feature {
             if (!mv::Current(player->GetFormID(), snap)) return false;
             const mv::State& s      = snap.state;
             const mv::Input& in     = snap.input;
-            const bool       strafe = in.mode == mv::Mode::Strafe;
-            const bool       wasMoving = io[kMovementState] == 1;
-            if (in.haveStick) m.stickYaw = std::atan2(in.stickX, in.stickY), m.haveStickYaw = true;
-
-            ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, m.stickYaw, playingPivots, io);
+            ps::MovementInputs(s, in, snap.caps, snap.profile, snap.px, snap.py, playingPivots, io);
+            const auto* cc = player->GetCharController();
+            {
+                /// @note The body's velocity (the controller's), which follows the model through the ground velocity spring:
+                ///       what the character actually slides at, so what a stop or pivot clip is played by.
+                float bodyVx = s.vx, bodyVy = s.vy;
+                if (cc) {
+                    ::hkVector4 v;
+                    const_cast<::bhkCharacterController*>(reinterpret_cast<const ::bhkCharacterController*>(cc))->GetLinearVelocityImpl(v);
+                    bodyVx = v(0) * kGameUnitsPerHavok, bodyVy = v(1) * kGameUnitsPerHavok;
+                }
+                const ch::motion::Distances d{ ps::PredictStopDistance(s, in, snap.caps, snap.profile, snap.px, snap.py, bodyVx, bodyVy),
+                                               ps::PredictPivotDistance(s, in, snap.caps, snap.profile, snap.px, snap.py, bodyVx, bodyVy),
+                                               std::hypot(bodyVx, bodyVy) };
+                std::scoped_lock lock(match.distancesLock);
+                match.distances     = d;
+                match.haveDistances = true;
+            }
             const bool moving = io[kMovementState] == 1;
             io[kStance]       = player->IsSneaking() ? 1 : 0;
 
-            const auto* cc      = player->GetCharController();
             /// @note CB's own launch (CharStateWrapper) commits InAir, never Jumping, and marks the controller kJumping until
             ///       it lands: without that bit the jump waited out kAirDebounce and entered the jump starts past their takeoff.
             const auto* body    = reinterpret_cast<const ::bhkCharacterController*>(cc);
@@ -571,23 +567,7 @@ namespace CB::feature {
             io[kJustLandedLight] = landed && !m.heavy;
             io[kJustLandedHeavy] = landed && m.heavy;
 
-            /// @note The orientation intent: strafing, toward the lock target; orienting, the stick's latest heading,
-            ///       since the stop that raises it releases the stick (GASP's capsule likewise keeps the last input's
-            ///       rotation while its visual root lags behind).
-            /// @note Held ps::kSearchInterval: GASP searches every tick, CB's search runs at most that often, and a one-frame
-            ///       input would mostly miss it.
-            float intent = s.yaw;
-            if (strafe) {
-                const float dx = in.targetX - snap.px, dy = in.targetY - snap.py;
-                if (in.haveTarget && dx * dx + dy * dy > 1.0f) intent = std::atan2(dx, dy);
-            } else if (m.haveStickYaw) {
-                intent = m.stickYaw;
-            }
-            /// @note A light stick (mv::Input::turnInPlace) raises it too while standing: the body turns toward the stick.
-            const bool askedTurn = !moving && (wasMoving || in.turnInPlace);
-            if (askedTurn && std::fabs(ch::WrapPi(intent - s.yaw)) >= kTurnInPlace) m.turnHold = static_cast<float>(ps::kSearchInterval);
-            else m.turnHold = (std::max)(0.0f, m.turnHold - dt);
-            io[kShouldTurnInPlace] = m.turnHold > 0.0f;
+            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), s.yaw, static_cast<float>(ps::kSearchInterval), dt);
 
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
@@ -714,16 +694,6 @@ namespace CB::feature {
             out.haveQuery = true;
         }
 
-        /// @brief GASP's Get_MMInterruptMode: the movement mode changed, or on the ground the movement state, the gait
-        ///        while moving, or the stance did.
-        bool InputsInterrupt(const Inputs& before, const Inputs& now)
-        {
-            if (before[kMovementMode] != now[kMovementMode]) return true;
-            if (now[kMovementMode] != 0) return false;
-            return before[kMovementState] != now[kMovementState] || (now[kMovementState] == 1 && before[kGait] != now[kGait]) ||
-                   before[kStance] != now[kStance];
-        }
-
         std::string ActiveNames(const Database& db, const std::vector<char>& active)
         {
             std::string out;
@@ -792,6 +762,14 @@ namespace CB::feature {
             /// @note The node masks what a Pivots database's playing frame rules out (NodeInputs): the controller never reads it.
             ComputeInputs(actor, match, deltaTime, false, match.inputs);
             WriteInputs(actor, match.inputs);
+            {
+                static const RE::BSFixedString toStop("MM_DistanceToStop"), toPivot("MM_DistanceToPivot");
+                ch::motion::Distances d;
+                if (ch::motion::DistancesOf(actor->GetFormID(), d)) {
+                    actor->SetGraphVariableFloat(toStop, d.toStop);
+                    actor->SetGraphVariableFloat(toPivot, d.toPivot);
+                }
+            }
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
             if (!WriteQuery(actor, match)) return;
@@ -948,21 +926,6 @@ namespace CB::feature {
             }
         }
 
-        /// @brief The node's own playback rate: its bound speed over the playing frame's clip speed, eased like Rate.
-        float NodeRate(const Database& db, MatchSlot& s, float speed, float dt)
-        {
-            float target = 1.0f;
-            if (speed >= kRateStill && s.playingClip >= 0 && s.playingClip < static_cast<int>(db.clips.size())) {
-                const Clip& c         = db.clips[s.playingClip];
-                const int   row       = c.first + (c.frames > 0 ? FrameOf(c, s.playingTime) : 0);
-                const float clipSpeed = row >= 0 && row < static_cast<int>(db.rowSpeed.size()) ? db.rowSpeed[row] : 0.0f;
-                if (clipSpeed >= kRateClipStill) target = std::clamp(speed / clipSpeed, kMinRate, kMaxRate);
-            }
-            ch::SpringDamperExact(s.rate, s.rateVelocity, target, kRateHalflife, (std::max)(dt, 0.0f));
-            s.rate = std::clamp(s.rate, kMinRate, kMaxRate);
-            return s.rate;
-        }
-
     }  // namespace
 
     int controller::motion::RunMatcher(const ::hkbContext& context, PoseSearchGenerator& node, float timestep, bool restart)
@@ -1005,12 +968,12 @@ namespace CB::feature {
             const int playing = db.clips[s.playingClip].database;
             if (playing >= 0 && db.databases[playing].pivots) in[kIsStarting] = 0, in[kShouldSpinTransition] = 0;
         }
-        const bool       inputsChanged = InputsInterrupt(s.before, in);
+        const bool       inputsChanged = ps::InputsInterrupt(s.before, in);
         s.before                       = in;
         ps::MatchRequest request;
         ReadQuery(actor, request);
         ReadBound(actor, db, s.bound, request.given);
-        if (s.speedBound) request.rate = NodeRate(db, s, node.m_speed, timestep);
+        if (s.speedBound) request.rate = ps::NodeRate(db, s.playingClip, s.playingTime, node.m_speed, s.rate, s.rateVelocity, timestep);
         request.inputsChanged = inputsChanged;
         request.reselectTime  = ReselectTime();
         const InputVariables vars(in);
@@ -1019,7 +982,20 @@ namespace CB::feature {
         request.active  = ps::Choose(db, s.ctx);
         request.biases  = ps::EvaluateBiases(db, s.ctx);
 
-        const ps::MatchStep step = s.matcher.Update(db, request, timestep);
+        const double  wasTime = s.playingTime;
+        const int     wasClip = s.playingClip;
+        ps::MatchStep step    = s.matcher.Update(db, request, timestep);
+        /// @note Distance matching: a clip of a Stops or Pivots database plays by the movement model's predicted distance
+        ///       to its stop or turn, then (past a pivot's turn) by the distance moved; never backwards, and by the clock
+        ///       whenever the prediction runs out or falls outside the clip's curve.
+        if (step.clip >= 0 && step.clip == wasClip && step.nextClip == step.clip) {
+            ch::motion::Distances d;
+            if (ch::motion::DistancesOf(actor->GetFormID(), d))
+                if (const std::optional<double> t = ps::DistanceMatchedTime(db, step.clip, wasTime, d, timestep)) {
+                    s.matcher.SetTime(*t);
+                    step.time = step.nextTime = *t;
+                }
+        }
         s.playingClip            = step.clip;
         s.playingTime            = step.time;
         /// @note The wind-up launches once the clip switched to for it (a search made with the chooser airborne) reaches
@@ -1123,6 +1099,47 @@ namespace CB::feature {
         actor->SetGraphVariableInt(clipName, step.nextClip);
         actor->SetGraphVariableFloat(timeName, fraction);
         return step.nextClip;
+    }
+
+    std::shared_ptr<const ps::DistanceCurve> controller::motion::DistanceCurveOf(const std::string& name, ps::DistanceMarker marker)
+    {
+        static std::mutex                                                                       lock;
+        static std::map<std::pair<std::string, int>, std::shared_ptr<const ps::DistanceCurve>> curves;
+        const auto key = std::make_pair(name, static_cast<int>(marker));
+        {
+            std::scoped_lock held(lock);
+            if (const auto it = curves.find(key); it != curves.end()) return it->second;
+        }
+        std::optional<core::resolve::LoadOrderReader> reader;
+        {
+            std::scoped_lock held(g_store.lock);
+            reader = g_store.reader;
+        }
+        if (!reader || !reader->nativeAnimation) return nullptr;
+        std::shared_ptr<const ps::DistanceCurve> curve;
+        try {
+            std::string path = std::string(kProjectDir) + name;
+            std::replace(path.begin(), path.end(), '\\', '/');
+            if (const auto text = reader->nativeAnimation(path)) {
+                const ea::MmCachedClip c = ea::MeasureMmClip(name, path, *text, 0, nullptr, {});
+                auto built = std::make_shared<ps::DistanceCurve>(ps::BuildDistanceCurve(c.rootPositions, c.frames, c.frameDuration, marker));
+                if (built->Valid()) curve = std::move(built);
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("distance matching: '{}' could not be measured: {}", name, e.what());
+        }
+        if (!curve) LOG_WARN("distance matching: no distance curve for '{}' (CB ships no animation unit for it)", name);
+        std::scoped_lock held(lock);
+        return curves.emplace(key, curve).first->second;
+    }
+
+    bool controller::motion::DistancesOf(RE::FormID actor, Distances& out)
+    {
+        CharacterMatch&  match = MatchOf(actor);
+        std::scoped_lock lock(match.distancesLock);
+        if (!match.haveDistances) return false;
+        out = match.distances;
+        return true;
     }
 
     const ps::Database* controller::motion::DatabaseFor(const ps::DatabaseSpec& spec, const ea::Rig& rig)
