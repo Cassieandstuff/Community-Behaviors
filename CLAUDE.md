@@ -175,6 +175,11 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - Building needs access to `CB-SDK-Export`; contributors are invited. `CB_SDK_DIR` overrides the SDK location.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
+  The session-grants toggles can give that yes for a whole session:
+
+perm(build, /cmake\s+--build/): You may build without asking only while `build` is granted; configure with `-DBUILDER_DEPLOY=OFF` unless `deploy` is granted too.
+perm(deploy, /BUILDER_DEPLOY=ON/i): You may deploy over the live MO2 mod and tools folder without asking only while `deploy` is granted.
+
 - **Core cap** — `Directory.Build.props` caps the compiler at half the machine's cores (`BUILD_CORES` overrides); don't pass
   `-j`. At run time everything sizes from `exec::MaxWorkers`: half the machine's threads, or settings.ini `[Performance]
   iMaxThreads` in game, or `CB_MAX_THREADS` for the offline tools.
