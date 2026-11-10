@@ -36,6 +36,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 - [CB-18](CB-18-animation64-slot-mismatch.md) — OPEN: Animation 64's 64-bit slot sometimes disagrees with the
   16-bit index with a non-zero value on the SDK build; cause unknown.
 - [CB-19](CB-19-sdk-unmatched-traps.md) — OPEN: six SDK functions have no body or exe binding and trap if called.
+- [CB-20](CB-20-phantom-stale-collision-agent.md) — INVESTIGATING: a character phantom keeps a freed collision agent and
+  the game crashes in `hkpCachingShapePhantom`; four crashes, all on one Whiterun stables horse, cause unknown.
 
 ## Per-bug file template
 
