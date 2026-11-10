@@ -1,0 +1,9 @@
+# CB's own: what CBDistanceMatchModifier plays its clip by.
+kind:  enum
+name:  DistanceSource
+flags: false
+items:
+  - { name: DISTANCE_SOURCE_STOP , value: 0 }       # the character's predicted distance to rest (the clip's stop)
+  - { name: DISTANCE_SOURCE_PIVOT , value: 1 }      # its distance to the turn, then the distance moved
+  - { name: DISTANCE_SOURCE_START , value: 2 }      # the distance moved since the clip began
+  - { name: DISTANCE_SOURCE_DISTANCE , value: 3 }   # the bound `distance`: distance left to the clip's stop

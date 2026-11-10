@@ -88,6 +88,10 @@ namespace CB::engine::locomotion {
         float digInBraking        = 0.0f;   ///< units/s^2 at a 180 deg request
         float digInFacingHalflife = 0.0f;   ///< seconds
         float digInMaxLead        = 0.0f;   ///< radians; 0 = no cap
+
+        /// @brief Whether the character keeps a desired facing (State::desiredYaw). Off for the horse, whose stops and
+        ///        turns on the hocks were tuned without one.
+        bool desiredFacing = true;
     };
     /// @brief The player's profile.
     inline constexpr Profile kPlayer{};
@@ -112,7 +116,7 @@ namespace CB::engine::locomotion {
         bool  haveStick = false;
         float stickX = 0.0f, stickY = 0.0f;   ///< the direction asked for: world, unit length (fixed-speed stick)
         /// @brief The stick asks for a facing only (a light deflection): no velocity, so the body brakes, then turns toward
-        ///        the stick at Profile::turnInPlaceRate once it has stopped.
+        ///        the stick (State::desiredYaw) at Profile::turnInPlaceRate once it has stopped.
         bool  turnInPlace = false;
         bool  haveTarget = false;
         float targetX = 0.0f, targetY = 0.0f;   ///< strafe: the lock target's world position
@@ -122,6 +126,13 @@ namespace CB::engine::locomotion {
         float vx = 0.0f, vy = 0.0f;   ///< velocity, game units/s
         float yaw     = 0.0f;         ///< the facing, a heading kept unwrapped near the actor's
         float yawRate = 0.0f;         ///< radians/s, clockwise positive
+        /// @brief The heading the character wants to face, apart from where it moves (GASP's capsule rotation, the facing
+        ///        being its root): the stick's latest heading, or strafing the target's; NaN while none is set.
+        /// @note  It holds after the stick's release and never decays: standing, the facing turns to it at
+        ///        Profile::turnInPlaceRate, so a flick too short to move still turns the body all the way. Moving, the
+        ///        facing follows the velocity and this only waits for the stop. Clear it (NaN) wherever something else
+        ///        sets the facing, or the body turns back once it stands.
+        float desiredYaw = std::numeric_limits<float>::quiet_NaN();
     };
 
     /// @brief GASP's Curve_StrafeSpeedMap: the angle between velocity and facing (0..pi) to 0 forward, 1 side, 2 back
@@ -140,8 +151,9 @@ namespace CB::engine::locomotion {
     ///        stick's acceleration, clamped to the cap; then the profile's traction, when it has one (grip, dig-in
     ///        braking). Airborne leaves the velocity alone. Then the facing: a spring (facingHalflife) toward the
     ///        velocity's heading (strafe: toward the target from (px, py); digging in: toward the stick, with
-    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed, or with
-    ///        Input::turnInPlace turns toward the stick, its rate capped at turnInPlaceRate.
+    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; below facingMinSpeed it turns toward
+    ///        State::desiredYaw (set here from the stick, or the strafe target), its rate capped at turnInPlaceRate, and
+    ///        holds without one.
     void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt);
 
     /// @brief Whether the direction allows sprinting: always when orienting to movement; when strafing, only while the
@@ -185,6 +197,31 @@ namespace CB::engine::locomotion {
         in.direction              = static_cast<int>(std::lround(relative < 0.0f ? relative + 360.0f : relative)) % 360;
         in.intensity              = static_cast<int>(std::lround((std::min)(len, 1.0f) * 100.0f));
         return in;
+    }
+
+    /// @brief The player's stick lengths (0..1): from `move` the player moves (below it, past kStickDeadzone, the stick only
+    ///        turns them in place), and from `run` a running player runs (between the two they walk). The game reads them
+    ///        from settings.ini [Character] fStickMoveThreshold and fStickRunThreshold.
+    /// @note  Why fixed speeds: the clips cover each gait at one speed, so a slower stick slid (GASP's own advice is its
+    ///        Fixed Speed - Walk/Run stick mode).
+    struct StickThresholds {
+        float move = 0.35f;
+        float run  = 0.8f;
+    };
+
+    /// @return the gait a stick `deflection` long moves at: Walk for a running player's stick under t.run, else `gait`
+    inline Gait StickGait(Gait gait, bool haveStick, float deflection, const StickThresholds& t)
+    {
+        return gait == Gait::Run && haveStick && deflection < t.run ? Gait::Walk : gait;
+    }
+
+    /// @brief The stick on the model's input: the direction it asks for (world heading `stickHeading`) and, under t.move,
+    ///        a facing only (Input::turnInPlace).
+    inline void ApplyStick(Input& in, bool haveStick, float stickHeading, float deflection, const StickThresholds& t)
+    {
+        in.haveStick = haveStick;
+        if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
+        in.turnInPlace = haveStick && deflection < t.move;
     }
 
     /// @brief Turns a movement frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move

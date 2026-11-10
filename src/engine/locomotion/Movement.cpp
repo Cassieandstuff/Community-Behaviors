@@ -125,6 +125,12 @@ namespace CB::engine::locomotion {
                 const float dx = in.targetX - px, dy = in.targetY - py;
                 if (dx * dx + dy * dy > 1.0f) goal = std::atan2(dx, dy), have = true;
             }
+            /// @note The strafe target sets the desired facing ahead of the stick, so ending an aim while standing keeps
+            ///       the aim's facing (GASP's capsule keeps the control rotation it strafed at).
+            if (p.desiredFacing) {
+                if (have) s.desiredYaw = WrapPi(goal);
+                else if (in.haveStick) s.desiredYaw = std::atan2(in.stickX, in.stickY);
+            }
             /// @note In a dig the body leads: it turns toward the stick, at most digInMaxLead past the velocity, while the
             ///       velocity lags on the grip.
             if (!have && dig && p.digInFacingHalflife > 0.0f) {
@@ -137,8 +143,11 @@ namespace CB::engine::locomotion {
                 halflife = p.digInFacingHalflife;
             }
             if (!have && std::hypot(s.vx, s.vy) >= p.facingMinSpeed) goal = std::atan2(s.vx, s.vy), have = true;
-            const bool turning = !have && in.turnInPlace && in.haveStick;
-            if (turning) goal = std::atan2(in.stickX, in.stickY), have = true;
+            const float want    = p.desiredFacing ? s.desiredYaw
+                                  : in.turnInPlace && in.haveStick ? std::atan2(in.stickX, in.stickY)
+                                                                   : std::numeric_limits<float>::quiet_NaN();
+            const bool  turning = !have && !std::isnan(want);
+            if (turning) goal = want, have = true;
             if (have) goal = s.yaw + WrapPi(goal - s.yaw);
             const float before = s.yaw;
             SpringDamperExact(s.yaw, s.yawRate, goal, halflife, dt);

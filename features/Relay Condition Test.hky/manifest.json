@@ -1,0 +1,7 @@
+{
+    "name": "Relay Condition Test",
+    "version": "0.1.0",
+    "author": "Cassieandstuff",
+    "description": "Test bundle for CBGameRelayCondition: the shield-equip wildcard transition of the left-hand state machine in 0_master takes a game condition in place of vanilla's expression condition. Delete once the condition is proven in game.",
+    "masters": []
+}

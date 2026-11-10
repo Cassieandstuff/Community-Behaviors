@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace CB::core::debug {
 
@@ -28,6 +31,18 @@ namespace CB::core::debug {
         LoadedIni& Ini()
         {
             static LoadedIni s;
+            return s;
+        }
+
+        /// @brief Flags ForceOff switched off, with why. Short (a handful of rows), so a vector scanned under a lock.
+        struct Forced {
+            std::mutex                                       lock;
+            std::vector<std::pair<std::string, std::string>> rows;   ///< (flag id, reason)
+        };
+
+        Forced& ForcedRows()
+        {
+            static Forced s;
             return s;
         }
 
@@ -52,6 +67,7 @@ namespace CB::core::debug {
             LOG_ERROR("Community Behaviors: no debug flag '{}' in kFlags — reading it as off.", id);
             return false;
         }
+        if (!ForcedOffReason(id).empty()) return false;
         if (it->kind == FlagKind::MarkerFile) {
             std::error_code ec;
             return std::filesystem::exists(std::filesystem::path("Data/community_behaviors") / it->key, ec);
@@ -65,6 +81,27 @@ namespace CB::core::debug {
         std::scoped_lock guard(s.lock);
         if (!s.loaded) return def;
         return s.ini.GetBoolValue(std::string(it->section).c_str(), std::string(it->key).c_str(), def);
+    }
+
+    void ForceOff(std::string_view id, std::string_view reason)
+    {
+        if (std::ranges::find(kFlags, id, &Flag::id) == kFlags.end()) {
+            LOG_ERROR("Community Behaviors: cannot force off '{}': no such debug flag in kFlags.", id);
+            return;
+        }
+        Forced&          f = ForcedRows();
+        std::scoped_lock guard(f.lock);
+        const auto       it = std::ranges::find(f.rows, id, &std::pair<std::string, std::string>::first);
+        if (it == f.rows.end()) f.rows.emplace_back(std::string(id), std::string(reason));
+        else if (it->second.find(reason) == std::string::npos) it->second += "; " + std::string(reason);
+    }
+
+    std::string ForcedOffReason(std::string_view id)
+    {
+        Forced&          f = ForcedRows();
+        std::scoped_lock guard(f.lock);
+        const auto       it = std::ranges::find(f.rows, id, &std::pair<std::string, std::string>::first);
+        return it == f.rows.end() ? std::string() : it->second;
     }
 
     std::string Value(std::string_view section, std::string_view key, std::string_view def)

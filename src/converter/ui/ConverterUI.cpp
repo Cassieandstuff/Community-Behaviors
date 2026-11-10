@@ -13,6 +13,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <map>
@@ -284,6 +285,39 @@ void ConverterUI::Draw() {
     ImGui::End();
 }
 
+/// @brief The compatibility findings of the plan: each mod that ships a DLL CB does not coexist with, how bad it is, and
+///        what CB does about it (the registry's own sentences and the features it switches off).
+static void DrawCompatibility(const CB::converter::LoadOrderPlan& plan) {
+    namespace reg = CB::engine::compat;
+    if (!plan.ok || plan.compat.empty()) return;
+    bool incompatible = false;
+    for (const auto& c : plan.compat) incompatible = incompatible || c.finding.entry->severity == reg::Severity::Incompatible;
+    const std::string header = "Compatibility: " + std::to_string(plan.compat.size()) + " mod(s) CB does not coexist with";
+    ImGui::SetNextItemOpen(incompatible, ImGuiCond_Once);
+    if (!ImGui::CollapsingHeader(header.c_str())) return;
+    int lines = 0;
+    for (const auto& c : plan.compat) lines += 1 + static_cast<int>(c.finding.entry->actions.size());
+    const float h = (std::min)(ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(lines) + 12.0f, 160.0f);
+    ImGui::BeginChild("compat", ImVec2(0, h), true);
+    for (const auto& c : plan.compat) {
+        const reg::Entry& e = *c.finding.entry;
+        const ImVec4 colour = e.severity == reg::Severity::Incompatible ? ImVec4(0.95f, 0.5f, 0.45f, 1.0f)
+                            : e.severity == reg::Severity::Warn         ? ImVec4(0.95f, 0.8f, 0.45f, 1.0f)
+                                                                        : ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+        ImGui::TextColored(colour, "[%.*s] %.*s", static_cast<int>(reg::SeverityName(e.severity).size()), reg::SeverityName(e.severity).data(),
+                           static_cast<int>(e.name.size()), e.name.data());
+        ImGui::SameLine();
+        ImGui::TextDisabled("in %s", c.modName.c_str());
+        std::string off;
+        for (const reg::Action& a : e.actions) {
+            if (a.kind == reg::Action::Kind::DisableFeature) off += (off.empty() ? "" : ", ") + std::string(a.text);
+            else ImGui::TextWrapped("    %.*s", static_cast<int>(a.text.size()), a.text.data());
+        }
+        if (!off.empty()) ImGui::TextDisabled("    CB switches off: %s", off.c_str());
+    }
+    ImGui::EndChild();
+}
+
 void ConverterUI::RefreshPlan() {
     m_planMsg.clear();
     const std::string prof(text::Trim(m_profile));
@@ -373,6 +407,7 @@ void ConverterUI::DrawConverterTab() {
         ImGui::TextDisabled("mods: %s", m_plan.modsDir.c_str());
         if (!m_plan.gameDataDir.empty()) ImGui::TextDisabled("game data: %s", m_plan.gameDataDir.c_str());
     }
+    DrawCompatibility(m_plan);
     ImGui::Separator();
 
     // ── main area: the load-order arranger (idle) or the conversion log (busy/finished) ────────

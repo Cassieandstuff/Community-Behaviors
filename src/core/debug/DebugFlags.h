@@ -57,6 +57,10 @@ namespace CB::core::debug {
           "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
+        { "relay_condition_trace", FlagKind::IniBool, "Debug", "bRelayConditionTrace", false, false,
+          "Game condition trace (CBGameRelayCondition)",
+          "Log each CBGameRelayCondition's first result for each character, then every change, with its expression and "
+          "the actor's form ID. Off = no logging; the conditions work either way." },
         { "sequencer_disable", FlagKind::MarkerFile, "", "sequencer.disable", false, false,
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "
@@ -292,6 +296,10 @@ namespace CB::core::debug {
           "Start the Tracy profiler client built into the plugin: zones on every hook subscriber, the warm-up and motion "
           "matching, plots, and a frame mark per present. It records only while a Tracy 0.13.1 viewer on this machine is "
           "connected. Off = no profiler thread and no socket." },
+        { "ui_test_modal", FlagKind::IniBool, "Debug", "bUiTestModal", false, false,
+          "UI test prompt",
+          "Show a Yes/No prompt over the game at start-up (AE only): the game gets no input and a cursor is drawn until it "
+          "is answered. Enter and Escape answer No. For trying the UI host's input path. Off = nothing shown." },
     });
 
 }  // namespace CB::core::debug

@@ -636,11 +636,12 @@ namespace CB::platform::relay {
         // ── Param type descriptors (static: the registry borrows the span) ──────────────────────────
         static constexpr std::array kP_Int      { V::Int };
         static constexpr std::array kP_Form      { V::Form };
-        static constexpr std::array kP_Keyword   { V::Keyword };
-        static constexpr std::array kP_FormHand  { V::Form, V::Int };   // (form, hand)
-        static constexpr std::array kP_IntHand   { V::Int,  V::Int };   // (type, hand)
-        static constexpr std::array kP_KwHand    { V::Keyword, V::Int };// (keyword, hand)
         static constexpr std::array kP_String    { V::String };
+
+        /// @note A function's signature is the catalog's (engine relay/Catalog.cpp); this file only binds implementations.
+        const auto bind = [](std::string_view name, FunctionFn fn) {
+            if (std::string err; !Bind(name, fn, err)) LOG_ERROR("[relay] {}", err);
+        };
 
         // ── PRIMITIVES ──────────────────────────────────────────────────────────────────────────────
         RegisterPrimitive("Keywords",            V::KeywordArray, {},         &Prim_Keywords);
@@ -674,47 +675,49 @@ namespace CB::platform::relay {
         RegisterPrimitive("PlayerTeammate",      V::Int,          {},         &Prim_PlayerTeammate);  // supports IsPlayerTeammate()
 
         // ── FUNCTIONS — value-returning ──────────────────────────────────────────────────────────────
-        RegisterFunction("GetAV",       V::Float, kP_Int,   &Fn_GetAV);
-        RegisterFunction("Level",       V::Int,   {},       &Fn_Level);
-        RegisterFunction("GameTime",    V::Float, {},       &Fn_GameTime);
-        RegisterFunction("FactionRank", V::Int,   kP_Form,  &Fn_FactionRank);
-        RegisterFunction("GraphVar",    V::Float, kP_String,  &Fn_GraphVar);
-        RegisterFunction("Global",      V::Float, kP_Form,  &Fn_Global);
-        RegisterFunction("Random",      V::Float, {},       &Fn_Random);
+        bind("GetAV", &Fn_GetAV);
+        bind("Level", &Fn_Level);
+        bind("GameTime", &Fn_GameTime);
+        bind("FactionRank", &Fn_FactionRank);
+        bind("GraphVar", &Fn_GraphVar);
+        bind("Global", &Fn_Global);
+        bind("Random", &Fn_Random);
 
         // ── FUNCTIONS — boolean predicates ───────────────────────────────────────────────────────────
-        RegisterFunction("HasKeyword",               V::Bool, kP_Keyword,  &Fn_HasKeyword);
-        RegisterFunction("IsWornHasKeyword",         V::Bool, kP_Keyword,  &Fn_IsWornHasKeyword);
-        RegisterFunction("IsEquipped",               V::Bool, kP_FormHand, &Fn_IsEquipped);
-        RegisterFunction("IsEquippedType",           V::Bool, kP_IntHand,  &Fn_IsEquippedType);
-        RegisterFunction("IsEquippedHasKeyword",     V::Bool, kP_KwHand,   &Fn_IsEquippedHasKeyword);
-        RegisterFunction("IsActorBase",              V::Bool, kP_Form,     &Fn_IsActorBase);
-        RegisterFunction("IsRace",                   V::Bool, kP_Form,     &Fn_IsRace);
-        RegisterFunction("IsInFaction",              V::Bool, kP_Form,     &Fn_IsInFaction);
-        RegisterFunction("HasPerk",                  V::Bool, kP_Form,     &Fn_HasPerk);
-        RegisterFunction("HasSpell",                 V::Bool, kP_Form,     &Fn_HasSpell);
-        RegisterFunction("HasMagicEffect",           V::Bool, kP_Form,     &Fn_HasMagicEffect);
-        RegisterFunction("HasMagicEffectWithKeyword",V::Bool, kP_Keyword,  &Fn_HasMagicEffectWithKeyword);
-        RegisterFunction("IsFemale",                 V::Bool, {},          &Fn_IsFemale);
-        RegisterFunction("IsChild",                  V::Bool, {},          &Fn_IsChild);
-        RegisterFunction("IsUnique",                 V::Bool, {},          &Fn_IsUnique);
-        RegisterFunction("IsPlayerTeammate",         V::Bool, {},          &Fn_IsPlayerTeammate);
-        RegisterFunction("IsSneaking",               V::Bool, {},          &Fn_IsSneaking);
-        RegisterFunction("IsRunning",                V::Bool, {},          &Fn_IsRunning);
-        RegisterFunction("IsSprinting",              V::Bool, {},          &Fn_IsSprinting);
-        RegisterFunction("IsSwimming",               V::Bool, {},          &Fn_IsSwimming);
-        RegisterFunction("IsInAir",                  V::Bool, {},          &Fn_IsInAir);
-        RegisterFunction("IsMounted",                V::Bool, {},          &Fn_IsMounted);
-        RegisterFunction("IsSitting",                V::Bool, {},          &Fn_IsSitting);
-        RegisterFunction("IsSleeping",               V::Bool, {},          &Fn_IsSleeping);
-        RegisterFunction("IsBleedingOut",            V::Bool, {},          &Fn_IsBleedingOut);
-        RegisterFunction("IsFlying",                 V::Bool, {},          &Fn_IsFlying);
-        RegisterFunction("IsInCombat",               V::Bool, {},          &Fn_IsInCombat);
-        RegisterFunction("IsInInterior",             V::Bool, {},          &Fn_IsInInterior);
-        RegisterFunction("IsCurrentWeather",         V::Bool, kP_Form,     &Fn_IsCurrentWeather);
-        RegisterFunction("CurrentWeatherHasKeyword", V::Bool, kP_Keyword,  &Fn_CurrentWeatherHasKeyword);
-        RegisterFunction("IsInLocation",             V::Bool, kP_Form,     &Fn_IsInLocation);
-        RegisterFunction("LocationHasKeyword",       V::Bool, kP_Keyword,  &Fn_LocationHasKeyword);
+        bind("HasKeyword", &Fn_HasKeyword);
+        bind("IsWornHasKeyword", &Fn_IsWornHasKeyword);
+        bind("IsEquipped", &Fn_IsEquipped);
+        bind("IsEquippedType", &Fn_IsEquippedType);
+        bind("IsEquippedHasKeyword", &Fn_IsEquippedHasKeyword);
+        bind("IsActorBase", &Fn_IsActorBase);
+        bind("IsRace", &Fn_IsRace);
+        bind("IsInFaction", &Fn_IsInFaction);
+        bind("HasPerk", &Fn_HasPerk);
+        bind("HasSpell", &Fn_HasSpell);
+        bind("HasMagicEffect", &Fn_HasMagicEffect);
+        bind("HasMagicEffectWithKeyword", &Fn_HasMagicEffectWithKeyword);
+        bind("IsFemale", &Fn_IsFemale);
+        bind("IsChild", &Fn_IsChild);
+        bind("IsUnique", &Fn_IsUnique);
+        bind("IsPlayerTeammate", &Fn_IsPlayerTeammate);
+        bind("IsSneaking", &Fn_IsSneaking);
+        bind("IsRunning", &Fn_IsRunning);
+        bind("IsSprinting", &Fn_IsSprinting);
+        bind("IsSwimming", &Fn_IsSwimming);
+        bind("IsInAir", &Fn_IsInAir);
+        bind("IsMounted", &Fn_IsMounted);
+        bind("IsSitting", &Fn_IsSitting);
+        bind("IsSleeping", &Fn_IsSleeping);
+        bind("IsBleedingOut", &Fn_IsBleedingOut);
+        bind("IsFlying", &Fn_IsFlying);
+        bind("IsInCombat", &Fn_IsInCombat);
+        bind("IsInInterior", &Fn_IsInInterior);
+        bind("IsCurrentWeather", &Fn_IsCurrentWeather);
+        bind("CurrentWeatherHasKeyword", &Fn_CurrentWeatherHasKeyword);
+        bind("IsInLocation", &Fn_IsInLocation);
+        bind("LocationHasKeyword", &Fn_LocationHasKeyword);
+
+        for (const std::string_view name : Unbound()) LOG_ERROR("[relay] catalog function '{}' has no implementation: it never compiles", name);
     }
 
 }  // namespace CB::platform::relay

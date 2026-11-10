@@ -12,6 +12,15 @@ namespace CB::core::debug {
     /// @note settings.ini is parsed once per process, on first use; markers are re-checked on every call.
     bool FlagOn(std::string_view id);
 
+    /// @brief Makes the kFlags row `id` read as off from now on, whatever settings.ini or its marker file says.
+    /// @param reason what forced it (a mod found by the compatibility registry); shown by ForcedOffReason.
+    /// @pre   Called before the first FlagOn(id): callers cache, so a flag already read keeps its value.
+    /// @note  An unknown `id` logs an error and changes nothing.
+    void ForceOff(std::string_view id, std::string_view reason);
+
+    /// @return Why `id` was forced off by ForceOff, or empty when it was not.
+    std::string ForcedOffReason(std::string_view id);
+
     /// @brief settings.ini's `[section] key` (a non-flag value), or `def` when the file or key is absent.
     std::string Value(std::string_view section, std::string_view key, std::string_view def = {});
 

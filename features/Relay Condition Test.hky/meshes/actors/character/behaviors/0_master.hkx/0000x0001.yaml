@@ -1,0 +1,3 @@
+id: 0000x0001
+class: CBGameRelayCondition
+expression: 'GraphVar("bIsInMT") == 1'

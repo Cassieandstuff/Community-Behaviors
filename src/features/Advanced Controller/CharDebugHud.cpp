@@ -4,8 +4,8 @@
 #include "CharFacing.h"
 #include "CharSprint.h"
 
-#include <core/bootstrap/ProgressHud.h>
 #include <core/debug/Settings.h>
+#include <core/ui/UiHost.h>
 
 #include <imgui.h>
 
@@ -19,7 +19,7 @@
 /// @file
 /// @brief The character debug HUD (char_debug_hud): the controlled character's (IsControlled: the player, or the
 ///        horse it rides) collision shape, floor rays, pogo spring, velocity arrows, predicted trajectory
-///        and a text panel, drawn with ProgressHud's ImGui over the finished frame.
+///        and a text panel, drawn on the UI host's ImGui (core/ui) over the finished frame.
 /// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
 ///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
 
@@ -60,6 +60,7 @@ namespace CB::feature::controller::hud {
         const ImU32 kAirborne = IM_COL32(120, 140, 255, 255);
         const ImU32 kStick      = IM_COL32(255, 220, 40, 255);
         const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
+        const ImU32 kWantFacing = IM_COL32(230, 90, 230, 255);   ///< the desired facing (locomotion::State::desiredYaw)
         const ImU32 kPast       = IM_COL32(210, 30, 30, 255);   ///< where the player was (the query's past)
         constexpr float kRadToDeg = 57.29578f;
 
@@ -290,6 +291,7 @@ namespace CB::feature::controller::hud {
             if (haveCtrl && haveMove) {
                 Tick(dl, proj, c.feet, c.radius, mv.yaw, kFacingTick);
                 if (mv.haveStick) RingArrow(dl, proj, c.feet, c.radius, mv.stickYaw, kStick);
+                if (mv.haveDesired) RingArrow(dl, proj, c.feet, c.radius, mv.desiredYaw, kWantFacing);
             }
 
             if (havePred) {
@@ -339,6 +341,7 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("%s   speed %.0f / cap %.0f   engine %.0f   slope x%.2f", mv.strafe ? "strafe" : "orient", mv.speed, mv.cap, mv.full,
                             mv.slope);
                 if (mv.haveStick) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(mv.stickYaw - mv.yaw)) * kRadToDeg);
+                if (mv.haveDesired) ImGui::Text("facing %.0f deg from the desired facing", std::fabs(WrapPi(mv.desiredYaw - mv.yaw)) * kRadToDeg);
             }
             if (sprint::State st; sprint::Current(st))
                 ImGui::Text("sprint %s%s%s%s", st.sprinting ? "on" : "off", st.wanted ? "   wanted" : "", st.suspended ? "   suspended" : "",
@@ -358,7 +361,7 @@ namespace CB::feature::controller::hud {
         /// @note Registered whether or not the HUD starts on: the config menu can switch it on later, and Active answers
         ///       false while it is off.
         [[maybe_unused]] const bool s_registered = [] {
-            core::bootstrap::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
+            core::ui::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
             return true;
         }();
 
