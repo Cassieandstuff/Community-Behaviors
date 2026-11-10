@@ -1,0 +1,10 @@
+id: 0000x0042
+class: CBCharacterStateSet
+name: 'Vanilla'
+states:
+  '0000x003c': {}
+  '0000x003d': {}
+  '0000x003e': {}
+  '0000x003f': {}
+  '0000x0040': {}
+  '0000x0041': {}

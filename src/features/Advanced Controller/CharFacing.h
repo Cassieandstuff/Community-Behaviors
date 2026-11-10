@@ -26,8 +26,10 @@ namespace CB::feature::controller {
         float slope = 1.0f;   ///< the smoothed slope factor (SlopeSpeedScale) in the cap
         Gait  gait  = Gait::None;
     };
-    /// @brief False while the movement model is off or no frame ran within the last half second. Thread-safe.
+    /// @brief The player's. False while the movement model is off or no frame ran within the last half second. Thread-safe.
     bool CurrentSpeed(FrameSpeed& out);
+    /// @brief `actor`'s, the same.
+    bool CurrentSpeed(RE::FormID actor, FrameSpeed& out);
 
     using CB::engine::locomotion::WrapPi;
 

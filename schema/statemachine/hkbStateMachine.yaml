@@ -2,10 +2,11 @@ name:      hkbStateMachine
 parent:    hkbGenerator
 signature: 0x816c1dcb
 size:      264
+defaults:  { maxSimultaneousTransitions: 32, randomTransitionEventId: -1, returnToPreviousStateEventId: -1, selfTransitionMode: SELF_TRANSITION_MODE_NO_TRANSITION, startStateMode: START_STATE_MODE_DEFAULT, syncVariableIndex: -1, transitionToNextHigherStateEventId: -1, transitionToNextLowerStateEventId: -1 }
 fields:
   - { name: eventToSendWhenStateOrTransitionChanges, type: struct, ref: hkbEvent }
   - { name: startStateChooser,                   type: ptr, ref: hkbStateChooser }
-  - { name: startStateId,                        type: int32 }
+  - { name: startStateId,                        type: int32, stateref: machine }
   - { name: returnToPreviousStateEventId,        type: int32, eventref: returnToPreviousStateEvent }
   - { name: randomTransitionEventId,             type: int32, eventref: randomTransitionEvent }
   - { name: transitionToNextHigherStateEventId,  type: int32, eventref: transitionToNextHigherStateEvent }
@@ -18,7 +19,7 @@ fields:
   - { name: selfTransitionMode,                  type: int8, enum: SmSelfTransitionMode }
   - { name: isActive,                            type: bool, ignored: true }
   - { skip: 7 }
-  - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo, roster: ref }   # merge policy in metadata/semantics/merge.yaml
+  - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo, roster: ref, required: true }   # merge policy in metadata/semantics/merge.yaml
   - { name: wildcardTransitions,                 type: ptr, ref: hkbStateMachineTransitionInfoArray }
   - { empty: ptr }
   - { empty: array }

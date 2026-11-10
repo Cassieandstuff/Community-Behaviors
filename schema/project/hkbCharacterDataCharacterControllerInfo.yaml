@@ -2,6 +2,7 @@ name:      hkbCharacterDataCharacterControllerInfo
 parent:    null
 signature: 0xa0f415bf
 size:      24
+defaults:  { collisionFilterInfo: 1 }
 fields:
   - { name: capsuleHeight,       type: float }
   - { name: capsuleRadius,       type: float }

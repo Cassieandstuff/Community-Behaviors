@@ -1,0 +1,16 @@
+id: 0000x0009
+class: CBMovementPlannerAgentNavmeshBounds
+name: 'NavMesh Bounds'
+type: 'NavMesh Bounds'
+interface: 'CurrentMovementState'
+actorRadiusMultiplier: 1
+minTimeOfImpact: 0.0333000012
+bindings:
+  'actorRadiusMultiplier':
+    variable: 'fNavmeshBoundsActorRadiusMultiplier:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'minTimeOfImpact':
+    variable: 'fNavmeshBoundsMinTimeOfImpact:Pathfinding'
+    output: ''
+    flags: FLAG_IN

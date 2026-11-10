@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <process.h>
 #include <random>
 #include <string>
@@ -272,6 +273,167 @@ void ValueListChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     derives("'A.hkx', 'C.hkx', 'B.hkx'", "'A.hkx', 'C.hkx', 'B.hkx'", "a derived mid-list insert");
 }
 
+/// @brief A patch derived from an edited graph matches nodes by FormID, and its masters are the owners of what it touched.
+void EditedPatchChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const std::vector<std::string> baseTable{ "skyrim" }, table{ "mymod", "skyrim" };
+    const common::DiskUnitSource   source(WriteUnit(tmp, "edited-base", Behavior()));
+    const auto parse = [&](const std::string& what) {
+        auto        g = std::make_unique<dec::ParsedHky>();
+        std::string e;
+        Check(dec::ParseHkyReflective(source, reg, *g, e), what + ": " + e);
+        return g;
+    };
+    const auto named = [](const dec::ParsedHky& g, const std::string& name) -> codec::io::SchemaObject* {
+        for (const auto& o : g.objects)
+            if (const auto* v = o->FindField("name"); v && v->str == name) return o.get();
+        return nullptr;
+    };
+    const auto rename = [](codec::io::SchemaObject& o, const std::string& name) {
+        const auto& fields = o.Fields();
+        for (std::size_t k = 0; k < fields.size(); ++k)
+            if (fields[k]->name == "name") o.FieldAt(k).str = name;
+    };
+    const auto files = [](const fs::path& dir) {
+        std::map<std::string, std::string> out;
+        std::error_code ec;
+        if (fs::is_directory(dir, ec))
+            for (const auto& e : fs::recursive_directory_iterator(dir))
+                if (e.is_regular_file()) out[e.path().lexically_relative(dir).generic_string()] = *disk::ReadFile(e.path());
+        return out;
+    };
+    const fs::path out = tmp / "edited-patch";
+    std::vector<std::string> masters;
+    std::string err;
+
+    const auto derive = [&](const dec::ParsedHky& from, const std::vector<std::string>& fromTable, const dec::ParsedHky& to, const char* self, bool skyrim,
+                            const schema::SchemaRegistry& r, const std::string& dir, std::vector<std::string>& declared, std::string& e) {
+        declared.clear();
+        return dec::DeriveEditedPatch(from, fromTable, to, self, skyrim, r, dir, declared, e);
+    };
+    const auto unchanged = parse("a graph nobody edited");
+    Check(derive(*parse("base"), baseTable, *unchanged, "mymod", true, reg, out.string(), masters, err), "no edit: " + err);
+    Check(files(out).empty() && masters.empty(), "no edit derives to nothing");
+
+    const auto base = parse("base"), edited = parse("edited");
+    rename(*named(*edited, "A"), "Renamed");
+    Check(derive(*base, baseTable, *edited, "mymod", true, reg, out.string(), masters, err), "a rename: " + err);
+    auto patch = files(out);
+    Check(patch.size() == 1 && patch.contains("0001x0003.yaml"), "a rename is one file, on the node's own FormID");
+    if (patch.contains("0001x0003.yaml")) {
+        Check(patch["0001x0003.yaml"].find("name: 'Renamed'") != std::string::npos, "a rename states the name");
+        Check(patch["0001x0003.yaml"].find("animationName") == std::string::npos, "a rename states nothing else:\n" + patch["0001x0003.yaml"]);
+    }
+    Check(masters.empty(), "an edit of a base node depends on no mod");
+    const auto merged = parse("merge target");
+    Check(dec::MergeHkyPatch(*merged, common::DiskUnitSource(out), reg, baseTable, table, err), "a rename merges: " + err);
+    std::vector<std::uint8_t> a, b;
+    Check(dec::SerializeGraph(*merged, a, err) && dec::SerializeGraph(*edited, b, err) && a == b, "a rename merges back to the edit: " + err);
+
+    const auto movedBase = parse("base"), moved = parse("moved");
+    moved->identity.folder[named(*moved, "B")] = "Locomotion/Walk";
+    Check(derive(*movedBase, baseTable, *moved, "mymod", true, reg, out.string(), masters, err), "a move: " + err);
+    patch = files(out);
+    Check(patch.size() == 1 && patch.contains("Locomotion/Walk/0001x0004.yaml"), "a move is one file, in the new folder");
+    const auto movedTarget = parse("merge target");
+    Check(dec::MergeHkyPatch(*movedTarget, common::DiskUnitSource(out), reg, baseTable, table, err), "a move merges: " + err);
+    Check(movedTarget->identity.folder[named(*movedTarget, "B")] == "Locomotion/Walk", "a merge carries a moved node's folder");
+
+    const auto back = parse("moved back");
+    back->identity.folder.erase(named(*back, "B"));
+    Check(derive(*movedTarget, baseTable, *back, "mymod", true, reg, out.string(), masters, err), "a move out: " + err);
+    Check(files(out).contains(std::string(dec::kUngroupedFolder) + "/0001x0004.yaml"), "moving out of a lower layer's group names the reserved folder");
+    Check(dec::MergeHkyPatch(*movedTarget, common::DiskUnitSource(out), reg, baseTable, table, err), "a move out merges: " + err);
+    Check(!movedTarget->identity.folder.contains(named(*movedTarget, "B")), "the reserved folder puts the node back at the top");
+
+    // Another mod adds a clip. Touching a base node needs no dependency on it; touching its clip does.
+    const Files other{ { "0000x0100.yaml", Clip("0000x0100", "FromOther") },
+                       { "selector.yaml", "id: 0001x0002\nclass: hkbManualSelectorGenerator\ngenerators:\n  '0000x0000': 0000x0100\n" } };
+    const common::DiskUnitSource otherSource(WriteUnit(tmp, "edited-other", other));
+    const auto withOther = [&](const std::string& what) {
+        auto g = parse(what);
+        std::string e;
+        Check(dec::MergeHkyPatch(*g, otherSource, reg, baseTable, { "other", "skyrim" }, e), what + ": " + e);
+        return g;
+    };
+    const auto otherBase = withOther("other's base"), vanillaEdit = withOther("a vanilla edit");
+    rename(*named(*vanillaEdit, "A"), "Renamed");
+    Check(derive(*otherBase, baseTable, *vanillaEdit, "mymod", true, reg, out.string(), masters, err), "beside a mod: " + err);
+    Check(masters.empty(), "an edit beside another mod doesn't depend on it");
+    const auto otherEdit = withOther("an edit of the mod's node");
+    rename(*named(*otherEdit, "FromOther"), "Renamed");
+    Check(derive(*otherBase, baseTable, *otherEdit, "mymod", true, reg, out.string(), masters, err), "on a mod's node: " + err);
+    Check(masters == std::vector<std::string>{ "other" }, "an edit of another mod's node depends on it");
+    Check(files(out).contains("0002x0100.yaml"), "and names it through its index in the header");
+    std::vector<std::string> declared{ "zeta" }, used;
+    const auto otherEdit2 = withOther("the same edit, in a bundle with masters already");
+    rename(*named(*otherEdit2, "FromOther"), "Renamed");
+    Check(dec::DeriveEditedPatch(*otherBase, baseTable, *otherEdit2, "mymod", true, reg, out.string(), declared, err, nullptr, nullptr, &used), "a declared table: " + err);
+    Check(declared == std::vector<std::string>{ "zeta", "other" }, "a bundle's masters keep their places, and a new one is appended");
+    Check(used == std::vector<std::string>{ "other" }, "and the patch says what it alone depends on");
+    Check(files(out).contains("0003x0100.yaml"), "and it names the node through that table");
+    Check(derive(*otherBase, baseTable, *otherEdit, "mymod", true, reg, out.string(), masters, err), "again: " + err);
+    const auto otherTarget = withOther("merge target");
+    Check(dec::MergeHkyPatch(*otherTarget, common::DiskUnitSource(out), reg, baseTable, { "mymod", "skyrim", "other" }, err), "it merges: " + err);
+    Check(named(*otherTarget, "Renamed") && !named(*otherTarget, "FromOther"), "the edit lands on the mod's node, not a new one");
+}
+
+/// @brief A patch whose target is gone costs that mod that graph, not the graph, and an editor's layer lists what broke instead.
+void BrokenLayerChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto layer = [&](const std::string& stem, const Files& files) {
+        common::LayerSource out;
+        out.source      = std::make_shared<common::DiskUnitSource>(WriteUnit(tmp, "broken-" + stem, files));
+        out.stem        = stem;
+        out.masterTable = stem == "skyrim" ? std::vector<std::string>{ "skyrim" } : std::vector<std::string>{ stem, "skyrim" };
+        return out;
+    };
+    const auto named = [](const dec::ParsedHky& g, const std::string& name) {
+        for (const auto& o : g.objects)
+            if (const auto* v = o->FindField("name"); v && v->str == name) return true;
+        return false;
+    };
+    const auto base = layer("skyrim", Behavior());
+    const auto good = layer("good", { { "a.yaml", "id: 0001x0003\nclass: hkbClipGenerator\nname: 'FromGood'\n" } });
+    const auto gone = layer("gone", { { "a.yaml", "id: 0001x0999\nclass: hkbClipGenerator\nname: 'FromGone'\n" } });
+    const auto dangling = layer("dangling", { { "a.yaml", "id: 0001x0002\nclass: hkbManualSelectorGenerator\ngenerators:\n  '0000x0000': 0001x0999\n" },
+                                              { "b.yaml", "id: 0001x0004\nclass: hkbClipGenerator\nname: 'FromDangling'\n" } });
+    std::string err;
+
+    dec::ParsedHky strict;
+    Check(!dec::MergeLayersReflective({ base, good, gone }, reg, nullptr, strict, err), "a tool's merge still refuses a mod that can't apply");
+    err.clear();
+
+    dec::ParsedHky merged;
+    Check(dec::MergeLayersSkippingBroken({ base, gone, good, dangling }, reg, nullptr, merged, err), "broken mods don't fail the graph: " + err);
+    Check(named(merged, "FromGood"), "the mod with nothing wrong still merges");
+    Check(!named(merged, "FromGone") && !named(merged, "FromDangling"), "a mod that can't apply is skipped whole, nothing half-merged");
+    Check(merged.skippedLayers.size() == 2 && merged.skippedLayers[0].stem == "gone" && merged.skippedLayers[1].stem == "dangling", "the skipped mods are named");
+    Check(merged.skippedLayers.size() == 2 && merged.skippedLayers[0].why.find("skyrim:2457") != std::string::npos, "and what they lost: " + (merged.skippedLayers.empty() ? "" : merged.skippedLayers[0].why));
+
+    dec::ParsedHky edited;
+    Check(dec::MergeLayersSkippingBroken({ base, good, dangling }, reg, nullptr, edited, err, nullptr, {}, "dangling"), "an edited layer's breaks don't fail it: " + err);
+    Check(edited.skippedLayers.empty() && named(edited, "FromDangling"), "the edited layer stays, so its author can fix it");
+    Check(edited.breaks.size() == 1, "its break is listed");
+    if (edited.breaks.size() == 1) {
+        Check(edited.breaks[0].layer == "dangling" && edited.breaks[0].field == "generators" && edited.breaks[0].missing == "skyrim:2457", "with where it is and what's gone");
+        Check(edited.breaks[0].file == "a.yaml", "and the file stating it");
+        Check(!edited.breaks[0].node.empty(), "and the node holding it");
+    }
+    dec::ParsedHky editedGone;
+    Check(dec::MergeLayersSkippingBroken({ base, gone }, reg, nullptr, editedGone, err, nullptr, {}, "gone"), "an edited node that's gone: " + err);
+    Check(editedGone.breaks.size() == 1 && editedGone.breaks[0].node.empty() && editedGone.breaks[0].missing == "skyrim:2457", "is listed, not made into a new node");
+    Check(!named(editedGone, "FromGone"), "and adds no node of defaults");
+
+    const auto stated = dec::ReadStatedFields({ base, good }, "0000x0003", err);
+    const auto say = [&](const std::string& stem, const std::string& field) {
+        for (const auto& s : stated)
+            if (s.stem == stem && s.field == field) return s.value;
+        return std::string("(not stated)");
+    };
+    Check(say("skyrim", "name") == "A" && say("good", "name") == "FromGood", "each layer's value of a field reads back");
+    Check(say("good", "animationName") == "(not stated)", "a patch states only what it changed");
+    Check(say("skyrim", "animationName") != "(not stated)", "the base states the rest");
+}
+
 /// @brief A blueprint chooser row's conditions merge by their minted keys.
 void ConditionKeyChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
     const auto condition = [](const std::string& key, const std::string& variable) {
@@ -311,6 +473,29 @@ void PoseSearchRowChecks(const schema::SchemaRegistry& reg, const fs::path& tmp)
     Check(!Merged(base, { { "p.yaml", "id: 0000x0002\nclass: CBPoseSearchGenerator\nchildren:\n  '0000x0000': {deleted: true}\n" } }, reg, tmp, got, err) &&
               err.find("can't be deleted") != std::string::npos,
           "a row is referenced by position and can't be deleted: " + err);
+}
+
+/// @brief A blend space's sample coordinates merge as a child's columns, and vanilla's children, which state none, stay at zero.
+void BlendSpaceChecks(const schema::SchemaRegistry& reg, const fs::path& tmp) {
+    const auto child = [](const std::string& key, const std::string& clip, const std::string& place) {
+        return "  '" + key + "':\n    generator: " + clip + "\n    weight: 1\n    worldFromModelWeight: 1\n" + place;
+    };
+    const auto unit = [&](const std::string& cls, const std::string& extra, const std::string& children) {
+        return Files{ { "graph.yaml", kGraph },
+                      { "s.yaml", "id: 0000x0002\nclass: " + cls + "\nuserData: 0\nname: 'Blend'\nreferencePoseWeightThreshold: 0\nblendParameter: 0\n"
+                                  "minCyclicBlendParameter: 0\nmaxCyclicBlendParameter: 1\nindexOfSyncMasterChild: -1\nflags: 0\nsubtractLastChild: false\n" + extra +
+                                  "children:\n" + children },
+                      { "a.yaml", Clip("0000x0003", "A") }, { "b.yaml", Clip("0000x0004", "B") } };
+    };
+    const std::string kPlane = "blendX: 0.25\nblendY: -1\n";
+    const Files base = unit("CBBlendSpace2DGenerator", kPlane, child("0000x0000", "0000x0003", "    x: 1\n    y: 2\n") + child("0000x0001", "0000x0004", "    x: 3\n    y: 4\n"));
+    ShuffleChecks(base, reg, tmp, "blend space");
+    MergesTo(base, { { "p.yaml", "id: 0000x0002\nclass: CBBlendSpace2DGenerator\nchildren:\n  '0000x0001':\n    y: 9\n" } },
+             unit("CBBlendSpace2DGenerator", kPlane, child("0000x0000", "0000x0003", "    x: 1\n    y: 2\n") + child("0000x0001", "0000x0004", "    x: 3\n    y: 9\n")), reg, tmp,
+             "a sample's coordinate patch");
+    const std::vector<std::uint8_t> silent = Bytes(common::DiskUnitSource(WriteUnit(tmp, "silent", unit("hkbBlenderGenerator", "", child("0000x0000", "0000x0003", "")))), reg, "silent");
+    const std::vector<std::uint8_t> zeros  = Bytes(common::DiskUnitSource(WriteUnit(tmp, "zeros", unit("hkbBlenderGenerator", "", child("0000x0000", "0000x0003", "    x: 0\n    y: 0\n")))), reg, "zeros");
+    Check(silent == zeros, "a stock blender's child stating no coordinates serializes as zero");
 }
 
 /// @brief The loader refuses a list that doesn't state how it merges, or a key its element can't give.
@@ -380,6 +565,9 @@ void RunUnitFormatTests(const schema::SchemaRegistry& reg) {
     ValueListChecks(reg, tmp);
     ConditionKeyChecks(reg, tmp);
     PoseSearchRowChecks(reg, tmp);
+    BlendSpaceChecks(reg, tmp);
+    EditedPatchChecks(reg, tmp);
+    BrokenLayerChecks(reg, tmp);
     DeclarationChecks(tmp);
     std::error_code ec;
     fs::remove_all(tmp, ec);

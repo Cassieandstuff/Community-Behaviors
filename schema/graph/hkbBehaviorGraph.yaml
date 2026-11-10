@@ -3,6 +3,7 @@ parent:    hkbGenerator
 signature: 0xb1218f86
 size:      304
 # The graph root (rootGenerator + data).
+defaults:  { variableMode: VARIABLE_MODE_DISCARD_WHEN_INACTIVE }
 fields:
   - { name: variableMode, type: int8, enum: VariableMode }
   - { skip: 7 }
@@ -10,8 +11,8 @@ fields:
   - { empty: ptr }
   - { empty: array }
   - { empty: ptr }
-  - { name: rootGenerator, type: ptr, ref: hkbGenerator }
-  - { name: data,          type: ptr, ref: hkbBehaviorGraphData }
+  - { name: rootGenerator, type: ptr, ref: hkbGenerator, required: true }
+  - { name: data,          type: ptr, ref: hkbBehaviorGraphData, required: true }
   - { empty: ptr }   # 14 SERIALIZE_IGNORED node/toc pointers
   - { empty: ptr }
   - { empty: ptr }

@@ -1,16 +1,20 @@
 name:      CBMotionClip
 parent:    null
-size:      80
+size:      96
 # One measured clip of the motion-matching cache, keyed by its animationName (byte-exact). `fingerprint` hashes the
 # animation unit text it was measured from: a clip whose unit no longer hashes to it is measured again.
 # `features` holds `frames` rows of featureDims floats; `rootPositions` the root's (x, y, z) per frame, game units.
+# `loopFrames`: the frames one cycle spans when the clip loops (its features wrap there), 0 when it does not.
+# `schemaRows`: the clip measured under each pose search schema it was asked for, keyed by anim::SchemaKey.
 fields:
   - { name: name,          type: string }
   - { name: fingerprint,   type: uint64 }
   - { name: frames,        type: int32 }
   - { name: frameDuration, type: float }
   - { name: duration,      type: float }
+  - { name: loopFrames,    type: int32 }
   - { pad: 8 }
   - { name: features,      type: scalararray, scalar: float, roster: whole }
   - { name: rootPositions, type: scalararray, scalar: float, roster: whole }
   - { name: curves,        type: structarray, ref: CBAnimationCurve, roster: field:name }
+  - { name: schemaRows,    type: structarray, ref: CBMotionSchemaRows, roster: whole }

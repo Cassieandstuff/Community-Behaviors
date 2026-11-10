@@ -1,11 +1,11 @@
 # ── engine ───────────────────────────────────────────────────────────────────────
 # CB's shared reflection engine, one static library: the schema registry (interface/reflection), the
 # model structs + unit vocabulary (interface, common), the codecs (codec, codec/serialization),
-# the one-way transforms (compile, decompile), and the pure movement step (locomotion). The plugin, the
-# converter, and the tools all link it.
+# the one-way transforms (compile, decompile), the pure movement step and motion-matching scoring (locomotion), and the
+# condition language's core (relay). The plugin, the converter, and the tools all link it.
 #
 # This directory is the include root, so headers resolve by purpose folder:
-#   <common/…> <interface/…> <interface/reflection/…> <codec/…> <codec/serialization/…> <compile/…> <decompile/…> <locomotion/…>
+#   <common/…> <interface/…> <interface/reflection/…> <codec/…> <codec/serialization/…> <compile/…> <decompile/…> <locomotion/…> <relay/…>
 #
 # CommonLib-free: the engine builds with no SKSE/CommonLib on its include path so the converter and the
 # tools can share it. A configure-time scan refuses any engine file that includes RE/ or SKSE/ headers.

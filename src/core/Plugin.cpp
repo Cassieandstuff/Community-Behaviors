@@ -6,9 +6,11 @@
 #include "core/serve/ByteServe.h"
 #include "core/serve/conditions/Conditions.h"
 #include "core/bootstrap/CompileGate.h"
+#include "core/bootstrap/LoadGate.h"
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
 #include "core/debug/Settings.h"
+#include <exec/Parallel.h>
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
@@ -99,6 +101,15 @@ namespace CB {
         return !CB::core::debug::FlagOn("sequencer_disable");
     }
 
+    /// @brief settings.ini `[Performance] iMaxThreads`: the most threads CB's warm-up uses. Absent or 0 = half the machine's.
+    static void ApplyThreadSetting()
+    {
+        const std::string text = CB::core::debug::Value("Performance", "iMaxThreads");
+        const long        n    = text.empty() ? 0 : std::strtol(text.c_str(), nullptr, 10);
+        if (n > 0) CB::engine::exec::SetMaxWorkers(static_cast<unsigned>(n));
+        LOG_INFO("Community Behaviors: warm-up uses at most {} thread(s) (settings.ini [Performance] iMaxThreads).", CB::engine::exec::MaxWorkers());
+    }
+
     // Holds the worker pool ALIVE for the duration of a parallel phase (the native-anim compile, the adsf
     // projection's animation parse) and hands out an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
     // 64MB reserved stack — the same guard WarmUpThread uses — so a native-anim compile can never overflow a
@@ -112,7 +123,7 @@ namespace CB {
         explicit AnimParallel(const char* what = "native animations compile")
         {
             if (!ParallelAnimCompileEnabled()) return;
-            // 0 => hardware_concurrency; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
+            // 0 => exec::MaxWorkers; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
             // never out-competes the game's render/main threads while the window is coming up (minimize).
             pool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
             exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
@@ -137,6 +148,8 @@ namespace CB {
         const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
+        CB::core::bootstrap::SetPhase("compiling behaviors");
+        CB::core::bootstrap::SetProgress(0, grandTotal, true);
         /// @note The graphs PlanIncremental kept (ArmThread, before the adsf) are skipped here and in the materialize.
         {
             CB_ZONE(zone, "warm-up: compile graphs");
@@ -163,13 +176,13 @@ namespace CB {
         };
         AnimParallel animPar;   // parallel native-anim compile unless sequencer.disable; serial otherwise
         std::size_t  wrote = 0;
+        CB::core::bootstrap::SetPhase("compiling animations");
         {
             CB_ZONE(zone, "warm-up: materialize + animations");
             wrote = g_resolver.MaterializeCacheToDisk(std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
         }
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
-        CB::core::bootstrap::SetProgress(grandTotal, grandTotal, false);
         LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
                  "in {:.1f}s (runtime loads served from disk cache).",
                  graphCount, g_resolver.NativeAnimCount(), wrote, secs);
@@ -186,7 +199,6 @@ namespace CB {
     // adsf/setdata redirects FIRST (instant + Init-independent on a warm cache) and signals this. The
     // engine's animationdata / animationsetdata open then waits ONLY on this — milliseconds on warm —
     // instead of parking the main thread ~50s on the full Init (the freeze + trapped cursor + no bar).
-    // Mirrors the m_redirectReady/m_readyMutex/m_readyCv trio in the Resolver.
     static std::atomic<bool>       g_adsfArmed{ false };
     static std::mutex              g_armMutex;
     static std::condition_variable g_armCv;
@@ -197,17 +209,27 @@ namespace CB {
         g_armCv.notify_all();
     }
 
-    // Block until the adsf/setdata redirects are armed (or a generous timeout — never hang the engine's
-    // load forever if arming somehow fails; on timeout the open falls through to vanilla, same as a
-    // pre-Ready passthrough). Called by the animationdata/animationsetdata detours after they kick the
-    // gate. Fast-path acquire, then a bounded wait, same shape as ProjectRedirect's redirect wait.
+    /// @brief Block until the adsf/setdata redirects are armed, or the ArmThread has exited without arming them.
+    /// @note No time limit: the engine reads the adsf once per launch, so an open let through early serves vanilla's
+    ///       file for the whole session (every CB clip record lost). A projection's length grows with the clip count
+    ///       (39 s for ~2,100 clips on 2026-11-05), so any fixed limit is one load order away from that.
+    /// @note The ArmThread signals on every path it returns by; its exit is checked too, so a thread that dies
+    ///       unsignalled releases the open (vanilla) instead of hanging the game.
     void WaitAdsfArmed()
     {
         if (g_adsfArmed.load(std::memory_order_acquire)) return;
+        const auto t0 = std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> lk(g_armMutex);
-        if (!g_armCv.wait_for(lk, std::chrono::seconds(120),
-                              [] { return g_adsfArmed.load(std::memory_order_acquire); }))
-            LOG_WARN("Community Behaviors: adsf/setdata arm timed out (120s) — serving vanilla for this open.");
+        while (!g_armCv.wait_for(lk, std::chrono::seconds(15), [] { return g_adsfArmed.load(std::memory_order_acquire); })) {
+            const HANDLE h = g_compileThread;
+            if (h && WaitForSingleObject(h, 0) == WAIT_OBJECT_0) {
+                LOG_ERROR("Community Behaviors: the arm thread exited without arming the adsf/setdata — serving vanilla "
+                          "for this open.");
+                return;
+            }
+            LOG_INFO("Community Behaviors: the engine's animation data open is waiting on the adsf projection ({:.0f} s).",
+                     std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        }
     }
 
     // adsf + setdata serve/arm.
@@ -310,7 +332,6 @@ namespace CB {
     static unsigned StandDown()
     {
         SignalAdsfArmed();
-        CB::core::bootstrap::SetProgress(0, 0, false);
         t_compileGateInProgress = false;
         return 0;
     }
@@ -320,10 +341,22 @@ namespace CB {
     {
         CB::core::resolve::ArmLoadOrderReader({
             [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
-            [](std::string_view path) { return g_resolver.NativeAnimationText(path); } });
+            [](std::string_view path) { return g_resolver.NativeAnimationText(path); },
+            [] { return g_resolver.AddedBehaviorUnitKeys(); },
+            [](const std::string& key) { return g_resolver.RigUnitsOf(key); } });
     }
 
-    static unsigned __stdcall ArmThread(void*)
+    /// @brief The features' warm-up work (core::resolve::OnWarmUp), on the anim pool, before the warm-up finishes.
+    static void RunFeatureWarmUp()
+    {
+        CB_ZONE(zone, "warm-up: features");
+        CB::core::bootstrap::SetPhase("building features");
+        CB::core::bootstrap::SetProgress(0, 0, true);
+        AnimParallel par("the features' warm-up");
+        CB::core::resolve::RunWarmUp(par.ptr());
+    }
+
+    static unsigned ArmThreadBody()
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   // never starve the game's threads
@@ -347,6 +380,7 @@ namespace CB {
                 CB_ZONE(zone, "warm-up: wait for init");
                 g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
             }
+            CB::core::bootstrap::SetPhase("loading the cache");
             if (g_resolver.Failed()) return StandDown();
             ArmLoadOrder();
 
@@ -359,10 +393,11 @@ namespace CB {
             }
             if (!adsfFromCache) {
                 CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                CB::core::bootstrap::SetPhase("projecting animation data");
                 ArmAdsfSetDataServe(animPar.ptr());
                 SignalAdsfArmed();
             }
-            CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
+            RunFeatureWarmUp();
         } else {
             {
                 CB_ZONE(zone, "warm-up: wait for init");
@@ -374,7 +409,7 @@ namespace CB {
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
             const std::size_t total      = graphCount + animCount;
-            CB::core::bootstrap::SetProgress(0, total, true); CB::core::bootstrap::Install();
+            CB::core::bootstrap::Install();
 
             /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
             ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
@@ -390,6 +425,7 @@ namespace CB {
                 g_resolver.SetAnimDataComplete(true);
             } else {
                 CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                CB::core::bootstrap::SetPhase("projecting animation data");
                 AnimParallel adsfPar("the adsf projection parses animations");
                 ArmAdsfSetDataServe(adsfPar.ptr());
             }
@@ -397,11 +433,29 @@ namespace CB {
             LOG_INFO("Community Behaviors: COLD compile — adsf/setdata armed, compiling {} graph(s) + "
                      "{} animation(s) in the background (bar riding the compile).", graphCount, animCount);
             WarmUpThread(reinterpret_cast<void*>(total));   // compile + materialize (sets m_redirectReady)
+            RunFeatureWarmUp();
         }
 
         t_compileGateInProgress = false;
         return 0;
     }
+
+    /// @brief Set as the arm/compile exits, by any path (inline fallback included); WarmUpFinished reads it.
+    static std::atomic<bool> g_warmUpFinished{ false };
+
+    /// @note The bar is retired here and nowhere else: after every phase, so it never vanishes while one still runs.
+    static unsigned __stdcall ArmThread(void*)
+    {
+        const auto     t0 = std::chrono::steady_clock::now();
+        const unsigned rc = ArmThreadBody();
+        g_warmUpFinished.store(true, std::memory_order_release);
+        CB::core::bootstrap::SetProgress(0, 0, false);
+        LOG_INFO("Community Behaviors: warm-up finished in {:.1f} s (every phase) - game loads may start.",
+                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        return rc;
+    }
+
+    bool WarmUpFinished() { return g_warmUpFinished.load(std::memory_order_acquire); }
 
     // The compile gate — see CompileGate.h. One-shot, thread-safe, NON-blocking kick.
     void EnsureCompiledAndArmed()
@@ -421,7 +475,8 @@ namespace CB {
         // Progress bar is DEFAULT — armed NOW, before the ArmThread does any work, so it's visible for the
         // whole arm. Indeterminate until a path sets the real total (DrawBar's total==0 path). No marker
         // gate; it only draws while a compile is running.
-        CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
+        CB::core::bootstrap::SetPhase("reading the load order");
+        CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate bar
         CB::core::bootstrap::Install();                      // installs the present hook + imgui now (idempotent)
 
         // Kick the background arm and RETURN — the main thread stays free to pump the window + present, so
@@ -459,6 +514,7 @@ namespace CB {
     static unsigned __stdcall InitThread(void*)
     {
         CB_ZONE(zone, "warm-up: init (bundles, scan, skeletons)");
+        ApplyThreadSetting();           // before anything sizes a pool
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
         /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
         ///       as found now, before anything compiles).
@@ -552,6 +608,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::core::serve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
+
+    CB::core::bootstrap::InstallLoadGate();
 
     /// @note The condition roster is registered always: it installs nothing, and motion matching's chooser rows and
     ///       biases are condition expressions. Only the conditional-setdata producer/matcher hooks wait on

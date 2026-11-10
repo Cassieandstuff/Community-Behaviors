@@ -2,6 +2,7 @@ name:      BSLookAtModifier
 parent:    hkbModifier
 signature: 0xd756fc25
 size:      224
+defaults:  { enable: true, lookAtTarget: true }
 fields:
   - { name: lookAtTarget, type: bool }
   - { skip: 7 }

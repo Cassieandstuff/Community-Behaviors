@@ -1,8 +1,0 @@
-'nodePosition':
-  variable: 'NodeFollowerNodePosition'
-  output: ''
-  flags: FLAG_IN
-'following':
-  variable: 'bNodeFollowerFollowing'
-  output: ''
-  flags: FLAG_IN

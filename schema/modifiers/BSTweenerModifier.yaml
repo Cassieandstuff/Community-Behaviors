@@ -2,6 +2,7 @@ name:      BSTweenerModifier
 parent:    hkbModifier
 signature: 0x0d2d9a04
 size:      208
+defaults:  { enable: true, targetRotation: (0 0 0 1), tweenRotation: true }
 fields:
   - { name: tweenPosition,    type: bool }
   - { name: tweenRotation,    type: bool }

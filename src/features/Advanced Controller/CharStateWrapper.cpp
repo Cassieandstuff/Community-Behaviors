@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharGround.h"
+#include "CharJumpTakeoff.h"
 
 #include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContextAccess.h>
 #include <core/debug/Settings.h>
@@ -154,18 +155,19 @@ namespace CB::feature {
         /// @brief Vertical speed `vz` against what following the ground `g` gives at horizontal velocity (vx, vy).
         float RiseOffGround(const ch::FloorVerdict& g, float vx, float vy, float vz) { return vz - ch::SlopeRise(g, vx, vy); }
 
-        /// @brief How long a jump from the ground waits before it launches: [Character] fJumpWindup seconds (default
-        ///        0.033, two 60 Hz steps), the character moving on the ground meanwhile.
-        /// @note Why: the takeoff gets a beat an animation (later, motion matching) can fill, and the predictor sees the
-        ///       launch coming (GroundNote::jumpIn). Jumps already off the ground (coyote, out of the water) never wait.
-        float JumpWindup()
+        /// @brief How long a jump from the ground waits at most before it launches, the character moving on the ground
+        ///        meanwhile: for the player [Character] fJumpWindup seconds (default 0.4), cut short when the jump start
+        ///        the pose search switched to reaches its takeoff (CharJumpTakeoff); for anyone else two 60 Hz steps.
+        /// @note Why: the impulse waits for the animation's push-off, and the predictor sees the launch coming
+        ///       (GroundNote::jumpIn). Jumps already off the ground (coyote, out of the water) never wait. 0 = instant.
+        float JumpWindup(bool player)
         {
             static const float w = [] {
-                const float v = std::clamp(ch::SettingFloat("fJumpWindup", 0.033f), 0.0f, 0.5f);
-                LOG_INFO("ground states: a jump from the ground winds up for {:.3f} s", v);
+                const float v = std::clamp(ch::SettingFloat("fJumpWindup", 0.4f), 0.0f, 1.0f);
+                LOG_INFO("ground states: the player's jump from the ground winds up for at most {:.3f} s, until the animation takes off", v);
                 return v;
             }();
-            return w;
+            return player ? w : 0.033f;
         }
 
         /// @note Keyed by controller address; references into an unordered_map survive rehashing, and only one
@@ -499,6 +501,7 @@ namespace CB::feature {
             t.mode    = to;
             t.entry   = AirEntry::None;
             t.airTime = 0.0f;
+            if (t.windup >= 0.0f && ch::IsPlayer(&c)) ch::takeoff::End();
             t.windup  = -1.0f;
             Commit(c, ::HK_CHARACTER_ON_GROUND);
         }
@@ -537,6 +540,7 @@ namespace CB::feature {
                          Name(entry), hx, hy, ch::SlopeRise(ground, hx, hy), speed,
                          std::atan2(std::sqrt((ox - hx) * (ox - hx) + (oy - hy) * (oy - hy)), oz - ch::SlopeRise(ground, hx, hy)) * 57.29578f, ox,
                          oy, oz, sincePress < 10.0f ? std::format("{:.3f} s after the press", sincePress) : std::string("no press seen"));
+            if (ch::IsPlayer(&c)) ch::takeoff::End();
             t.windup = -1.0f;
             c.m_outVelocity.set(ox + surf(0), oy + surf(1), oz + surf(2), 0.0f);
             c.m_flags |= ch::kJumping;
@@ -665,6 +669,7 @@ namespace CB::feature {
                 t.entry      = t.mode == Mode::Airborne ? AirEntry::Launched : AirEntry::None;
                 t.springInit = false;
                 t.sx = t.sy  = 0.0f;
+                if (t.windup >= 0.0f && ch::IsPlayer(&c)) ch::takeoff::End();
                 t.windup     = -1.0f;
                 t.airTime    = 0.0f;
                 t.pogoRate   = 0.0f;
@@ -731,11 +736,15 @@ namespace CB::feature {
 
                 if (grounded) {
                     if (fv.ground == ch::Ground::Grounded) t.lastGround = fv;
+                    const bool player = ch::IsPlayer(&c);
                     if (want == ::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
-                        t.windup = JumpWindup();
-                        if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s", t.windup);
+                        t.windup = JumpWindup(player);
+                        if (player && t.windup > kWindupDone) ch::takeoff::Begin();
+                        if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s at most", t.windup);
                     }
-                    if (t.windup >= 0.0f && t.windup <= kWindupDone) {
+                    const bool tookOff = player && t.windup > kWindupDone && ch::takeoff::IsReady();
+                    if (tookOff && LogBudget()) LOG_INFO("ground states: the jump start took off - launching with {:.3f} s of wind-up left", t.windup);
+                    if (t.windup >= 0.0f && (t.windup <= kWindupDone || tookOff)) {
                         Launch(c, t, AirEntry::Jumped, fv, dt);
                     } else {
                         if (ch::Supported(fv)) SetSupportFrom(c, fv);
@@ -828,7 +837,7 @@ namespace CB::feature {
             const auto  actor = ch::ManagedActor(*controller);
             const char* flag  = actor ? ch::GraphMovesActor(actor.get()) : "";
             static std::atomic<const char*> lastFlag{ "" };
-            if (std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
+            if (!ch::IsManagedNpc(controller) && std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
                 LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the {} ({}) - vanilla's states run", ch::IsPlayer(controller) ? "player" : "ridden horse", flag)
                                                     : std::format("the graph hands the {} back", ch::IsPlayer(controller) ? "player" : "ridden horse"));
             return *flag == 0;
@@ -845,8 +854,8 @@ namespace CB::feature {
                 if (previous != Id) LOG_INFO("state wrapper: player state {} -> {}", previous, Id);
             }
             if (CbRuns(controller)) return CbSimulate(Id, *controller);
-            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller)) {
-                /// @note The player (or the ridden horse) left CB's states for a step (chase/ragdoll, the graph moving it);
+            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller) || ch::WasManagedNpc(controller)) {
+                /// @note The player (or the ridden horse, or an NPC) left CB's states for a step (chase/ragdoll, the graph moving it);
                 ///       the next CB step resyncs.
                 std::scoped_lock lock(g_trackLock);
                 auto it = g_tracks.find(static_cast<const void*>(controller));

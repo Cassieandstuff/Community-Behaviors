@@ -2,6 +2,7 @@ name:      hkbEventBase
 parent:    null
 signature: 0x76bddb31
 size:      16
+abstract:  true
 fields:
   - { name: id,      type: int32, eventref: event }                       # ReadInt32
   - { skip: 4 }                                          # Skip(4)

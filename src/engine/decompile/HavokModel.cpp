@@ -1,3 +1,4 @@
+#include <interface/MasterTable.h>
 #include <decompile/BehaviorDecompile.h>
 
 #include <interface/HavokEnums.h>       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
@@ -25,6 +26,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <set>
 #include <memory>
 #include <string>
@@ -67,7 +69,7 @@ bool IsNodeClass(const std::string& className) {
     ///       still consumes a tagfile id but gets no file.
     static const std::unordered_set<std::string> kNodes = {
         "hkRootLevelContainer", "hkbStateMachine", "hkbStateMachineStateInfo", "hkbClipGenerator",
-        "hkbTransitionEffect", "hkbBlendingTransitionEffect", "hkbManualSelectorGenerator", "CBPoseSearchGenerator",
+        "hkbTransitionEffect", "hkbBlendingTransitionEffect", "hkbManualSelectorGenerator", "CBPoseSearchGenerator", "CBBlendSpace2DGenerator",
         "hkbBehaviorReferenceGenerator", "BSiStateTaggingGenerator", "hkbBlenderGenerator",
         "BSCyclicBlendTransitionGenerator", "BSBoneSwitchGenerator", "BSOffsetAnimationGenerator",
         "BSSynchronizedClipGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",
@@ -276,6 +278,8 @@ struct ReflectCtx {
     const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
     const std::unordered_set<const IHavokObject*>* nodes;   ///< the objects with a file of their own (EffectiveNodes)
     std::uint16_t                   keyOwner = CB::engine::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
+    /// @brief An edit's derive: minted keys pair by key, not content, and a patch states order. A conversion pairs once by content and states none.
+    bool                            byKey = false;
     const SkeletonView*             skel = nullptr;                  ///< null outside a skeleton unit
     std::map<std::string, const std::vector<std::string>*> boneOf;  ///< `boneof:` field name -> that skeleton's bones
     const io::SchemaObject*         bindable = nullptr;              ///< the hkbBindable whose member paths `member` continues
@@ -1965,6 +1969,9 @@ struct HkyParse {
     std::vector<std::shared_ptr<io::SchemaObject>>                         all;      ///< every object (owns them)
     struct Symbol { io::SchemaObject* obj; std::size_t field; bool isEvent; std::string name; std::string where; };
     std::vector<Symbol>                                                    symbols;  ///< name companions, resolved last
+    /// @brief Set by an editor's merge: a reference to a node that's gone is left empty and listed here instead of failing.
+    std::vector<MergeBreak>*                                               breaks = nullptr;
+    std::string                                                            node;     ///< the graph id of the node being filled, for `breaks`
     std::string                                                            err;
     std::string                                                            where;    ///< "<file>" for messages
     bool                                                                   patch = false;   ///< fill as a FIELD PATCH
@@ -2106,6 +2113,16 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
 bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
 bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps);
 
+/// @brief A reference names a node that isn't there: an error, unless an editor's merge asked for these to be listed instead.
+bool missingNode(HkyParse& ps, const std::string& field, const std::string& id) {
+    if (!ps.breaks) {
+        ps.err = ps.where + ": " + field + ": no node with id '" + id + "'";
+        return false;
+    }
+    ps.breaks->push_back({ {}, ps.node, field, ps.canon ? ps.canon(id) : id, ps.where });
+    return true;
+}
+
 /// @brief One pointer / struct value: a file-node id, an inline map (optionally `class:`-tagged), or the `unwrap:`
 ///        collapsed form of the declared class.
 bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::shared_ptr<IHavokObject>& out, HkyParse& ps,
@@ -2114,7 +2131,10 @@ bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::s
         const std::string r = ystr(n);
         if (r == "null") { out = nullptr; return true; }
         auto it = ps.byId.find(ps.canon ? ps.canon(r) : r);
-        if (it == ps.byId.end()) { ps.err = ps.where + ": " + field + ": no node with id '" + r + "'"; return false; }
+        if (it == ps.byId.end()) {
+            out = nullptr;
+            return missingNode(ps, field, r);
+        }
         out = it->second;
         return true;
     }
@@ -2151,7 +2171,10 @@ bool rosterElement(const yml::ConstNodeRef& e, const Field& f, const std::string
                    const std::string& key, std::shared_ptr<IHavokObject>& out, HkyParse& ps) {
     if (kind == "ref") {
         const auto it = ps.byId.find(ps.canon ? ps.canon(key) : key);
-        if (it == ps.byId.end()) { ps.err = ps.where + ": " + f.name + ": no node with id '" + key + "'"; return false; }
+        if (it == ps.byId.end()) {
+            out = nullptr;
+            return missingNode(ps, f.name, key);
+        }
         out = it->second;
         return true;
     }
@@ -2551,8 +2574,7 @@ bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
         }
         return {};
     };
-    for (auto e : n) {
-        const std::string key = ykey(e);
+    const auto find = [&](const std::string& key) {
         const std::string ck = ps.canon ? ps.canon(key) : key;
         std::size_t j = v.objs.size();
         if (kind == "ref") {
@@ -2563,6 +2585,31 @@ bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
         } else {
             for (std::size_t k = 0; k < v.objs.size(); ++k) if (elemKey(v.objs[k]) == key) { j = k; break; }
         }
+        return j;
+    };
+    /// @note `after: '<key>'` moves an entry to just after that one, `after: ''` to the front; an anchor another mod removed
+    ///       leaves it where it is. A later entry's anchor is an earlier entry's result, so a patch states the list in order.
+    const auto place = [&](const yml::ConstNodeRef& e, const std::string& key) {
+        if (!e.is_map() || !yhas(e, "after") || kind == "slot") return;
+        const std::size_t from = find(key);
+        if (from == v.objs.size()) return;
+        const std::string anchor = ystr(yget(e, "after"));
+        const std::size_t at = anchor.empty() ? 0 : find(anchor);
+        if (at == v.objs.size() || at == from) return;
+        auto obj = std::move(v.objs[from]);
+        v.objs.erase(v.objs.begin() + static_cast<std::ptrdiff_t>(from));
+        const std::size_t to = anchor.empty() ? 0 : (at < from ? at + 1 : at);
+        v.objs.insert(v.objs.begin() + static_cast<std::ptrdiff_t>(to), std::move(obj));
+        if (keys) {
+            auto moved = std::move((*keys)[from]);
+            keys->erase(keys->begin() + static_cast<std::ptrdiff_t>(from));
+            keys->insert(keys->begin() + static_cast<std::ptrdiff_t>(to), std::move(moved));
+        }
+    };
+    for (auto e : n) {
+        const std::string key = ykey(e);
+        const std::string ck = ps.canon ? ps.canon(key) : key;
+        const std::size_t j = find(key);
         if (e.is_map() && yhas(e, "deleted")) {
             if (j == v.objs.size()) continue;
             if (kind == "slot") { ps.err = ps.where + ": " + f.name + ": slot '" + key + "' is referenced by position and can't be deleted"; return false; }
@@ -2571,22 +2618,25 @@ bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
             continue;
         }
         if (j < v.objs.size()) {
-            if (kind == "ref") continue;
+            if (kind == "ref") { place(e, key); continue; }
             auto* co = dynamic_cast<io::SchemaObject*>(v.objs[j].get());
             const bool sameClass = !(e.is_map() && yhas(e, "class")) || (co && ystr(yget(e, "class")) == co->ClassName());
             if (e.is_map() && co && !ps.nodes.count(co) && sameClass) {
                 if (!fillHky(*co, e, ps)) return false;
+                place(e, key);
                 continue;
             }
             std::shared_ptr<IHavokObject> o;
             if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
             v.objs[j] = o;
+            place(e, key);
             continue;
         }
         std::shared_ptr<IHavokObject> o;
         if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
         v.objs.push_back(o);
         if (keys) keys->push_back(ck);
+        place(e, key);
     }
     return true;
 }
@@ -3317,6 +3367,12 @@ std::optional<std::string> valueDiff(const std::vector<std::string>& b, const st
     return y;
 }
 
+/// @brief The minted key of entry `k` of `so`'s roster at field `i`: as stated, else by position.
+std::string mintedKeyAt(const io::SchemaObject& so, std::size_t i, std::size_t k, const ReflectCtx& c) {
+    const auto it = c.id.subKeys.find({ &so, i });
+    return it != c.id.subKeys.end() && it->second.size() == so.Values()[i].objs.size() ? it->second[k] : mintedKey(k, c.keyOwner);
+}
+
 /// @brief A roster field's KEYED patch: changed entries (field-level for an inline record), new entries (whole, keyed
 ///        as the mod's own), and `{deleted: true}` for base entries the mod dropped. Returns the entry lines (indented
 ///        two), empty when nothing changed; nullopt when either side can't be keyed (the caller patches positionally).
@@ -3355,6 +3411,10 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
         for (std::size_t mk = 0; mk < M.size(); ++mk)
             for (std::size_t bk = 0; bk < B.size(); ++bk)
                 if (!claimed[bk] && natural(B[bk], cb) == natural(M[mk], cm)) { link(mk, bk); break; }
+    } else if (cm.byKey && kind == "id") {
+        for (std::size_t mk = 0; mk < M.size(); ++mk)
+            for (std::size_t bk = 0; bk < B.size(); ++bk)
+                if (!claimed[bk] && mintedKeyAt(b, i, bk, cb) == mintedKeyAt(m, i, mk, cm)) { link(mk, bk); break; }
     } else {
         for (std::size_t mk = 0; mk < M.size(); ++mk)
             for (std::size_t bk = 0; bk < B.size(); ++bk)
@@ -3370,7 +3430,7 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
     auto baseKey = [&](std::size_t bk) {
         if (kind == "ref") return refIdOf(B[bk], cb.id);
         if (kind == "field" || kind == "bone") return natural(B[bk], cb);
-        return mintedKey(bk, cb.keyOwner);
+        return cb.byKey ? mintedKeyAt(b, i, bk, cb) : mintedKey(bk, cb.keyOwner);
     };
     auto whole = [&](const std::shared_ptr<IHavokObject>& p) -> std::string {
         if (!p) return "null";
@@ -3378,27 +3438,52 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
         const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
         return e ? reflectObject(*e, mi, f.ref) : std::string();
     };
-    std::string y;
+    std::vector<std::string> keyOf(M.size());
     std::size_t fresh = 0;
+    for (std::size_t mk = 0; mk < M.size(); ++mk) {
+        if (pairOf[mk] >= 0) keyOf[mk] = baseKey(static_cast<std::size_t>(pairOf[mk]));
+        else if (kind == "ref") keyOf[mk] = refIdOf(M[mk], cm.id);
+        else if (kind == "field" || kind == "bone") keyOf[mk] = natural(M[mk], cm);
+        else keyOf[mk] = cm.byKey ? mintedKeyAt(m, i, mk, cm) : mintedKey(fresh++, cm.keyOwner);
+    }
+    /// @note What the merge would build (the kept base entries, then the new ones) walked to the edit's order: an entry out of place states what it follows.
+    std::map<std::size_t, std::string> after;
+    if (cm.byKey && kind != "slot") {
+        std::vector<std::string> built;
+        for (std::size_t bk = 0; bk < B.size(); ++bk) if (claimed[bk]) built.push_back(baseKey(bk));
+        for (std::size_t mk = 0; mk < M.size(); ++mk) if (pairOf[mk] < 0) built.push_back(keyOf[mk]);
+        for (std::size_t mk = 0; mk < M.size(); ++mk) {
+            if (built[mk] == keyOf[mk]) continue;
+            const auto at = std::find(built.begin() + static_cast<std::ptrdiff_t>(mk), built.end(), keyOf[mk]);
+            std::rotate(built.begin() + static_cast<std::ptrdiff_t>(mk), at, at + 1);
+            after[mk] = mk ? keyOf[mk - 1] : std::string();
+        }
+    }
+    const auto entry = [&](std::size_t mk, const std::string& body) {
+        const auto moved = after.find(mk);
+        if (moved == after.end()) return rosterEntry(keyOf[mk], body);
+        const std::string anchor = "after: " + text::Quote(moved->second);
+        return body.find('\n') == std::string::npos ? rosterEntry(keyOf[mk], "{" + anchor + "}") : rosterEntry(keyOf[mk], anchor + "\n" + body);
+    };
+    std::string y;
     for (std::size_t mk = 0; mk < M.size(); ++mk) {
         if (pairOf[mk] >= 0) {
             const std::size_t bk = static_cast<std::size_t>(pairOf[mk]);
-            if (bb[bk] == mb[mk]) continue;
+            if (bb[bk] == mb[mk]) {
+                if (after.count(mk)) y += entry(mk, {});
+                continue;
+            }
             const auto* bo = dynamic_cast<const io::SchemaObject*>(B[bk].get());
             const auto* mo = dynamic_cast<const io::SchemaObject*>(M[mk].get());
             if (bo && mo && !isFileNode(B[bk].get(), cb) && !isFileNode(M[mk].get(), cm) && std::string(bo->ClassName()) == mo->ClassName()) {
                 const std::string sub = diffObject(*bo, *mo, bi, mi);
-                if (!sub.empty()) y += rosterEntry(baseKey(bk), sub);
+                if (!sub.empty() || after.count(mk)) y += entry(mk, sub);
             } else {
-                y += rosterEntry(baseKey(bk), whole(M[mk]));
+                y += entry(mk, whole(M[mk]));
             }
             continue;
         }
-        std::string key;
-        if (kind == "ref") key = refIdOf(M[mk], cm.id);
-        else if (kind == "field" || kind == "bone") key = natural(M[mk], cm);
-        else key = mintedKey(fresh++, cm.keyOwner);
-        y += rosterEntry(key, whole(M[mk]));
+        y += entry(mk, whole(M[mk]));
     }
     for (std::size_t bk = 0; bk < B.size(); ++bk)
         if (!claimed[bk]) y += text::Quote(baseKey(bk)) + ": {deleted: true}\n";
@@ -3528,6 +3613,53 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
 } // namespace
 
 namespace {
+/// @brief The folder a patch file goes in. A patch at the unit's top has no opinion on grouping, so a patched node states a folder only when
+///        the author moved it, and a new node keeps its own.
+std::string patchFolder(const Identity& idB, const IHavokObject* bo, const Identity& idM, const IHavokObject* mo) {
+    const auto folderIn = [](const Identity& id, const IHavokObject* o) {
+        const auto it = id.folder.find(o);
+        return it == id.folder.end() ? std::string() : it->second;
+    };
+    const std::string mine = folderIn(idM, mo);
+    if (!bo) return mine;
+    if (mine == folderIn(idB, bo)) return {};
+    return mine.empty() ? std::string(kUngroupedFolder) : mine;
+}
+
+/// @brief One file per node of `modNodes` that differs from the base (a node the base lacks is new, whole). `byFolder` honors a moved node's folder.
+bool writePatchFiles(const std::vector<const IHavokObject*>& modNodes, const Identity& idB,
+                     const std::unordered_map<std::string, const IHavokObject*>& baseById, const Identity& idM, const ReflectCtx& cB,
+                     const ReflectCtx& cM, bool byFolder, const std::string& patchDir, std::string& err, HkyPatchStats* stats) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::remove_all(patchDir, ec);
+    for (const IHavokObject* o : modNodes) {
+        const auto* mo = dynamic_cast<const io::SchemaObject*>(o);
+        if (!mo) continue;
+        const std::string id = idM.ids.at(o);
+        const auto        at = baseById.find(id);
+        const IHavokObject* base = at == baseById.end() ? nullptr : at->second;
+        const bool        isRoot = std::string(o->ClassName()) == "hkRootLevelContainer";
+        const std::string folder = byFolder && !isRoot ? patchFolder(idB, base, idM, o) : std::string();
+        std::string body;
+        if (base) {
+            const auto* bo = dynamic_cast<const io::SchemaObject*>(base);
+            if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
+            body = diffObject(*bo, *mo, cB, cM);
+            if (body.empty() && folder.empty()) continue;
+            if (stats) ++stats->patched;
+        } else {
+            body = reflectObject(*mo, cM);
+            if (stats) ++stats->added;
+        }
+        /// @note A patch states its class for the reader (a new node's body already carries it).
+        const std::string head = "id: " + id + "\n" + (base ? "class: " + std::string(mo->ClassName()) + "\n" : std::string());
+        const fs::path    dir  = folder.empty() ? fs::path(patchDir) : fs::path(patchDir) / fs::path(std::u8string(folder.begin(), folder.end()));
+        if (!disk::WriteFile(dir / (isRoot ? std::string("graph.yaml") : fsId(id) + ".yaml"), head + body, {}, &err)) return false;
+    }
+    return true;
+}
+
 /// @brief The derive over a base identity whose ids are already FormIDs of the PATCH's master table; `keyOwner` is
 ///        the master index of the base's positional roster keys.
 bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<std::uint8_t>& modBytes,
@@ -3606,29 +3738,7 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
         for (const auto& [o, id] : modId) idM.ids[o] = id;
         const ReflectCtx cM{ idM, nrM, reg, bones, &effM };
 
-        std::error_code ec;
-        fs::remove_all(patchDir, ec);
-        for (const IHavokObject* o : modNodes) {
-            const auto* mo = dynamic_cast<const io::SchemaObject*>(o);
-            if (!mo) continue;
-            const std::string id = idM.ids.at(o);
-            std::string body;
-            if (auto it = baseById.find(id); it != baseById.end()) {
-                const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
-                if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
-                body = diffObject(*bo, *mo, cB, cM);
-                if (body.empty()) continue;
-                if (stats) ++stats->patched;
-            } else {
-                body = reflectObject(*mo, cM);
-                if (stats) ++stats->added;
-            }
-            /// @note A patch states its class for the reader (a new node's body already carries it).
-            const std::string head = "id: " + id + "\n" + (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string());
-            if (!disk::WriteFile(fs::path(patchDir) / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), head + body, {}, &err))
-                return false;
-        }
-        return true;
+        return writePatchFiles(modNodes, idB, baseById, idM, cB, cM, false, patchDir, err, stats);
     } catch (const std::exception& e) {
         err = std::string("DeriveHkyPatch: ") + e.what();
         return false;
@@ -3653,6 +3763,31 @@ std::string relFormId(const std::string& canon, const std::vector<std::string>& 
     const auto it = std::find(masters.begin(), masters.end(), canon.substr(0, c));
     if (it == masters.end()) return canon;
     return formIdOf(static_cast<std::uint16_t>(it - masters.begin()), canon.substr(c + 1));
+}
+
+/// @brief `graph`'s identity over what its root reaches, and any file node `parked` keeps, each id as `rel` says.
+Identity reachableIdentity(const ParsedHky& graph, const std::function<std::string(const std::string&)>& rel,
+                           const std::function<bool(const std::string&)>& parked = {}) {
+    Identity out;
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        if (graph.identity.nodes.count(o)) out.nodes.insert(o);
+        if (auto it = graph.identity.ids.find(o); it != graph.identity.ids.end()) out.ids[o] = rel(it->second);
+        if (auto it = graph.identity.folder.find(o); it != graph.identity.folder.end()) out.folder[o] = it->second;
+        if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
+            for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(graph.root.get());
+    if (parked)
+        for (const auto& [o, id] : graph.identity.ids)
+            if (graph.identity.nodes.count(o) && parked(id)) walk(o);
+    for (const auto& [k, keys] : graph.identity.subKeys) {
+        if (!seen.count(k.first)) continue;
+        auto& keysOut = out.subKeys[k];
+        for (const std::string& key : keys) keysOut.push_back(rel(key));
+    }
+    return out;
 }
 } // namespace
 
@@ -3681,33 +3816,94 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
     /// @note Ids a merge added are already canonical ("bfco:54"); the base unit's own FormIds resolve through
     ///       `baseMasters`. Only the graph reachable from the root counts — a replaced subtree's old objects linger
     ///       in the identity, and a stale (class, name) there would steal the live node's match.
-    const auto rel = [&](const std::string& id) {
+    const Identity idB = reachableIdentity(base, [&](const std::string& id) {
         return relFormId(id.find(':') != std::string::npos ? id : baseCanon(id), patchMasters);
-    };
-    Identity idB;
-    std::unordered_set<const IHavokObject*> seen;
-    std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
-        if (!o || !seen.insert(o).second) return;
-        if (base.identity.nodes.count(o)) idB.nodes.insert(o);
-        if (auto it = base.identity.ids.find(o); it != base.identity.ids.end()) idB.ids[o] = rel(it->second);
-        if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
-            for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
-    };
-    walk(base.root.get());
-    for (const auto& [k, keys] : base.identity.subKeys) {
-        if (!seen.count(k.first)) continue;
-        auto& out = idB.subKeys[k];
-        for (const std::string& key : keys) out.push_back(rel(key));
-    }
+    });
     const auto self = std::find(patchMasters.begin(), patchMasters.end(), baseMasters.front());
     if (self == patchMasters.end()) { err = "DeriveHkyPatch: the base unit's owner '" + baseMasters.front() + "' is not a master"; return false; }
     return derivePatch(idB, static_cast<std::uint16_t>(self - patchMasters.begin()), modBytes, reg, patchDir, err, bones, stats);
 }
 
+bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
+                       bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
+                       std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats, std::vector<std::string>* used) {
+    namespace fs = std::filesystem;
+    if (baseMasters.empty()) { err = "DeriveEditedPatch: the base has no master table"; return false; }
+    try {
+        const auto baseCanon = canonFor(baseMasters);
+        /// @note A merge leaves ids a layer added canonical ("bfco:54") and the base unit's own as its FormIDs. A project's patch is one of those
+        ///       layers, so an edited graph names its project's own nodes by `self`.
+        const std::string unsaved = std::string(kUnsavedOwner) + ":", owned = self + ":";
+        const auto canonical = [&](const std::string& id) {
+            if (id.starts_with(unsaved)) return owned + id.substr(unsaved.size());
+            return id.find(':') != std::string::npos ? id : baseCanon(id);
+        };
+        const auto run = [&](const std::vector<std::string>& table, HkyPatchStats* st) {
+            const auto     rel = [&](const std::string& id) { return relFormId(canonical(id), table); };
+            /// @note The project's own node stays though nothing reaches it yet: its author is still wiring it. Nothing in the game reads it, since a
+            ///       graph serializes from its root. Anyone else's unreachable node needs no statement: the layer owning it still holds it.
+            const Identity idB = reachableIdentity(base, rel),
+                           idM = reachableIdentity(edited, rel, [&](const std::string& id) { return canonical(id).starts_with(owned); });
+            const auto     effB = EffectiveNodes(idB), effM = EffectiveNodes(idM);
+            const NameResolver nrB = buildResolver(idB), nrM = buildResolver(idM);
+            const auto     owner = std::find(table.begin(), table.end(), baseMasters.front());
+            const auto     keyOwner = static_cast<std::uint16_t>(owner == table.end() ? 0 : owner - table.begin());
+            ReflectCtx     cB{ idB, nrB, reg, bones, &effB, keyOwner }, cM{ idM, nrM, reg, bones, &effM, keyOwner };
+            cB.byKey = cM.byKey = true;
+            std::unordered_map<std::string, const IHavokObject*> baseById;
+            for (const IHavokObject* o : effB) baseById[idB.ids.at(o)] = o;
+            std::vector<const IHavokObject*> nodes(effM.begin(), effM.end());
+            std::sort(nodes.begin(), nodes.end(), [&](const IHavokObject* a, const IHavokObject* b) { return idM.ids.at(a) < idM.ids.at(b); });
+            return writePatchFiles(nodes, idB, baseById, idM, cB, cM, true, patchDir, err, st);
+        };
+
+        /// @note Twice: a first pass over every bundle the graphs name finds the owners the patch actually states, and those are its masters. A
+        ///       dependency is what the edit touched, not everything that touches the unit, or a mod would refuse to load for a mod it never used.
+        std::set<std::string> stems;
+        for (const ParsedHky* g : { &base, &edited })
+            for (const auto& [o, id] : g->identity.ids) {
+                const std::string c = canonical(id);
+                if (const auto colon = c.rfind(':'); colon != std::string::npos) stems.insert(c.substr(0, colon));
+            }
+        std::vector<std::string> named = masters;
+        for (const std::string& stem : stems)
+            if (std::find(named.begin(), named.end(), stem) == named.end()) named.push_back(stem);
+        const auto wide = codec::formid::BuildMasterTable(self, named, haveSkyrim);
+        if (!run(wide, nullptr)) return false;
+
+        static const std::regex kFormId(R"(\b([0-9a-f]{4})x[0-9a-f]{4}\b)");
+        std::set<std::string> stated;
+        const auto scan = [&](const std::string& text) {
+            for (std::sregex_iterator m(text.begin(), text.end(), kFormId), end; m != end; ++m) {
+                const auto at = std::stoul((*m)[1].str(), nullptr, 16);
+                if (at < wide.size()) stated.insert(wide[at]);
+            }
+        };
+        std::error_code ec;
+        if (fs::is_directory(patchDir, ec))
+            for (const auto& e : fs::recursive_directory_iterator(patchDir)) {
+                if (!e.is_regular_file()) continue;
+                scan(e.path().filename().string());
+                if (const auto text = disk::ReadFile(e.path())) scan(*text);
+            }
+        if (used) used->clear();
+        for (const std::string& stem : named) {
+            if (!stated.count(stem) || stem == self || stem == codec::formid::BASE_GAME_STEM) continue;
+            if (used) used->push_back(stem);
+            if (std::find(masters.begin(), masters.end(), stem) == masters.end()) masters.push_back(stem);
+        }
+        return run(codec::formid::BuildMasterTable(self, masters, haveSkyrim), stats);
+    } catch (const std::exception& e) {
+        err = std::string("DeriveEditedPatch: ") + e.what();
+        return false;
+    }
+}
+
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
-                   std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
+                   std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats, std::vector<MergeBreak>* breaks) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    ps.breaks = breaks;
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
     ps.baseCanon = baseCanon;
@@ -3737,7 +3933,23 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         if (d->bone) { boneFiles[d->owner].push_back(d.get()); continue; }
         nodeDocs.push_back(d.get());
         const auto r = d->tree.crootref();
-        if (auto it = ps.byId.find(ps.canon(d->id)); it != ps.byId.end()) { targets.push_back({ it->second, true }); if (stats) ++stats->patched; continue; }
+        /// @note A FormID another bundle owns names a node to edit, never a new one: built from the patched fields alone, it would be a node of
+        ///       defaults nothing asked for. Its owner dropped it, so this patch can't apply.
+        if (const auto owned = CB::engine::codec::formid::parse(d->id);
+            owned && owned->masterIndex != CB::engine::codec::formid::SELF_INDEX && !ps.byId.contains(ps.canon(d->id))) {
+            if (!breaks) { err = d->file + ": edits node '" + ps.canon(d->id) + "', which its owner no longer has"; return false; }
+            breaks->push_back({ {}, {}, {}, ps.canon(d->id), d->file });
+            nodeDocs.pop_back();
+            continue;
+        }
+        if (auto it = ps.byId.find(ps.canon(d->id)); it != ps.byId.end()) {
+            /// @note Only re-emit and an editor read this, so the highest layer stating a folder wins, and a file at the unit's top states none.
+            if (d->folder == kUngroupedFolder) base.identity.folder.erase(it->second.get());
+            else if (!d->folder.empty()) base.identity.folder[it->second.get()] = d->folder;
+            targets.push_back({ it->second, true });
+            if (stats) ++stats->patched;
+            continue;
+        }
         const std::string cls = yhas(r, "class") ? ystr(yget(r, "class")) : std::string();
         auto obj = makeObj(reg, cls);
         if (!obj) { err = d->file + ": unknown class '" + cls + "'"; return false; }
@@ -3755,6 +3967,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         const auto r = nodeDocs[k]->tree.crootref();
         ps.where = nodeDocs[k]->file;
         ps.patch = targets[k].second;
+        const auto holder = base.identity.ids.find(targets[k].first.get());
+        ps.node = holder == base.identity.ids.end() ? nodeDocs[k]->id : holder->second;
         if (!fillHky(*targets[k].first, r, ps)) { err = ps.err; return false; }
         if (yhas(r, "extraBones")) for (auto e : yget(r, "extraBones")) extraBones[nodeDocs[k]->id].push_back(ystr(e));
     }
@@ -3900,6 +4114,39 @@ GraphEdit::Add GraphEdit::AddQuadVariable(std::string_view name, std::string_vie
     return Add::Added;
 }
 
+GraphEdit::Add GraphEdit::AddCharacterProperty(std::string_view name, std::string_view type, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    const auto& types = en::EnumTable("VariableType");
+    const auto t = types.find(std::string(type));
+    if (t == types.end()) { err = "unknown variable type '" + std::string(type) + "'"; return Add::Failed; }
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    auto info = makeObj(m_reg, "hkbVariableInfo"), role = makeObj(m_reg, "hkbRoleAttribute");
+    if (!sd || !info || !role) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    auto& names = sd->FieldRef("characterPropertyNames").strs;
+    if (indexIn(names, name)) return Add::Exists;
+    for (const auto& o : { info, role }) m_graph.objects.push_back(o);
+    info->SetInt("type", static_cast<std::int8_t>(t->second));
+    info->FieldRef("role").obj = role;
+    names.emplace_back(name);
+    gd->FieldRef("characterPropertyInfos").objs.push_back(info);
+    return Add::Added;
+}
+
+GraphEdit::Add GraphEdit::AddAttribute(std::string_view name, float defaultValue, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    if (!sd) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    auto& names = sd->FieldRef("attributeNames").strs;
+    if (indexIn(names, name)) return Add::Exists;
+    names.emplace_back(name);
+    auto&      raw   = gd->FieldRef("attributeDefaults").raw;
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(&defaultValue);
+    raw.insert(raw.end(), bytes, bytes + sizeof defaultValue);
+    return Add::Added;
+}
+
 GraphEdit::Add GraphEdit::AddEvent(std::string_view name, std::string& err) {
     io::SchemaObject* gd = GraphData();
     if (!gd) { err = "no behavior graph data"; return Add::Failed; }
@@ -3988,6 +4235,78 @@ std::shared_ptr<io::SchemaObject> GraphEdit::Make(std::string_view cls) {
     auto o = makeObj(m_reg, std::string(cls));
     if (o) m_graph.objects.push_back(o);
     return o;
+}
+
+namespace {
+/// @brief Fill `so` with what an author's new object starts with, and own what it holds inline.
+bool startObject(io::SchemaObject& so, const schema::SchemaRegistry& reg, ParsedHky& graph, std::string& err) {
+    std::vector<const schema::ClassSchema*> chain;
+    for (const schema::ClassSchema* c = so.Schema(); c; c = c->parent.empty() ? nullptr : reg.Find(c->parent)) chain.push_back(c);
+    std::map<std::string, std::string> stated;
+    for (auto c = chain.rbegin(); c != chain.rend(); ++c)
+        for (const auto& [field, value] : (*c)->defaults) stated[field] = value;
+    const auto fields = so.Fields();
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        const Field& f = *fields[i];
+        if (f.kind == FieldKind::Struct && so.FieldAt(i).obj) {
+            const auto e = std::dynamic_pointer_cast<io::SchemaObject>(so.FieldAt(i).obj);
+            if (!e) continue;
+            graph.objects.push_back(e);
+            graph.identity.ids[e.get()] = "~new" + std::to_string(graph.objects.size());
+            if (!startObject(*e, reg, graph, err)) return false;
+        } else if (f.kind == FieldKind::Scalar && !stated.count(f.name)) {
+            if (f.user) so.FieldAt(i).raw = encInt(f.userValue, f.scalar);
+            else if (!f.eventRef.empty() || !f.varRef.empty() || f.boneRef) so.FieldAt(i).raw = encInt(-1, f.scalar);
+        }
+    }
+    if (stated.empty()) return true;
+    std::string text;
+    for (const auto& [field, value] : stated) text += field + ": " + value + "\n";
+    yml::Tree  tree = yml::parse_in_arena(c4::to_csubstr(text));
+    HkyParse   ps{ reg, nullptr, {}, {}, {}, {}, {} };
+    ps.patch = true;
+    ps.where = std::string(so.ClassName()) + " defaults";
+    if (!fillFields(so, tree.crootref(), ps)) { err = ps.err; return false; }
+    return true;
+}
+} // namespace
+
+std::shared_ptr<io::SchemaObject> GraphEdit::New(std::string_view cls, const std::string& id) {
+    auto o = Make(cls);
+    if (!o) return nullptr;
+    m_graph.identity.ids[o.get()] = id;
+    if (IsNodeClass(std::string(cls))) m_graph.identity.nodes.insert(o.get());
+    std::string err;
+    if (!startObject(*o, m_reg, m_graph, err)) throw std::runtime_error(err);
+    return o;
+}
+
+std::string GraphEdit::Mint(std::uint32_t& floor) const {
+    const auto seen = [&](const std::string& id) {
+        std::uint32_t local = 0;
+        if (const auto colon = id.rfind(':'); colon != std::string::npos) {
+            char*               end = nullptr;
+            const unsigned long v   = std::strtoul(id.c_str() + colon + 1, &end, 10);
+            if (end && *end == '\0') local = static_cast<std::uint32_t>(v);
+        } else if (const auto f = codec::formid::parse(id)) {
+            local = f->local;
+        }
+        floor = std::max(floor, local);
+    };
+    for (const auto& [o, id] : m_graph.identity.ids) seen(id);
+    for (const auto& [k, keys] : m_graph.identity.subKeys) for (const std::string& key : keys) seen(key);
+    if (floor >= 0xFFFFu) return {};
+    return std::string(kUnsavedOwner) + ":" + std::to_string(++floor);
+}
+
+std::vector<std::string>& GraphEdit::RosterKeys(const io::SchemaObject& so, std::size_t i) {
+    auto&             keys = m_graph.identity.subKeys[{ &so, i }];
+    const std::size_t n    = so.Values()[i].objs.size();
+    if (keys.size() != n) {
+        keys.clear();
+        for (std::size_t k = 0; k < n; ++k) keys.push_back(mintedKey(k));
+    }
+    return keys;
 }
 
 std::string GraphEdit::IdOf(const IHavokObject* o) const {
@@ -4098,6 +4417,105 @@ bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& l
         err = std::string("MergeLayersReflective: ") + e.what();
         return false;
     }
+}
+
+bool MergeLayersSkippingBroken(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                               const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                               std::vector<std::pair<std::string, std::size_t>>* nullMarkers, const std::string& unitPath, const std::string& editedStem) {
+    if (layers.empty() || !layers.front().source) { err = "MergeLayersReflective: no base layer"; return false; }
+    std::vector<CB::engine::common::LayerSource> live = layers;
+    std::vector<SkippedLayer> skipped;
+    /// @note A failed patch leaves the graph half-merged, so a mod is skipped by starting again without it. That takes a mod failing, which is rare.
+    for (;;) {
+        graph = ParsedHky{};
+        std::vector<std::pair<std::string, std::size_t>> counts;
+        std::size_t counted = 0;
+        const auto note = [&](const std::string& stem) {
+            if (graph.nullMarkers > counted) counts.emplace_back(stem, graph.nullMarkers - counted);
+            counted = graph.nullMarkers;
+        };
+        try {
+            if (!ParseHkyReflective(*live.front().source, reg, graph, err, bones, unitPath)) { err = live.front().stem + ": " + err; return false; }
+        } catch (const std::exception& e) {
+            err = std::string("MergeLayersReflective: ") + e.what();
+            return false;
+        }
+        note(live.front().stem);
+        bool again = false;
+        for (std::size_t k = 1; k < live.size() && !again; ++k) {
+            if (!live[k].source) continue;
+            const bool  edited = !editedStem.empty() && live[k].stem == editedStem;
+            const auto  before = graph.breaks.size();
+            std::string why;
+            bool        merged = false;
+            try {
+                merged = MergeHkyPatch(graph, *live[k].source, reg, live.front().masterTable, live[k].masterTable, why, bones, nullptr, edited ? &graph.breaks : nullptr);
+            } catch (const std::exception& e) {
+                why = e.what();
+            }
+            if (!merged) {
+                skipped.push_back({ live[k].stem, why });
+                live.erase(live.begin() + static_cast<std::ptrdiff_t>(k));
+                again = true;
+                break;
+            }
+            for (std::size_t b = before; b < graph.breaks.size(); ++b) graph.breaks[b].layer = live[k].stem;
+            note(live[k].stem);
+        }
+        if (again) continue;
+        graph.skippedLayers = std::move(skipped);
+        if (nullMarkers) nullMarkers->insert(nullMarkers->end(), counts.begin(), counts.end());
+        return true;
+    }
+}
+
+namespace {
+/// @brief A field's value as one line for a person to read: a scalar as it stands, a map or list spelled out.
+std::string statedText(const yml::ConstNodeRef& n) {
+    if (n.has_val() && !n.is_map() && !n.is_seq()) return ystr(n);
+    std::string out;
+    for (auto c : n) {
+        if (!out.empty()) out += ", ";
+        if (n.is_map()) out += ykey(c) + ": ";
+        out += statedText(c);
+    }
+    return (n.is_map() ? "{" : "[") + out + (n.is_map() ? "}" : "]");
+}
+} // namespace
+
+std::vector<StatedField> ReadStatedFields(const std::vector<CB::engine::common::LayerSource>& layers, const std::string& graphId, std::string& err) {
+    std::vector<StatedField> out;
+    if (layers.empty()) return out;
+    const std::string canonical = graphId.find(':') != std::string::npos ? graphId : canonFor(layers.front().masterTable)(graphId);
+    const std::string stem      = canonical.substr(0, canonical.rfind(':'));
+    for (const CB::engine::common::LayerSource& layer : layers) {
+        if (!layer.source || std::find(layer.masterTable.begin(), layer.masterTable.end(), stem) == layer.masterTable.end()) continue;
+        const std::string id   = relFormId(canonical, layer.masterTable);
+        const std::string name = fsId(id) + ".yaml";
+        std::vector<std::string> paths = layer.source->listYaml("", true);
+        /// @note A file's name means nothing, but regen and derive name files for their nodes: look there before reading the rest of a layer.
+        std::stable_partition(paths.begin(), paths.end(), [&](const std::string& rel) { return rel == name || rel.ends_with("/" + name); });
+        const bool named = !paths.empty() && (paths.front() == name || paths.front().ends_with("/" + name));
+        for (const std::string& rel : paths) {
+            /// @note The base layer states every node it has and is the big one, so it doesn't get read file by file for a node it names nowhere.
+            if (!named && &layer == &layers.front()) break;
+            auto text = layer.source->read(rel);
+            if (!text) continue;
+            yml::Tree tree;
+            try {
+                tree = yml::parse_in_place(c4::to_csubstr(rel), c4::to_substr(*text));
+            } catch (const std::exception& e) {
+                err = rel + ": " + e.what();
+                continue;
+            }
+            const yml::ConstNodeRef r = tree.crootref();
+            if (!r.is_map() || !yhas(r, "id") || ystr(yget(r, "id")) != id) continue;
+            for (auto c : r)
+                if (const std::string field = ykey(c); field != "id" && field != "class") out.push_back({ layer.stem, field, statedText(c) });
+            break;
+        }
+    }
+    return out;
 }
 
 bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err) {

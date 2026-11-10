@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -66,6 +67,7 @@ namespace CB::engine::locomotion {
         float facingHalflife = 0.1f;          ///< GASP's Offset Root Bone rotation halflife, now the facing's
         float airTurnRate    = 3.4906585f;    ///< 200 deg/s: GASP's falling RotationRate, the facing's cap in the air
         float facingMinSpeed = 10.0f;         ///< below this speed the facing holds (no direction to chase)
+        float turnInPlaceRate = 2.0943951f;   ///< 120 deg/s: the facing's cap while turning in place (Input::turnInPlace)
         float sprintCone     = 0.87266463f;   ///< 50 deg: strafing sprints only within this of the facing (CanSprint)
 
         /// @brief Traction (the horse's dig-in turns, spec H5); every value 0 = off, as for the player.
@@ -109,6 +111,9 @@ namespace CB::engine::locomotion {
         bool  airborne  = false;   ///< the ground states' Airborne: the velocity is the air control's, only the facing steps
         bool  haveStick = false;
         float stickX = 0.0f, stickY = 0.0f;   ///< the direction asked for: world, unit length (fixed-speed stick)
+        /// @brief The stick asks for a facing only (a light deflection): no velocity, so the body brakes, then turns toward
+        ///        the stick at Profile::turnInPlaceRate once it has stopped.
+        bool  turnInPlace = false;
         bool  haveTarget = false;
         float targetX = 0.0f, targetY = 0.0f;   ///< strafe: the lock target's world position
     };
@@ -135,7 +140,8 @@ namespace CB::engine::locomotion {
     ///        stick's acceleration, clamped to the cap; then the profile's traction, when it has one (grip, dig-in
     ///        braking). Airborne leaves the velocity alone. Then the facing: a spring (facingHalflife) toward the
     ///        velocity's heading (strafe: toward the target from (px, py); digging in: toward the stick, with
-    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed.
+    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed, or with
+    ///        Input::turnInPlace turns toward the stick, its rate capped at turnInPlaceRate.
     void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt);
 
     /// @brief Whether the direction allows sprinting: always when orienting to movement; when strafing, only while the
@@ -154,6 +160,31 @@ namespace CB::engine::locomotion {
         if (stickX * stickX + stickY * stickY < kStickDeadzone * kStickDeadzone) return false;
         heading = cameraYaw + std::atan2(stickX, stickY);
         return true;
+    }
+
+    /// @brief The stick as a graph reads it (iCB_StickDirection, iCB_StickIntensity): whole degrees clockwise from the
+    ///        body's facing in [0, 360), and the length in percent, 0 inside kStickDeadzone and at most 100.
+    struct StickInput {
+        int direction = 0;
+        int intensity = 0;
+    };
+
+    /// @brief StickInput for the stick (x right, y forward) read relative to `cameraYaw`, seen from `bodyHeading`.
+    /// @note  Inside the deadzone the direction stays `held` (the last one), so a blend over direction does not jump
+    ///        as the stick comes to rest.
+    inline StickInput StickInputOf(float stickX, float stickY, float cameraYaw, float bodyHeading, int held)
+    {
+        StickInput  in;
+        const float len = std::sqrt(stickX * stickX + stickY * stickY);
+        if (len < kStickDeadzone) {
+            in.direction = held;
+            return in;
+        }
+        constexpr float kRadToDeg = 57.2957795f;
+        const float     relative  = WrapPi(cameraYaw + std::atan2(stickX, stickY) - bodyHeading) * kRadToDeg;
+        in.direction              = static_cast<int>(std::lround(relative < 0.0f ? relative + 360.0f : relative)) % 360;
+        in.intensity              = static_cast<int>(std::lround((std::min)(len, 1.0f) * 100.0f));
+        return in;
     }
 
     /// @brief Turns a movement frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move

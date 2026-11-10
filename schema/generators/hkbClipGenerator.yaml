@@ -4,6 +4,7 @@ signature: 0x333b85b9
 size:      272
 enums:     [PlaybackMode, ClipFlags]   # declared by the class (signature only)
 # Plays a single animation clip. animationBindingIndex is the Animation Relay bind target.
+defaults:  { playbackSpeed: 1 }
 fields:
   - { name: animationName,               type: string, rosterref: animationNames }
   - { name: triggers,                    type: ptr, ref: hkbClipTriggerArray }

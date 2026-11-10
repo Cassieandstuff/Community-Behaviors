@@ -70,7 +70,32 @@ namespace CB::feature::controller {
             LOG_INFO("mount proxy: {} mountable race(s) put on the proxy controller, {} already were", flagged, already);
         }
 
+        /// @brief Puts every human race on the proxy (npc_controller): the race's own NPC keyword says who is one, so creatures stay.
+        void FlagNpcRaces()
+        {
+            if (!core::debug::FlagOn("npc_controller")) return;
+            auto* data = RE::TESDataHandler::GetSingleton();
+            auto* npc  = DefaultKeyword(RE::BGSDefaultObjectManager::GetSingleton(), RE::DefaultObjectID::kKeywordNPC);
+            if (!data || !npc) {
+                LOG_WARN("npc proxy: no NPC keyword in the default objects - no race changed");
+                return;
+            }
+            using Flag = RE::RACE_DATA::Flag;
+            int flagged = 0, already = 0;
+            for (auto* race : data->GetFormArray<RE::TESRace>()) {
+                if (!race || !race->HasKeyword(npc) || race->data.flags.any(Flag::kFlies)) continue;
+                if (race->data.flags.any(Flag::kAlwaysUseProxyController)) {
+                    ++already;
+                    continue;
+                }
+                race->data.flags.set(Flag::kAlwaysUseProxyController);
+                ++flagged;
+            }
+            LOG_INFO("npc proxy: {} race(s) with the NPC keyword put on the proxy controller, {} already were", flagged, already);
+        }
+
         [[maybe_unused]] const bool s_registered = platform::startup::OnDataLoaded(&FlagMountableRaces, "mount proxy (horse_proxy_controller)");
+        [[maybe_unused]] const bool s_npcRegistered = platform::startup::OnDataLoaded(&FlagNpcRaces, "npc proxy (npc_controller)");
 
     }  // namespace
 

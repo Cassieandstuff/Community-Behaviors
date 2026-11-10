@@ -53,7 +53,7 @@ struct IUnitSource {
 struct LayerSource {
     std::shared_ptr<const IUnitSource> source;
     std::string                        stem;        // owning bundle (lowercase); empty = anonymous
-    // The bundle's ORDERED master table (index 0 = base game, 1..k = declared masters, last = self),
+    // The bundle's ORDERED master table (index 0 = self, 1 = the base game for a mod, then its declared masters),
     // built via CB::engine::codec::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
     // -> the owning bundle stem. Empty for an anonymous/offline layer (no FormId
     // resolution -> the merge falls back to bare-id scope inference).

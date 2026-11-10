@@ -15,3 +15,4 @@ currentGeneratorIndex: 0
 generators:
   '0000x0000': 0001x01fb
   '0000x0001': 0000x0002
+  '0000x0002': 0000x0003

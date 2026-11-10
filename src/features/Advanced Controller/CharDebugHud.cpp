@@ -10,6 +10,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <mutex>
@@ -235,8 +236,7 @@ namespace CB::feature::controller::hud {
 
         bool Active()
         {
-            static const bool on = On();
-            if (!on) return false;
+            if (!On()) return false;
             auto* ui = RE::UI::GetSingleton();
             if (!ui || ui->GameIsPaused() || !RE::Main::WorldRootCamera()) return false;
             Store&       s = S();
@@ -355,18 +355,28 @@ namespace CB::feature::controller::hud {
             ImGui::End();
         }
 
+        /// @note Registered whether or not the HUD starts on: the config menu can switch it on later, and Active answers
+        ///       false while it is off.
         [[maybe_unused]] const bool s_registered = [] {
-            if (!On()) return false;
             core::bootstrap::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
             return true;
         }();
 
+        std::atomic<bool>& OnFlag()
+        {
+            static std::atomic<bool> on{ core::debug::FlagOn("char_debug_hud") };
+            return on;
+        }
+
     }  // namespace
 
-    bool On()
+    bool On() { return OnFlag().load(std::memory_order_relaxed); }
+
+    void SetOn(bool on)
     {
-        static const bool on = core::debug::FlagOn("char_debug_hud");
-        return on;
+        if (OnFlag().exchange(on, std::memory_order_relaxed) == on) return;
+        core::debug::SetValue("Character", "bDebugHud", on ? "true" : "false");
+        LOG_INFO("config: the character debug HUD is {}", on ? "on" : "off");
     }
 
     void Publish(const Controller& c)

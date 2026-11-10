@@ -1,0 +1,10 @@
+name:      CBPoseSearchPosition
+parent:    CBPoseSearchFeature
+size:      96
+# A bone's position from `origin` (empty = the schema's root bone), in the root's space. The query is the playing frame's
+# unless `query` is bound.
+fields:
+  - { name: bone,   type: string }
+  - { name: origin, type: string }
+  - { pad: 16 }
+  - { name: query,  type: vector4 }

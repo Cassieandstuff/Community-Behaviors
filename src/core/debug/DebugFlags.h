@@ -151,6 +151,15 @@ namespace CB::core::debug {
           "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
           "each button's press/release times and the sticks and mouse over the last frames, for CB's controller to "
           "query. Passes every event on to the game unchanged. AE only. Unproven in game." },
+        { "adv_dodge", FlagKind::IniBool, "Dodge", "bAdvancedDodge", false, false,
+          "Advanced Dodge",
+          "The player dodges on CB's input: a tap of Sprint (hold to sprint), a key of its own, or a double tap of a "
+          "direction ([Dodge] iTrigger 0/1/2, set in SKSE Menu Framework > Community Behaviors > Advanced Dodge). The "
+          "direction is the move input's, relative to CB's camera, as one of 8 ways around the body (or none: N). CB "
+          "charges the stamina ([Dodge] iStaminaMode, fStaminaCost, bRequireFullStamina) and raises the graph event "
+          "AD_Dodge with AD_Direction (int, 0 = N, 1-8 = F, FR, R, BR, B, BL, L, FL) and AD_Angle (degrees clockwise "
+          "from the facing); it waits while the graph's AD_IsDodging is true. Nothing plays until a graph answers "
+          "AD_Dodge. Needs bAdvancedInput; the sprint tap needs bMovementModel. AE only. Unproven in game." },
         { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
           "Camera: thin objects block",
           "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "
@@ -178,7 +187,8 @@ namespace CB::core::debug {
           "blending to MOVT's side and back speeds by direction. CB also owns sprinting: it stays on while toggled, "
           "pauses while blocking, airborne or (while strafing) moving more than 50 deg from the facing, and ends on "
           "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
-          "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
+          "bAnimationDriven, bSpeedSynced and bIsSynced. Every frame it writes the stick into the player's graph: "
+          "iCB_StickDirection (degrees clockwise from the facing, 0-359) and iCB_StickIntensity (0-100). Needs bCamera (in third person); off without it. AE only. "
           "Unproven in game." },
         { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
           "Horse movement model",
@@ -207,6 +217,12 @@ namespace CB::core::debug {
           "the player's flags (bStateWrapper, bGroundStates, bPlanes, bStepQuery): its footing is checked under its front "
           "and hind hooves (grounded when both stand; one end on ground holds it), and it walks up to 55 deg (the "
           "player 47). Read once as the game starts: changing it needs a restart. Unproven in game." },
+        { "npc_controller", FlagKind::IniBool, "Character", "bNpcController", false, false,
+          "Human NPCs on the Advanced Controller",
+          "Every race with the NPC keyword is built on the proxy controller, and each NPC in high process runs the player's "
+          "movement model, ground layer and predictor, with its AI package's movement frame in place of the stick. With "
+          "bMotionMatching on, those whose graph has the add-on also motion match. Creatures stay vanilla. Read once as the "
+          "game starts: changing it needs a restart. An experiment: costly, and unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
@@ -227,6 +243,11 @@ namespace CB::core::debug {
           "its error against where the player actually went. Under bMovementModel it runs the movement model itself "
           "from the player's current velocity and facing, the stick held; walking off a ledge or jumping predicts the fall and where it "
           "lands. Observes only. Unproven in game." },
+        { "char_load_report", FlagKind::IniBool, "Debug", "bLoadReport", true, true,
+          "Controller load report",
+          "Every 30 s, log the frame time beside what the Advanced Controller did per frame: player and NPC trajectory "
+          "predictions and the time they took, floor rays and shape sweeps, and how many NPCs it manages. With bTracy, the same "
+          "numbers plot every frame. Off = no present hook of its own." },
         { "char_motion_matching", FlagKind::IniBool, "Character", "bMotionMatching", false, false,
           "Motion matching (prototype)",
           "Needs the Motion Matching add-on (Motion Matching.hky, the clips, and Motion Matching Wiring.hky, which switches "

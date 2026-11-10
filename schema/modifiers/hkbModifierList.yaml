@@ -2,5 +2,6 @@ name:      hkbModifierList
 parent:    hkbModifier
 signature: 0xa4180ca1
 size:      96
+defaults:  { enable: true, userData: 1 }
 fields:
   - { name: modifiers, type: ptrarray, ref: hkbModifier, roster: ref }

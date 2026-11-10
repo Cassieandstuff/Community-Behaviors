@@ -32,9 +32,17 @@ namespace CB::engine::locomotion {
     struct DeadBlendTuning {
         float blendTime = 0.2f;   ///< seconds the cross-fade takes; 0 switches blending off
         float decay     = 0.1f;   ///< halflife (s) of the coasting pose's velocity
+        /// @brief Each bone's blend keeps to the side of the rotation it took last output (Holden's quat_slerp_via, UE's
+        ///        DeadBlending node); off, it takes the shortest arc each output.
+        /// @note  The coasting pose can turn past half a turn from the live one, and there the shortest arc flips and the
+        ///        blended bone with it. Off only to measure against.
+        bool keepSide = true;
     };
 
     /// @brief Caps on a coasting bone's velocity, so one bad frame cannot fling it.
+    /// @note  Measured on GASP's clips (engine-tests' dead blend report), UE's tighter caps (360 deg/s, 500 cm/s) and its
+    ///        per-axis fitted halflives bought nothing: the coasting pose's velocity, clipped, no longer matches the one
+    ///        shown, and the clip shows as a jolt.
     constexpr float kMaxAngular = 20.0f;     ///< rad/s
     constexpr float kMaxLinear  = 2000.0f;   ///< pose units/s
     /// @brief A blended bone further than this from the live source's (pose units) is taken as broken.
@@ -58,10 +66,15 @@ namespace CB::engine::locomotion {
         int                       child   = -1;            ///< the source the last output played
         int                       history = 0;             ///< outputs recorded since the last reset, up to 2
         float                     dt      = 1.0f / 60.0f;  ///< the latest update's timestep (the caller sets it)
+        /// @brief The timestep `last` was output over (dt as of its Record), which the start velocity divides by.
+        /// @note  Dividing last - prev by the current dt was off by dt(N-1)/dt(N): up to 3x after a hitch, so the coasting
+        ///        pose overshot.
+        float                     lastDt  = 1.0f / 60.0f;
         bool                      blending = false;
         float                     t        = 0.0f;         ///< seconds into the blend
         std::vector<Bone>         last, prev, from;
         std::vector<BoneVelocity> vel;
+        std::vector<Quat>         side;   ///< per bone, the coasting rotation's offset from the live one last output
 
         void Reset(int n, int playing);
         void Record(const Bone* pose);
@@ -73,7 +86,8 @@ namespace CB::engine::locomotion {
         /// @note  A switch (playing != child) starts a blend once two outputs are recorded and blendTime > 0; the
         ///        blend advances by dt. A broken blended bone falls back to the live one (`fault`, when given, names the
         ///        first whose live bone was finite).
-        bool Step(Bone* pose, int n, int playing, const DeadBlendTuning& tuning, BlendFault* fault = nullptr);
+        /// @param jumped the source jumped to another time of the same child this update, which blends as a new child does
+        bool Step(Bone* pose, int n, int playing, bool jumped, const DeadBlendTuning& tuning, BlendFault* fault = nullptr);
 
         /// @brief Seconds left in the blend, 0 when none runs.
         float Remaining(const DeadBlendTuning& tuning) const { return blending ? tuning.blendTime - t : 0.0f; }

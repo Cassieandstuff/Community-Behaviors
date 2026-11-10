@@ -2,6 +2,7 @@ name:      hkbStateMachineTimeInterval
 parent:    null
 signature: 0x60a881e5
 size:      16
+defaults:  { enterEventId: -1, exitEventId: -1 }
 fields:
   - { name: enterEventId, type: int32, eventref: enterEvent }
   - { name: exitEventId,  type: int32, eventref: exitEvent }

@@ -1,0 +1,22 @@
+id: 0000x0006
+class: CBMovementHandlerAgentSprintActionTrigger
+name: 'Sprint Action Trigger (initWord 0)'
+type: 'Sprint Action Trigger'
+interface: 'CurrentMovementState'
+initWord: 0
+accelerationMult: 10
+distToPathThresholdRadiusMult: 0.5
+angleToPathThreshold: 5
+bindings:
+  'accelerationMult':
+    variable: 'fSprintAccelerationMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'distToPathThresholdRadiusMult':
+    variable: 'fSprintDistToPathThresholdRadiusMult:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'angleToPathThreshold':
+    variable: 'fSprintAngleToPathThreshold:Pathfinding'
+    output: ''
+    flags: FLAG_IN

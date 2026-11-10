@@ -6,7 +6,6 @@
 #include <functional>
 #include <mutex>
 #include <queue>
-#include <thread>
 #include <vector>
 
 namespace CB::core::bootstrap {
@@ -15,7 +14,7 @@ namespace CB::core::bootstrap {
 // batch across the workers and BLOCKS the caller until every job in the batch is done.
 class ThreadPool {
 public:
-    // threads: 0 => hardware_concurrency (min 1). stackBytes: 0 => default thread stack; when non-zero
+    // threads: 0 => exec::MaxWorkers (min 1). stackBytes: 0 => default thread stack; when non-zero
     // each worker is created with that many bytes of RESERVED stack (Win32 _beginthreadex +
     // STACK_SIZE_PARAM_IS_A_RESERVATION) — the same guard WarmUpThread uses, so a compile task that
     // recurses deeply (Havok graph/animation assembly) can never overflow a default ~1MB worker stack.

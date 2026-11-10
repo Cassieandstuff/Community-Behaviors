@@ -2,6 +2,7 @@ name:      hkbEvaluateExpressionModifier
 parent:    hkbModifier
 signature: 0xf900f6be
 size:      112
+defaults:  { enable: true, userData: 2 }
 fields:
   - { name: expressions, type: ptr, ref: hkbExpressionDataArray }
   - { empty: ptr }

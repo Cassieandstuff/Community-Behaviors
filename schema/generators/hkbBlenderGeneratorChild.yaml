@@ -2,9 +2,14 @@ name:      hkbBlenderGeneratorChild
 parent:    hkbBindable
 signature: 0xe2b384b0
 size:      80
+view:      { kind: blendchild, clip: generator, position: weight }
+defaults:  { weight: 1, worldFromModelWeight: 1 }
 fields:
-  - { name: generator,           type: ptr, ref: hkbGenerator }
+  - { name: generator,           type: ptr, ref: hkbGenerator, required: true, align16: true }
   - { name: boneWeights,         type: ptr, ref: hkbBoneWeightArray, charprop: hkbBoneWeightArray }
   - { name: weight,              type: float }
   - { name: worldFromModelWeight, type: float }
-  - { skip: 8 }
+  # CBBlendSpace2DGenerator: where this child sits on the plane, in the class's tail padding (the exe's code never touches
+  # 0x48..0x50, and its clone constructor doesn't copy them: the blend space's does). Zero everywhere else.
+  - { name: x, type: float, cb: true }
+  - { name: y, type: float, cb: true }

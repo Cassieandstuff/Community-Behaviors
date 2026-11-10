@@ -2,6 +2,7 @@ name:      BSInterpValueModifier
 parent:    hkbModifier
 signature: 0x29adc802
 size:      104
+defaults:  { enable: true, userData: 2 }
 fields:
   - { name: source,   type: float }
   - { name: target,   type: float }

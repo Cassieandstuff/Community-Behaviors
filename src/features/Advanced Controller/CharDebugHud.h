@@ -110,8 +110,12 @@ namespace CB::feature::controller::hud {
         float blend    = 0;   ///< seconds left in the dead blend across the last switch, 0 when none runs
     };
 
-    /// @brief Whether the HUD runs (char_debug_hud); publishers skip their work when it does not.
+    /// @brief Whether the HUD runs (char_debug_hud at launch, then SetOn); publishers skip their work when it does not.
     bool On();
+
+    /// @brief Switch the HUD on or off from the next frame, and write it to settings.ini (`[Character] bDebugHud`) so the
+    ///        next launch starts the same way.
+    void SetOn(bool on);
 
     void Publish(const Controller& c);
     void Publish(const Prediction& p);

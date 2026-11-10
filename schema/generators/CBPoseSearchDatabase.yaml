@@ -1,6 +1,6 @@
 name:      CBPoseSearchDatabase
 parent:    null
-size:      64
+size:      72
 view:      { kind: clipgroup, label: name }
 # One motion-matching database (a dance card): the CBPoseSearchGenerator children naming it, with the
 # per-database cost biases of Unreal's PoseSearchDatabase (added to a candidate's cost; negative = preferred) and its
@@ -18,3 +18,4 @@ fields:
   - { name: tags,                   type: stringarray, roster: value }
   - { name: standingCandidate,      type: string }   # per row: may the search cut here while the request stands?
   - { name: movingCandidate,        type: string }   # per row: may the search cut here while the request moves?
+  - { name: schema,                 type: ptr, ref: CBPoseSearchSchema }   # what its frames match on; none: the classic layout

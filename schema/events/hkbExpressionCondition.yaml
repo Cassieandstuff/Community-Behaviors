@@ -3,5 +3,5 @@ parent:    hkbCondition
 signature: 0x1c3c1045
 size:      32
 fields:
-  - { name: expression, type: string }
+  - { name: expression, type: string, expression: true }
   - { empty: ptr }

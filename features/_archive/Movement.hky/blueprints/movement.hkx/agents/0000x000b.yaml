@@ -1,0 +1,21 @@
+id: 0000x000b
+class: CBMovementPathManagerAgentAvoidBox
+name: 'Avoid Box'
+type: 'Avoid Box'
+interface: 'CurrentMovementState'
+useActorAvoidBox: true
+avoidBoxTriggersFailure: false
+defaultAvoidBoxAvoidNodeRadius: 32
+bindings:
+  'useActorAvoidBox':
+    variable: 'bUseActorAvoidBox:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'avoidBoxTriggersFailure':
+    variable: 'bAvoidBoxTriggersFailure:Pathfinding'
+    output: ''
+    flags: FLAG_IN
+  'defaultAvoidBoxAvoidNodeRadius':
+    variable: 'fDefaultAvoidBoxAvoidNodeRadius:Pathfinding'
+    output: ''
+    flags: FLAG_IN

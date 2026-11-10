@@ -135,6 +135,7 @@ namespace CB {
             m_failed = true;
             m_sources.clear();
             m_skeletonServe.clear();
+            m_skeletonSources.clear();
             m_projectUnits.clear();
             m_nativeAnims.clear();
         }
@@ -514,7 +515,7 @@ namespace CB {
                 CB::engine::decompile::ParsedHky graph;
                 std::vector<std::uint8_t> bytes;
                 std::string err = "no schema";
-                if (!schemaReg || !CB::engine::decompile::MergeLayersReflective(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
+                if (!schemaReg || !CB::engine::decompile::MergeLayersSkippingBroken(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
                     !CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
                     LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem, err);
                     return;
@@ -523,6 +524,7 @@ namespace CB {
                 { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(bytes); }
                 LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bytes).", unit, bundles[bi].stem, size);
             };
+            for (const auto& [unit, bi] : skelWinner) m_skeletonSources[NormalizeKey(unit)] = { unit, skelLayers(unit, bi) };
             {
                 std::vector<std::function<void()>> serveTasks;
                 for (const auto& [unit, bi] : skelWinner) {
@@ -1221,10 +1223,10 @@ namespace CB {
         //    exact same redirect without recompiling.
         BuildRedirectMap(dataRoot);
 
-        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed: nothing in graph serving
-        ///       waits on them (they're loose .hkx under Data\meshes\, found by the engine's own loose scan, not
-        ///       the cache redirect), so their compile no longer holds graph serving back. Unchanged ones are
-        ///       skipped and orphans removed via the animation ledger.
+        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed (they're loose .hkx under
+        ///       Data\meshes\, found by the engine's own loose scan, not the cache redirect), so graphs under roots
+        ///       without them serve at once; ByteServe holds a serve under a root WITH them until the warm-up ends
+        ///       (CompilesAnimationsUnder). Unchanged ones are skipped and orphans removed via the animation ledger.
         WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 4) Completion sentinel — written LAST, and ONLY when every graph compiled + wrote
@@ -1316,11 +1318,7 @@ namespace CB {
             ++characters;
         }
 
-        {
-            std::lock_guard<std::mutex> lk(m_readyMutex);
-            m_redirectReady.store(true, std::memory_order_release);
-        }
-        m_readyCv.notify_all();   // wake any owned actor that loaded early and is waiting
+        m_redirectReady.store(true, std::memory_order_release);
         LOG_INFO("Community Behaviors: above-OAR redirect armed for {} character(s) across {} actor root(s) "
                  "({} actor(s) deferred to loose pair).",
                  characters, m_projectRedirects.size(), deferred);
@@ -1381,7 +1379,7 @@ namespace CB {
         const RigBones rb = BonesFor(key);
         CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: clip read of '{}' failed: {}", key, err);
             return {};
         }
@@ -1420,10 +1418,19 @@ namespace CB {
     {
         auto*      reg = CB::engine::schema::SharedRegistry();
         const auto it  = m_sources.find(NormalizeKey(key));
-        if (!reg || it == m_sources.end()) return false;
+        if (!reg) return false;
+        std::string err;
+        if (it == m_sources.end()) {
+            const auto sk = m_skeletonSources.find(NormalizeKey(key));
+            if (sk == m_skeletonSources.end()) return false;
+            if (!CB::engine::decompile::MergeLayersSkippingBroken(sk->second.second, *reg, nullptr, out, err, nullptr, sk->second.first)) {
+                LOG_WARN("Resolver: merged read of skeleton '{}' failed: {}", key, err);
+                return false;
+            }
+            return true;
+        }
         const RigBones rb = BonesFor(it->first);
-        std::string    err;
-        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
             LOG_WARN("Resolver: merged read of '{}' failed: {}", key, err);
             return false;
         }
@@ -1453,7 +1460,7 @@ namespace CB {
         const RigBones rb = BonesFor(it->first);
         CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
             return {};
         }
@@ -1476,6 +1483,27 @@ namespace CB {
             if (p.parent_path().filename().string().rfind("behaviors", 0) == 0) out.push_back(key);
         }
         std::sort(out.begin(), out.end());
+        return out;
+    }
+
+    std::vector<std::string> Resolver::AddedBehaviorUnitKeys() const
+    {
+        std::vector<std::string> out;
+        for (const auto& key : BehaviorUnitKeys()) {
+            const auto it = m_sources.find(key);
+            if (it == m_sources.end() || it->second.layers.empty()) continue;
+            /// @note By the base layer's own bundle: a master table starts with the bundle itself, so it tells nothing here.
+            if (it->second.layers.front().stem != CB::engine::codec::formid::BASE_GAME_STEM) out.push_back(key);
+        }
+        return out;
+    }
+
+    std::vector<std::string> Resolver::RigUnitsOf(const std::string& key) const
+    {
+        std::vector<std::string> out;
+        if (const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key)))
+            for (const std::string& r : *rigs)
+                if (m_skeletonSources.contains(NormalizeKey(r))) out.push_back(r);
         return out;
     }
 
@@ -1518,25 +1546,10 @@ namespace CB {
         std::string projStem = projKey.substr(slash + 1);                   // "defaultmale.hkx"
         if (const auto dot = projStem.find_last_of('.'); dot != std::string::npos) projStem.erase(dot);  // "defaultmale"
 
-        // If warm-up hasn't armed the cache yet, only actors WE OWN wait for it — never stall
-        // unowned actors (wolves, chickens) or the main menu's background loads. Ownership is
-        // known from m_sources (built in Init, before warm-up): a character unit under this
-        // project's folder root. Waiting (vs the old silent vanilla fallback) is what keeps an
-        // early save-load from getting un-merged behaviors (TDM lean gone). Bounded so a stuck
-        // warm-up degrades to vanilla instead of hanging forever.
-        if (!m_redirectReady.load(std::memory_order_acquire)) {
-            // Only actors we will actually redirect wait — i.e. those whose behavior tree BR
-            // owns (same condition as the redirect-map build). An actor whose behavior BR does
-            // not own (e.g. the horse, deferred to its loose pair) passes straight through.
-            bool owned = false;
-            for (const auto& [k, _] : m_sources)
-                if (k.rfind(folderRoot + "/behaviors/", 0) == 0) { owned = true; break; }
-            if (!owned) return {};
-            std::unique_lock<std::mutex> lk(m_readyMutex);
-            m_readyCv.wait_for(lk, std::chrono::seconds(120),
-                               [this] { return m_redirectReady.load(std::memory_order_acquire); });
-            if (!m_redirectReady.load(std::memory_order_acquire)) return {};  // timed out -> passthrough
-        }
+        /// @note No wait here: ByteServe parks an owned project's open in WaitForCompile (RedirectsProject) until the
+        ///       warm-up ends, with no time limit. The old 120 s bound here served vanilla to any actor loaded that long
+        ///       before the cache armed, for the whole session.
+        if (!m_redirectReady.load(std::memory_order_acquire)) return {};
 
         const auto it = m_projectRedirects.find(folderRoot);
         if (it == m_projectRedirects.end() || it->second.empty()) return {};
@@ -1612,6 +1625,31 @@ namespace CB {
             }
         }
         return swap;
+    }
+
+    bool Resolver::RedirectsProject(std::string_view vanillaProjectPath) const
+    {
+        const std::string norm    = NormalizeKey(vanillaProjectPath);
+        const std::string projKey = (norm.rfind("meshes/", 0) == 0) ? norm : "meshes/" + norm;
+        const auto        slash   = projKey.find_last_of('/');
+        if (slash == std::string::npos) return false;
+        const std::string behaviors = projKey.substr(0, slash) + "/behaviors/";
+        for (const auto& [k, _] : m_sources)
+            if (k.rfind(behaviors, 0) == 0) return true;
+        return false;
+    }
+
+    bool Resolver::CompilesAnimationsUnder(const std::string& folderRoot) const
+    {
+        if (folderRoot.empty() || m_nativeAnims.empty()) return false;
+        std::call_once(m_nativeAnimKeysOnce, [this] {
+            m_nativeAnimKeys.reserve(m_nativeAnims.size());
+            for (const auto& a : m_nativeAnims) m_nativeAnimKeys.push_back(NormalizeKey(a.outKey));
+            std::sort(m_nativeAnimKeys.begin(), m_nativeAnimKeys.end());
+        });
+        const std::string prefix = folderRoot + '/';
+        const auto        it     = std::lower_bound(m_nativeAnimKeys.begin(), m_nativeAnimKeys.end(), prefix);
+        return it != m_nativeAnimKeys.end() && it->rfind(prefix, 0) == 0;
     }
 
     bool Resolver::Owns(std::string_view servePath) const
@@ -1693,13 +1731,15 @@ namespace CB {
             CB::engine::decompile::ParsedHky graph;
             std::string err;
             std::vector<std::pair<std::string, std::size_t>> nullMarkers;
-            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
+            if (!CB::engine::decompile::MergeLayersSkippingBroken(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
                 LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
                           key, err);
                 m_cache.emplace(key, nullptr);
                 return nullptr;
             }
             for (const auto& [stem, n] : nullMarkers) m_nullMarkers[stem] += n;   // m_mutex is held
+            for (const auto& skipped : graph.skippedLayers)
+                LOG_ERROR("Community Behaviors: skipping mod '{}' for '{}', the others still merge: {}", skipped.stem, key, skipped.why);
             CB::engine::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {

@@ -1,0 +1,55 @@
+id: 0000x0025
+class: CBMovementHandlerAgentPlayerControls
+name: 'Player Controls (mode 0)'
+type: 'Player Controls'
+interface: 'CurrentMovementState'
+mode: 0
+dampenPlayerControls: true
+freezeDirectionOnLargeDelta: true
+controllerDampenTime: 0.180000007
+controllerBufferDepth: 0.140000001
+controllerSampleThreshold: 0.100000001
+freezeDirectionDefaultAngleThreshold: 60
+freezeDirectionDefaultSpeedThreshold: 100
+horseClampAngle: 10
+maxMoveRampDownDelta: 500
+direction: 0
+speed: 0
+turnRate: 0
+bindings:
+  'dampenPlayerControls':
+    variable: 'bDampenPlayerControls:Controls'
+    output: ''
+    flags: FLAG_IN
+  'freezeDirectionOnLargeDelta':
+    variable: 'bFreezeDirectionOnLargeDelta:Controls'
+    output: ''
+    flags: FLAG_IN
+  'controllerDampenTime':
+    variable: 'fControllerDampenTime:Controls'
+    output: ''
+    flags: FLAG_IN
+  'controllerBufferDepth':
+    variable: 'fControllerBufferDepth:Controls'
+    output: ''
+    flags: FLAG_IN
+  'controllerSampleThreshold':
+    variable: 'fControllerSampleThreshold:Controls'
+    output: ''
+    flags: FLAG_IN
+  'freezeDirectionDefaultAngleThreshold':
+    variable: 'fFreezeDirectionDefaultAngleThreshold:Controls'
+    output: ''
+    flags: FLAG_IN
+  'freezeDirectionDefaultSpeedThreshold':
+    variable: 'fFreezeDirectionDefaultSpeedThreshold:Controls'
+    output: ''
+    flags: FLAG_IN
+  'horseClampAngle':
+    variable: 'fHorseClampAngle:Controls'
+    output: ''
+    flags: FLAG_IN
+  'maxMoveRampDownDelta':
+    variable: 'fMaxMoveRampDownDelta:Controls'
+    output: ''
+    flags: FLAG_IN

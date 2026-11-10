@@ -1,0 +1,53 @@
+id: 0000x0018
+class: CBMovementTweenerAgentFixedDelta
+name: 'Fixed Delta'
+type: 'Fixed Delta'
+interface: 'CurrentMovementState'
+displacement: [0, 0, 0]
+rotationDisplacement: [0, 0, 0]
+startVelocity: [0, 0, 0]
+endVelocity: [0, 0, 0]
+startAngularVelocity: [0, 0, 0]
+endAngularVelocity: [0, 0, 0]
+startTime: 0
+endTime: 0
+duration: 0
+translation: [0, 0, 0]
+rotation: [0, 0, 0]
+bindings:
+  'displacement':
+    variable: 'FixedDeltaDisplacement'
+    output: ''
+    flags: FLAG_IN
+  'rotationDisplacement':
+    variable: 'FixedDeltaRotationDisplacement'
+    output: ''
+    flags: FLAG_IN
+  'startVelocity':
+    variable: 'FixedDeltaStartVelocity'
+    output: ''
+    flags: FLAG_IN
+  'endVelocity':
+    variable: 'FixedDeltaEndVelocity'
+    output: ''
+    flags: FLAG_IN
+  'startAngularVelocity':
+    variable: 'FixedDeltaStartAngularVelocity'
+    output: ''
+    flags: FLAG_IN
+  'endAngularVelocity':
+    variable: 'FixedDeltaEndAngularVelocity'
+    output: ''
+    flags: FLAG_IN
+  'startTime':
+    variable: 'fFixedDeltaStartTime'
+    output: ''
+    flags: FLAG_IN
+  'endTime':
+    variable: 'fFixedDeltaEndTime'
+    output: ''
+    flags: FLAG_IN
+  'duration':
+    variable: 'fFixedDeltaDuration'
+    output: ''
+    flags: FLAG_IN

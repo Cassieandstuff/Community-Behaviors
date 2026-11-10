@@ -46,6 +46,10 @@ namespace CB::feature::input {
     /// @brief Whether `key` came up this frame after being held at most `maxHold` seconds.
     bool Tapped(Key key, float maxHold = 0.2f);
 
+    /// @brief The latest key pressed on any device and the Frame() it went down on; false before any press.
+    /// @note  For binding a key in a config page: compare `frame` with the Frame() the capture started at.
+    bool LastPress(Key& key, std::uint64_t& frame);
+
     /// @brief The left (`right` false) or right stick, `framesAgo` dispatches back (0 = now), up to kHistory - 1.
     Axis2 Stick(bool right, std::uint32_t framesAgo = 0);
 

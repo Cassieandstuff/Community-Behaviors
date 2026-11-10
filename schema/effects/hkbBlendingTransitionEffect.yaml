@@ -2,6 +2,7 @@ name:      hkbBlendingTransitionEffect
 parent:    hkbTransitionEffect
 signature: 0xfd8584fe
 size:      144
+defaults:  { blendCurve: BLEND_CURVE_SMOOTH, endMode: END_MODE_NONE, eventMode: EVENT_MODE_DEFAULT, selfTransitionMode: SELF_TRANSITION_MODE_CONTINUE_IF_CYCLIC_BLEND_IF_ACYCLIC }
 fields:
   - { name: duration,                     type: float }
   - { name: toGeneratorStartTimeFraction, type: float }

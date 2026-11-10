@@ -178,6 +178,15 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
             }
             if (out.view.kind.empty()) { err = "'view' has no kind"; return false; }
         }
+        out.abstract = childStr(root, "abstract") == "true";
+        if (hasKey(root, "defaults")) {
+            const auto d = root[c4::to_csubstr("defaults")];
+            if (!d.is_map()) { err = "'defaults' is not a map"; return false; }
+            for (auto r : d) {
+                if (!r.has_val()) { err = "'defaults' holds a non-scalar"; return false; }
+                out.defaults[toStr(r.key())] = toStr(r.val());
+            }
+        }
 
         if (hasKey(root, "fields")) {
             for (auto fn : root[c4::to_csubstr("fields")]) {
@@ -248,6 +257,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.frameCounted = childStr(fn, "count") == "frame";
                     f.hkType       = childStr(fn, "hktype");
                     f.cbAdded      = childStr(fn, "cb") == "true";
+                    f.align16      = childStr(fn, "align16") == "true";
                     if (hasKey(fn, "role")) {
                         auto r = fn[c4::to_csubstr("role")];
                         if (!r.is_map()) { err = out.name + "." + f.name + ": `role` must be a map ({ role: …, flags: […] })"; return false; }
@@ -258,6 +268,24 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                             for (auto x : fl)
                                 if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
                         }
+                    }
+                    if (hasKey(fn, "enumby")) {
+                        auto eb = fn[c4::to_csubstr("enumby")];
+                        if (!eb.is_map()) { err = out.name + "." + f.name + ": `enumby` must be a map ({ field: …, <value>: <Enum>, … })"; return false; }
+                        for (auto r : eb) {
+                            if (!r.has_val()) { err = out.name + "." + f.name + ": `enumby` holds a non-scalar"; return false; }
+                            const std::string key = toStr(r.key()), val = toStr(r.val());
+                            if (key == "field") f.enumByField = val;
+                            else f.enumBy[key] = val;
+                        }
+                        if (f.enumByField.empty() || f.enumBy.empty()) { err = out.name + "." + f.name + ": `enumby` needs a `field` and at least one enum"; return false; }
+                    }
+                    f.required     = childStr(fn, "required") == "true";
+                    f.expression   = childStr(fn, "expression") == "true";
+                    f.rosterRef    = childStr(fn, "rosterref");
+                    f.stateRef     = childStr(fn, "stateref");
+                    if (!f.stateRef.empty() && f.stateRef != "machine" && f.stateRef != "from" && f.stateRef != "to") {
+                        err = out.name + "." + f.name + ": unknown stateref '" + f.stateRef + "' (machine, from or to)"; return false;
                     }
                     f.unitRef      = childStr(fn, "unitref");
                     if (!f.unitRef.empty()) {
@@ -529,6 +557,8 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                     if (!lookup("Role", f.roleName, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role '" + f.roleName + "' (an item of the Role enum)"; return false; }
                     f.role = static_cast<int>(v);
                 }
+                for (const auto& [value, en] : f.enumBy)
+                    if (!FindEnum(en)) { err = "class '" + name + "' field '" + f.name + "': enumby '" + value + "' names unknown enum '" + en + "'"; return false; }
                 for (const std::string& flag : f.roleFlagNames) {
                     if (!lookup("RoleFlags", flag, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role flag '" + flag + "' (an item of the RoleFlags enum)"; return false; }
                     f.roleFlags |= static_cast<int>(v);
@@ -575,14 +605,18 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         static const std::map<std::string, std::vector<std::string>> kViewRoles{
             { "curve", { "keys", "label" } },
             { "curvekey", { "time", "value", "interp" } },
-            { "clipset", { "children", "groups" } },
+            { "clipset", { "children", "groups", "chooser" } },
+            { "chooser", { "rows", "fallback" } },
+            { "chooserrow", { "when", "results" } },
             { "clipchild", { "clip", "group", "start", "end" } },
             { "clipgroup", { "label" } },
+            { "blendspace", { "children", "parameter", "cycleMin", "cycleMax", "flags" } },
+            { "blendchild", { "clip", "position" } },
         };
         for (const auto& [name, cs] : m_byName) {
             if (cs.view.kind.empty()) continue;
             const auto known = kViewRoles.find(cs.view.kind);
-            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey, clipset, clipchild, clipgroup)"; return false; }
+            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (blendspace, blendchild, curve, curvekey, clipset, clipchild, clipgroup, chooser, chooserrow)"; return false; }
             for (const auto& role : known->second)
                 if (!cs.view.roles.count(role)) { err = "class '" + name + "': view '" + cs.view.kind + "' has no '" + role + "'"; return false; }
             for (const auto& [role, field] : cs.view.roles) {
@@ -823,6 +857,7 @@ enum : std::uint8_t {
     kTypeZero = 19, kTypePointer = 20, kTypeArray = 22, kTypeEnum = 24, kTypeStruct = 25, kTypeCString = 29,
     kTypeULong = 30, kTypeFlags = 31, kTypeHalf = 32, kTypeStringPtr = 33,
 };
+constexpr std::uint16_t kAlign16 = 0x100;   ///< hkClassMember::ALIGN_16
 constexpr std::uint16_t kSerializeIgnored = 0x400;
 
 std::uint8_t ScalarType(Scalar s) {
@@ -856,6 +891,7 @@ bool Reflect(const Field& f, ReflectedMember& m) {
     m = ReflectedMember{};
     m.flags = f.ignored ? kSerializeIgnored : 0;
     if (f.count > 1) m.cArraySize = static_cast<std::int16_t>(f.count);
+    if (f.align16) m.flags |= kAlign16;
     switch (f.kind) {
         case FieldKind::Scalar:
             m.type = ScalarType(f.scalar);

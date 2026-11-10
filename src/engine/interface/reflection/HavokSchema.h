@@ -101,6 +101,9 @@ struct Field {
                                          ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
                                          ///<        here carries no enum reference). Signature only; no serde effect.
+    std::string enumByField;             ///< @brief `enumby: { field: <f>, <value>: <Enum>, ... }` — a metadata scalar reads by the enum its
+    std::map<std::string, std::string> enumBy;   ///< sibling `<f>` picks (by that sibling's exact text), e.g. a gate bound by its
+                                         ///<        variable. A reader's hint: no serde effect; a value not listed reads as a number.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
                                          ///<        the exe reflects a plain scalar (no enum in the signature).
     std::string roleName;                ///< @brief `role: { role: <Role item> }` — what the member is for, as Havok's
@@ -111,6 +114,7 @@ struct Field {
     int         roleFlags = 0;           ///< @brief roleFlagNames resolved against the RoleFlags enum by LoadDir, OR'd.
                                          ///< @note Item names are matched exactly (Havok's spelling); an unknown one fails
                                          ///<       the load. A member attribute: no serde, size or signature effect.
+    bool        align16 = false;         ///< @brief `align16: true` — the exe declares this member HK_ALIGN16: no layout effect here, but the flag is in the class's signature.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
     bool         user      = false;      ///< @brief `user: <value>` — the game fills this member at runtime; `<value>` is
@@ -118,6 +122,15 @@ struct Field {
                                          ///<        exactly when the stored value equals it, and reads `user` back to it.
                                          ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
                                          ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
+    std::string rosterRef;               ///< @brief `rosterref: <list>` — the string names an entry of that list of the character's string data. A member
+                                         ///<        attribute: no serde, size or signature effect.
+    bool        expression = false;      ///< @brief `expression: true` — the string names variables in its text, so a rename has to
+                                         ///<        rewrite it. A member attribute: no serde, size or signature effect.
+    bool        required = false;        ///< @brief `required: true` — an editor reports this pointer or list empty as an error. A
+                                         ///<        member attribute: no serde, size or signature effect.
+    std::string stateRef;                ///< @brief `stateref: machine|from|to` — the scalar is a stateId: of the machine holding
+                                         ///<        it (`machine`), or of the machine nested in the from / to state's generator.
+                                         ///<        A member attribute: no serde, size or signature effect.
     std::string charProp;                ///< @brief `charprop: <class>|bone` — the member's bone data comes from a CHARACTER
                                          ///<        PROPERTY: a pointer to `<class>` (its `ref`, a bone-weight or bone-index
                                          ///<        set) bound to a POINTER property, or (`bone`, on a `boneref` scalar) an
@@ -163,11 +176,19 @@ struct ClassSchema {
     /// @brief `view: { kind: <view>, <role>: <field>, ... }` — how an editor shows this class: `kind` names the view,
     ///        every other key maps one of that view's roles to one of the class's OWN fields. No serde, size or
     ///        signature effect.
+    bool abstract = false;                   ///< @brief `abstract: true` — an editor never offers it as a new object
+    /// @brief `defaults: { field: value }` — what an author's new object starts with, written as a unit file would state it.
+    ///        A subclass's entry wins. Unstated fields start at zero. Nothing but GraphEdit::New reads it: no serde effect.
+    std::map<std::string, std::string> defaults;
     /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
     ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
-    ///        `clipset` (children, groups) — a node over clips an editor opens as a database workspace: its rows and
-    ///        its groups; `clipchild` (clip, group, start, end) — one row: the clip, the name of its group, and the
-    ///        seconds searched; `clipgroup` (label) — one group, named by its rows.
+    ///        `clipset` (children, groups, chooser) — a node over clips an editor opens as a database workspace: its rows,
+    ///        its groups and what picks among them; `clipchild` (clip, group, start, end) — one row: the clip, the name of
+    ///        its group, and the seconds searched; `clipgroup` (label) — one group, named by its rows.
+    ///        `chooser` (rows, fallback) — what picks the groups searched; `chooserrow` (when, results) — one row: a
+    ///        condition expression and the groups it adds.
+    ///        `blendspace` (children, parameter, cycleMin, cycleMax, flags) — a node blending children along an axis;
+    ///        `blendchild` (clip, position) — one child, where it sits.
     struct View {
         std::string                        kind;
         std::map<std::string, std::string> roles;   ///< role -> field name

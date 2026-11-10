@@ -220,6 +220,16 @@ namespace CB {
         // published the redirect map. The redirect hook gates on this.
         bool RedirectReady() const { return m_redirectReady.load(std::memory_order_acquire); }
 
+        /// @brief True when ProjectRedirect serves CB's project for this vanilla project path once the cache is armed.
+        /// @note  The same ownership ProjectRedirect and BuildRedirectMap use: CB owns a behavior under the project's folder.
+        bool RedirectsProject(std::string_view vanillaProjectPath) const;
+
+        /// @brief True when a native animation CB compiles lies under `folderRoot` (a path key, e.g.
+        ///        "meshes/actors/character"), so a graph or project served there may bind it.
+        /// @note  RedirectReady() arms BEFORE the native animations are written; a serve under such a root waits for
+        ///        the whole warm-up instead, or the first loaded game binds clips that are missing or a past build's.
+        bool CompilesAnimationsUnder(const std::string& folderRoot) const;
+
         std::size_t SourceCount() const { return m_sources.size(); }
 
         // Count of bundle-authored native animations queued for compile (WriteNativeAnimations). The
@@ -248,9 +258,16 @@ namespace CB {
         std::vector<std::string> ServedRoster(const std::string& characterKey) const;
         /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
         std::vector<std::string> BehaviorUnitKeys() const;
+        /// @brief The served behavior graphs a mod adds outright: their base layer is not the base game's. Where a graph of
+        ///        CB's own classes can come from, found without merging any graph.
+        std::vector<std::string> AddedBehaviorUnitKeys() const;
+        /// @brief Every rig unit (normalized serve path) the characters that run `key` bind through, each backed by a skeleton
+        ///        unit; empty when none does. A graph male and female characters share has both.
+        std::vector<std::string> RigUnitsOf(const std::string& key) const;
 
         /// @brief The served graph `key` merged across every layer of the load order: the merge Resolve runs, before
-        ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`.
+        ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`. A skeleton
+        ///        unit reads through its own layers.
         /// @return false when `key` is not served or the merge fails (logged).
         /// @pre   Init() done.
         /// @note  Independent of the compile: a warm launch that reuses the cache still reads the load order's graph.
@@ -340,6 +357,9 @@ namespace CB {
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
         std::unordered_map<std::string, CB::engine::common::BoneNameTable> m_skeletons;
+        /// @brief Every skeleton unit's layers (its winner, then the later bundles patching it), keyed by normalized path:
+        ///        MergedGraph reads a rig through them, since skeletons are not graph sources. Immutable after Init().
+        std::unordered_map<std::string, std::pair<std::string, std::vector<CB::engine::common::LayerSource>>> m_skeletonSources;
         /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
         ///        BonesFor. Immutable after Init().
         CB::engine::skeleton::RigIndex m_rigIndex;
@@ -361,6 +381,9 @@ namespace CB {
         };
         /// @brief Collected in Init from opted-in bundles (manifest compile_animations=true). Immutable after Init().
         std::vector<NativeAnim> m_nativeAnims;
+        /// @brief m_nativeAnims' path keys, sorted; built on the first CompilesAnimationsUnder call.
+        mutable std::vector<std::string> m_nativeAnimKeys;
+        mutable std::once_flag           m_nativeAnimKeysOnce;
         // bundle stem (lowercase, e.g. "bfco") -> its parsed manifest.json (identity,
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.
@@ -389,11 +412,6 @@ namespace CB {
         bool                                                               m_failed = false;   ///< written before m_ready's release
         mutable std::mutex                                                 m_initMutex;
         mutable std::condition_variable                                    m_initCv;
-        // Lets an owned actor that loads BEFORE warm-up finishes WAIT for the cache instead of
-        // falling back to vanilla (the redirect has no on-demand path; a master-graph compile
-        // can't run on the load thread's small stack). Signaled once when the cache is armed.
-        std::mutex                                                        m_readyMutex;
-        std::condition_variable                                           m_readyCv;
         // Data root ("<game>/Data") captured at materialize time, so the on-demand project
         // synth writes <dataRoot>/Meshes/community_behaviors_cache/<vanilla project path> (original case).
         std::filesystem::path                                              m_dataRoot;

@@ -49,6 +49,7 @@ namespace {
                                             const cb::schema::Registry&, const std::string&, std::string&,
                                             const std::vector<std::string>*, cb::resolve::PatchStats*)>(&cb::resolve::DeriveHkyPatch);
         (void)derive;
+        auto* edited = &cb::resolve::DeriveEditedPatch;           (void)edited;
         auto* decomp = &cb::resolve::DecompileBehaviorReflective; (void)decomp;
         // a unit folder round trip: read it, write it back
         cb::resolve::DiskUnitSource disk(std::filesystem::path{});
@@ -93,6 +94,16 @@ namespace {
         std::string sc = cb::animdata::EmitMotionSidecar(mr); (void)sc;
         auto* parseSidecar = &cb::animdata::ParseMotionSidecar; (void)parseSidecar;
         std::string lbl = cb::animdata::LabelSample(""); (void)lbl;
+        // cb::setdata — the asdsf model
+        cb::setdata::Set set; (void)set;
+        cb::setdata::Gate gate; (void)gate;
+        auto* readSf = &cb::setdata::ReadSingleFile; (void)readSf;
+        auto* parseUnit = &cb::setdata::ParseSetdataUnitYaml; (void)parseUnit;
+        auto* parseIndex = &cb::setdata::ParseSetdataIndexYaml; (void)parseIndex;
+        auto* stem = &cb::setdata::StemForHeader; (void)stem;
+        auto* compile = &cb::setdata::CompileSetdataCrcs; (void)compile;
+        cb::setdata::CrcTriple tri = cb::setdata::TripleForAnimation("meshes\x.hkx"); (void)tri;
+        auto* gateName = &cb::setdata::GateValueName; (void)gateName;
         std::string unl = cb::animdata::UnlabelSample(""); (void)unl;
 
         // cb::skeleton — read skeletons
@@ -122,6 +133,49 @@ namespace {
         bool bok = cb::mm::BuildMotionMatchingBehavior(spec, reg, files, err); (void)bok;
         bool rok2 = cb::mm::BuildMotionMatchingRosters(spec, files, err); (void)rok2;
         bool aok = cb::mm::BuildMotionMatchingBundle(spec, reg, files, err); (void)aok;
+
+        // cb::relay — compile and evaluate an expression over caller-supplied variables
+        struct NoVariables final : cb::relay::VariableSource {
+            bool Read(const char*, cb::relay::Value&) const override { return false; }
+        } novars;
+        cb::relay::RegisterCoreBuiltins();
+        cb::relay::SetWarnSink(nullptr);
+        const char* interned = cb::relay::Intern("MM_Gait"); (void)interned;
+        cb::relay::CompiledExpr cexpr = cb::relay::Compile("GraphVar(\"MM_Gait\") == 2", err);
+        cb::relay::EvalContext ectx;
+        ectx.Reset(nullptr);
+        ectx.variables = &novars;
+        cb::relay::Value rv = cexpr.Evaluate(ectx);
+        bool rb = rv.AsBool(); (void)rb;
+        float rf = cb::relay::Value::Float(1.0f).AsFloat(); (void)rf;
+        cb::relay::VType rt = rv.type; (void)rt;
+
+        // cb::mm — the database and scoring the game runs
+        cb::mm::CachedClip cached = cb::mm::MeasureMmClip("", "", "", cb::mm::MmFingerprint("")); (void)cached;
+        std::vector<cb::mm::CachedClip> cachedClips;
+        bool cwok = cb::mm::WriteMmCache(cachedClips, bytes, err); (void)cwok;
+        bool crok = cb::mm::ReadMmCache(bytes, cachedClips, err); (void)crok;
+        const cb::resolve::Object* selector = cb::mm::RootSelector(g);
+        cb::mm::ClipSource csource = [&](const std::string&) -> const cb::mm::CachedClip& { return cached; };
+        cb::mm::WarnFn cwarn = [](const std::string&) {};
+        cb::mm::BuildReport breport;
+        std::unique_ptr<cb::mm::SearchDatabase> sdb = selector ? cb::mm::BuildDatabase(*selector, csource, cwarn, &breport) : nullptr;
+        const cb::mm::SearchClip& sclip = sdb->clips.front();
+        int sframe = cb::mm::FrameOf(sclip, 0.0); (void)sframe;
+        const cb::mm::PoseDatabase& pdb = sdb->databases.front();
+        const cb::mm::Expression& pexpr = pdb.base; (void)pexpr;
+        const cb::mm::SearchChooserRow* crow = sdb->chooser.data(); (void)crow;
+        cb::mm::CurveVariables cvars(cached.curves); (void)cvars;
+        cb::mm::Query mq;
+        mq.active = cb::mm::Choose(*sdb, ectx);
+        mq.biases = cb::mm::EvaluateBiases(*sdb, ectx);
+        bool mactive = cb::mm::IsActive(mq.active, 0); (void)mactive;
+        cb::mm::SearchResult sr = cb::mm::Search(*sdb, mq); (void)sr;
+        std::vector<cb::mm::Candidate> mtop = cb::mm::TopCandidates(*sdb, mq, 3);
+        const float mgroup = mtop.front().groupCost[cb::mm::GroupOf(0)]; (void)mgroup;
+        constexpr int mdims = cb::mm::kFeatureDims + cb::mm::kGroups + cb::mm::kIgnoreSurrounding; (void)mdims;
+        constexpr float mstand = cb::mm::kForceMoving; (void)mstand;
+        constexpr std::uint8_t mbits = cb::mm::kRowStanding | cb::mm::kRowMoving | cb::mm::kFlagDisableReselection | cb::mm::kFlagLooping; (void)mbits;
 
         // cb::locomotion — the movement step, the horse ladder, the slope math
         cb::locomotion::State ls;

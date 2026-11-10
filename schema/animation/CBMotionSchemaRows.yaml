@@ -1,0 +1,8 @@
+name:      CBMotionSchemaRows
+parent:    null
+size:      24
+# One clip measured under one pose search schema: `rows` holds a row per frame, the schema's dims wide (anim::MeasureSchema).
+# `key` is anim::SchemaKey of the schema and the rig it was measured through.
+fields:
+  - { name: key,  type: uint64 }
+  - { name: rows, type: scalararray, scalar: float, roster: whole }

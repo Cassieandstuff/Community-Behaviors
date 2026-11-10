@@ -3,5 +3,5 @@ parent:    hkbBindable
 signature: 0xc1215be6
 size:      64
 fields:
-  - { name: pGenerator,  type: ptr, ref: hkbGenerator }
-  - { name: spBoneWeight, type: ptr, ref: hkbBoneWeightArray, charprop: hkbBoneWeightArray }
+  - { name: pGenerator,  type: ptr, ref: hkbGenerator, required: true }
+  - { name: spBoneWeight, type: ptr, ref: hkbBoneWeightArray, charprop: hkbBoneWeightArray, required: true }

@@ -2,6 +2,7 @@ name:      hkbTwistModifier
 parent:    hkbModifier
 signature: 0xb6b76b32
 size:      144
+defaults:  { enable: true, isAdditive: true, rotationAxisCoordinates: ROTATION_AXIS_IN_MODEL_COORDINATES, setAngleMethod: LINEAR, userData: 1 }
 fields:
   - { name: axisOfRotation,          type: vector4 }
   - { name: twistAngle,              type: float }

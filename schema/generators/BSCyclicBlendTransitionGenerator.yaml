@@ -2,6 +2,7 @@ name:      BSCyclicBlendTransitionGenerator
 parent:    hkbGenerator
 signature: 0x5119eb06
 size:      176
+defaults:  { eBlendCurve: BLEND_CURVE_SMOOTH, fTransitionDuration: 0.200000003 }
 fields:
   - { skip: 8 }
   - { name: pBlenderGenerator,     type: ptr, ref: hkbGenerator }

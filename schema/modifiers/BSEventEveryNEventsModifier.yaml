@@ -2,6 +2,7 @@ name:      BSEventEveryNEventsModifier
 parent:    hkbModifier
 signature: 0x6030970c
 size:      128
+defaults:  { enable: true, randomizeNumberOfEvents: true, userData: 3 }
 fields:
   - { name: eventToCheckFor, type: struct, ref: hkbEventProperty }
   - { name: eventToSend,     type: struct, ref: hkbEventProperty }

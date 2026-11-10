@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compile/MotionFeatures.h>
 #include <interface/reflection/HavokSchema.h>
 
 #include <array>
@@ -48,6 +49,7 @@ namespace CB::engine::compile {
         ///        evaluated once per row when the plugin builds the database; empty = every row.
         std::string              standingCandidate;
         std::string              movingCandidate;
+        int                      schema = -1;   ///< its MmBundleSpec::schemas entry, written as a CBPoseSearchSchema; -1 = none (classic)
     };
 
     /// @brief A chooser row: when `when` holds, its databases join the searched set.
@@ -74,7 +76,10 @@ namespace CB::engine::compile {
     /// @note  GASP's chooser inputs. MM_Speed2D is game units/s (GASP's Speed2D is cm/s: an importer scales its bounds by
     ///        0.7); MM_TimeToLand is seconds until the predicted path lands (GASP's TrajectoryCollision.TimeToLand), 0 on
     ///        the ground.
-    inline constexpr std::array<MmVariableDecl, 15> kMmChooserVariables{ {
+    /// @note  Then the node's query. MM_Future* and MM_Past* are (side, forward, facing) in the current root space: game
+    ///        units and radians counter-clockwise, at the database's horizons ahead and back. MM_Desired is the request in
+    ///        world space, game units/s. MM_HaveQuery says they hold one, MM_PlayRate is clip seconds per second.
+    inline constexpr std::array<MmVariableDecl, 38> kMmChooserVariables{ {
         { "MM_MovementMode", "VARIABLE_TYPE_INT32" },
         { "MM_RotationMode", "VARIABLE_TYPE_INT32" },
         { "MM_MovementState", "VARIABLE_TYPE_INT32" },
@@ -90,6 +95,29 @@ namespace CB::engine::compile {
         { "MM_DatabaseLOD", "VARIABLE_TYPE_INT32" },
         { "MM_Speed2D", "VARIABLE_TYPE_REAL" },
         { "MM_TimeToLand", "VARIABLE_TYPE_REAL" },
+        { "MM_PlayRate", "VARIABLE_TYPE_REAL" },
+        { "MM_HaveQuery", "VARIABLE_TYPE_BOOL" },
+        { "MM_Desired", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Future4", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_Past4", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_FutureMotion4", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion0", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion1", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion2", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion3", "VARIABLE_TYPE_VECTOR3" },
+        { "MM_PastMotion4", "VARIABLE_TYPE_VECTOR3" },
     } };
 
     struct MmBundleSpec {
@@ -104,6 +132,11 @@ namespace CB::engine::compile {
         /// @brief {character unit path, its root container's FormID (e.g. "0001x000b")}: one roster patch each.
         std::vector<std::pair<std::string, std::string>> characters;
         std::vector<MmVariable>   extraVariables;   ///< declared after kMmChooserVariables
+        /// @brief The schemas the databases point at, each written once as a CBPoseSearchSchema with its features.
+        std::vector<CB::engine::anim::SchemaSpec> schemas;
+        /// @brief REAL, bound to the generator's speed (the node trims its playback rate to it); empty = left unbound.
+        /// @note  "Speed" is the variable the engine sets to the character's speed in every Skyrim character graph.
+        std::string speedVariable = "Speed";
     };
 
     /// @brief path -> file text, unit-relative paths prefixed by their unit's path.

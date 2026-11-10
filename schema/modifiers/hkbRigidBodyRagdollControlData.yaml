@@ -2,6 +2,7 @@ name:      hkbRigidBodyRagdollControlData
 parent:    null
 signature: 0x1e0bc068
 size:      64
+defaults:  { durationToBlend: 0.5 }
 fields:
   - { name: keyFrameHierarchyControlData, type: struct, ref: hkaKeyFrameHierarchyUtilityControlData }
   - { name: durationToBlend, type: float }

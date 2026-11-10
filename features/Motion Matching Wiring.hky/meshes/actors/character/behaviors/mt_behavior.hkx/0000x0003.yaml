@@ -1,0 +1,238 @@
+id: 0000x0003
+class: CBBlendSpace2DGenerator
+variableBindingSet:
+  indexOfBindingToEnable: -1
+  bindings:
+    'blendX':
+      variableIndex: 0
+      variable: 'Direction'
+      bitIndex: -1
+      bindingType: BINDING_TYPE_VARIABLE
+    'blendY':
+      variableIndex: 0
+      variable: 'SpeedSampled'
+      bitIndex: -1
+      bindingType: BINDING_TYPE_VARIABLE
+userData: 0
+name: 'MT_Direction_BlendSpace'
+referencePoseWeightThreshold: 0
+blendParameter: 0
+minCyclicBlendParameter: 0
+maxCyclicBlendParameter: 1
+indexOfSyncMasterChild: -1
+flags: FLAG_IS_PARAMETRIC_BLEND_CYCLIC|FLAG_SYNC
+subtractLastChild: false
+blendX: 0
+blendY: 0
+grid: true
+children:
+  '0000x0000':
+    generator: 0001x019d
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0
+    y: 8.24540043
+  '0000x0001':
+    generator: 0001x019f
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0
+    y: 82.4541016
+  '0000x0002':
+    generator: 0001x01a1
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0
+    y: 140
+  '0000x0003':
+    generator: 0001x01a3
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0
+    y: 350.987
+  '0000x0004':
+    generator: 0001x01a5
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0
+    y: 3509.87012
+  '0000x0005':
+    generator: 0001x01aa
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.125
+    y: 8.24534988
+  '0000x0006':
+    generator: 0001x01ac
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.125
+    y: 82.4534988
+  '0000x0007':
+    generator: 0001x01ae
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.125
+    y: 140
+  '0000x0008':
+    generator: 0001x01b0
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.125
+    y: 350.987
+  '0000x0009':
+    generator: 0001x01b2
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.125
+    y: 3509.87012
+  '0000x000a':
+    generator: 0001x01b7
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.25
+    y: 8.21632957
+  '0000x000b':
+    generator: 0001x01b9
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.25
+    y: 82.1632996
+  '0000x000c':
+    generator: 0001x01bb
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.25
+    y: 350.988007
+  '0000x000d':
+    generator: 0001x01bd
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.25
+    y: 3509.87988
+  '0000x000e':
+    generator: 0001x01c2
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.375
+    y: 8.29226017
+  '0000x000f':
+    generator: 0001x01c4
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.375
+    y: 82.9225998
+  '0000x0010':
+    generator: 0001x01c6
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.375
+    y: 285.247009
+  '0000x0011':
+    generator: 0001x01c8
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.375
+    y: 2852.46997
+  '0000x0012':
+    generator: 0001x01cd
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.5
+    y: 7.4046998
+  '0000x0013':
+    generator: 0001x01cf
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.5
+    y: 74.0469971
+  '0000x0014':
+    generator: 0001x01d1
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.5
+    y: 270.84201
+  '0000x0015':
+    generator: 0001x01d3
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.5
+    y: 2708.41992
+  '0000x0016':
+    generator: 0001x01d8
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.625
+    y: 8.84169006
+  '0000x0017':
+    generator: 0001x01da
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.625
+    y: 88.4169006
+  '0000x0018':
+    generator: 0001x01dc
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.625
+    y: 285.247009
+  '0000x0019':
+    generator: 0001x01de
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.625
+    y: 2852.46997
+  '0000x001a':
+    generator: 0001x01e3
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.75
+    y: 8.24440956
+  '0000x001b':
+    generator: 0001x01e5
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.75
+    y: 82.4440994
+  '0000x001c':
+    generator: 0001x01e7
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.75
+    y: 350.988007
+  '0000x001d':
+    generator: 0001x01e9
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.75
+    y: 3509.87988
+  '0000x001e':
+    generator: 0001x01ee
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.875
+    y: 8.24534988
+  '0000x001f':
+    generator: 0001x01f0
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.875
+    y: 82.4534988
+  '0000x0020':
+    generator: 0001x01f2
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.875
+    y: 140
+  '0000x0021':
+    generator: 0001x01f4
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.875
+    y: 350.989014
+  '0000x0022':
+    generator: 0001x01f6
+    weight: 0
+    worldFromModelWeight: 1
+    x: 0.875
+    y: 3509.88989

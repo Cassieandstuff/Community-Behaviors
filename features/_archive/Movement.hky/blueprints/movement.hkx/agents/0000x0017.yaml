@@ -1,0 +1,13 @@
+id: 0000x0017
+class: CBMovementAgentActorState
+name: 'Actor State (initWord 1, enabled false)'
+type: 'Actor State'
+interface: 'CurrentMovementState'
+initWord: 1
+enabled: false
+backPedalAngle: 160
+bindings:
+  'backPedalAngle':
+    variable: 'fBackPedalAngle:Pathfinding'
+    output: ''
+    flags: FLAG_IN

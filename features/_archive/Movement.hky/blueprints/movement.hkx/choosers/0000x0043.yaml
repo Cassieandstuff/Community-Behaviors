@@ -1,0 +1,6 @@
+id: 0000x0043
+class: CBBlueprintChooser
+name: 'Character states'
+rows:
+  '0000x0000':
+    result: 0000x0042

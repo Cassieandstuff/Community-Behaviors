@@ -12,5 +12,10 @@ void Check(bool ok, const std::string& what);
 void RunUserSentinelTests(const schema::SchemaRegistry& reg);
 void RunRulesTests(const schema::SchemaRegistry& reg);
 void RunUnitFormatTests(const schema::SchemaRegistry& reg);
+void RunPoseSearchTests(const schema::SchemaRegistry& reg);
+void RunBlendSpaceTests(const schema::SchemaRegistry& reg);
+void RunRootMotionTests(const schema::SchemaRegistry& reg);
+void RunSetDataTests(const schema::SchemaRegistry& reg);
+void RunDodgeTests();
 
 }  // namespace CB::engine::tests

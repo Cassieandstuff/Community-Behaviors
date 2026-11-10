@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/bootstrap/sequencer/CompileSequencer.h"
+#include <exec/Parallel.h>
 
 #include <atomic>
 #include <cstdint>
@@ -28,8 +29,7 @@ unsigned __stdcall ThreadPool::Thunk(void* self) {
 
 ThreadPool::ThreadPool(unsigned threads, std::size_t stackBytes, int threadPriority)
     : priority_(threadPriority) {
-    unsigned n = threads ? threads : std::thread::hardware_concurrency();
-    if (n == 0) n = 1;
+    unsigned n = threads ? threads : CB::engine::exec::MaxWorkers();
     // STACK_SIZE_PARAM_IS_A_RESERVATION only takes effect when a size is given; with size 0 the flag is
     // meaningless, so pass it only for a non-default stack. A reservation is address space, not committed
     // memory, so a large per-worker reserve is cheap on x64.

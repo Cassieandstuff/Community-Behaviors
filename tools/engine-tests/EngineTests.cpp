@@ -100,6 +100,7 @@ void RunUserSentinelTests(const schema::SchemaRegistry& reg) {
 int main(int argc, char** argv) {
     namespace t = CB::engine::tests;
     if (argc < 2) { std::fprintf(stderr, "usage: engine-tests <schemaDir>\n"); return 2; }
+    CB::engine::schema::SetSharedSchemaDir(argv[1]);
     CB::engine::schema::SchemaRegistry reg;
     std::string                        err;
     if (!reg.LoadDir(argv[1], err)) { std::fprintf(stderr, "schema load: %s\n", err.c_str()); return 2; }
@@ -107,6 +108,11 @@ int main(int argc, char** argv) {
     t::RunUserSentinelTests(reg);
     t::RunRulesTests(reg);
     t::RunUnitFormatTests(reg);
+    t::RunPoseSearchTests(reg);
+    t::RunBlendSpaceTests(reg);
+    t::RunRootMotionTests(reg);
+    t::RunSetDataTests(reg);
+    t::RunDodgeTests();
 
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");

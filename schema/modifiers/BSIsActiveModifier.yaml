@@ -2,6 +2,7 @@ name:      BSIsActiveModifier
 parent:    hkbModifier
 signature: 0xb0fde45a
 size:      96
+defaults:  { enable: true, userData: 2 }
 fields:
   - { name: bIsActive0,     type: bool }
   - { name: bInvertActive0, type: bool }

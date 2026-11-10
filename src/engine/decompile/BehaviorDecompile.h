@@ -81,6 +81,23 @@ bool CharPropNeutral(const schema::Field& f, const io::FieldValue& v);
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (ids, file nodes and
 ///        their folders; inline objects join with an id of their own).
+/// @brief A mod whose patch couldn't apply to a graph. It is skipped whole for that graph: half a patch is a half-wired graph, and the mods
+///        around it still merge.
+struct SkippedLayer {
+    std::string stem, why;
+};
+/// @brief A place a layer names a node that's gone.
+struct MergeBreak {
+    std::string layer;     ///< the layer's stem
+    std::string node;      ///< the graph id of the node holding the reference; empty when the edited node itself is gone
+    std::string field;     ///< the field holding it; empty when the edited node itself is gone
+    std::string missing;   ///< the node that's gone, canonically: "stem:local"
+    std::string file;      ///< the layer's file stating it, relative to the unit
+};
+
+/// @brief The owner an editor's new objects carry (`(new):<local>`) until a save names their project: DeriveEditedPatch reads it as `self`.
+inline constexpr std::string_view kUnsavedOwner = "(new)";
+
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
@@ -89,6 +106,10 @@ struct ParsedHky {
     ///        CB-15): read as '' in a whole object, skipped in a field patch. ParseHkyReflective sets it,
     ///        MergeHkyPatch adds to it.
     std::size_t                                    nullMarkers = 0;
+    /// @brief The mods MergeLayersReflective skipped for this graph.
+    std::vector<SkippedLayer>                      skippedLayers;
+    /// @brief What the layer being edited names that's gone; only an editor's merge asks for these.
+    std::vector<MergeBreak>                        breaks;
 };
 /// @brief A packfile's graph as a ParsedHky: every object reachable from the root (inline ones included), its
 ///        encounter-order identity (AssignIdentity's numbering). SerializeGraph is its inverse.
@@ -117,6 +138,10 @@ public:
     ///        Exists / Failed as AddVariable; Failed for a non-quad type.
     Add AddQuadVariable(std::string_view name, std::string_view type, const float (&quad)[4], std::string& err);
     Add AddEvent(std::string_view name, std::string& err);
+    /// @brief Append a character property a graph declares it reads: name and type, as the character states its value.
+    Add AddCharacterProperty(std::string_view name, std::string_view type, std::string& err);
+    /// @brief Append an attribute with its default.
+    Add AddAttribute(std::string_view name, float defaultValue, std::string& err);
 
     /// @brief Every object of class `cls` reachable from the root (nodes and inline objects), once each.
     void ForEach(std::string_view cls, const std::function<void(io::SchemaObject&)>& fn);
@@ -130,6 +155,17 @@ public:
     std::vector<std::string> DropMistypedPointers();
     /// @brief A new object of `cls`, schema-initialized and owned by the graph.
     std::shared_ptr<io::SchemaObject> Make(std::string_view cls);
+    /// @brief A new object as an author starts it: schema `defaults:` (subclass last), unstated event / variable / bone
+    ///        references -1, a `user` member its sentinel, inline structs likewise. Owned by the graph, known by `id`, and a
+    ///        file node when its class is one. Null for an unknown class.
+    std::shared_ptr<io::SchemaObject> New(std::string_view cls, const std::string& id);
+    /// @brief A fresh id in `kUnsavedOwner`, above every local in the graph and above `floor`, which it raises. "" past the
+    ///        16 bits a FormID's local holds.
+    /// @note  `floor` outlives the session: another mod may name this project's nodes, so a deleted one's local is never reused.
+    std::string Mint(std::uint32_t& floor) const;
+    /// @brief The minted keys of `so`'s `roster: id|slot` list at field `i`, parallel to the list: stated by position until
+    ///        now. An edit changing the list's length or order keeps them in step, or a later element reads as a change.
+    std::vector<std::string>& RosterKeys(const io::SchemaObject& so, std::size_t i);
     /// @brief A node's id (FormID / canonical key) for FeatureResult::touched; "" for an inline object.
     std::string IdOf(const IHavokObject* o) const;
     const schema::SchemaRegistry& Registry() const { return m_reg; }
@@ -223,6 +259,20 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
                     const std::vector<std::string>& patchMasters, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+/// @brief The folder a patch names to move a node out of a lower layer's group: a file at the unit's top states no folder at all.
+inline constexpr const char* kUngroupedFolder = "ungrouped";
+/// @brief Derive the patch turning `base` into `edited`, a graph it was merged from and edited in memory. Nodes match by FormID, so a rename is a
+///        one-field change, and a moved node's file names its folder. Only what differs is written; a patch file with no fields moves a node alone.
+/// @param base the load order's merged graph, WITHOUT `self`'s layer
+/// @param baseMasters what `base`'s own FormIDs resolve against, owner first
+/// @param self the bundle the patch ships in
+/// @param[in,out] masters the bundle's declared masters, by stem. A bundle has one master table, so these keep their order and places, and a master the
+///        patch newly needs is appended.
+/// @param[out] used what this patch alone depends on: the owners of the nodes it states, without `self` or the base game
+bool DeriveEditedPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters, const ParsedHky& edited, const std::string& self,
+                       bool haveSkyrim, const schema::SchemaRegistry& reg, const std::string& patchDir, std::vector<std::string>& masters,
+                       std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr,
+                       std::vector<std::string>* used = nullptr);
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
 ///        only the fields it names.
@@ -231,7 +281,8 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
 ///       a whole value, and the last mod to change it wins. There is no element-wise list merging.
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
-                   std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+                   std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr,
+                   std::vector<MergeBreak>* breaks = nullptr);
 /// @brief The RUNTIME merge through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
 ///        later layer a patch unit merged in load order — each layer's FormIds resolve through its own master table
 ///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
@@ -240,10 +291,24 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
 /// @param nullMarkers When set, receives (layer stem, count) for every layer whose units held Havok's null marker
 ///        (ParsedHky::nullMarkers), so the caller can name the bundles to reconvert.
 /// @param unitPath the unit's Data-relative path: a skeleton base takes the boneorder shim's order for it.
+/// @note  Fails on the first layer that can't apply, which is what an offline tool or a gate wants to hear.
 /// @note  Works per bone on a skeleton: a patch's bone files state only what they change (MergeHkyPatch).
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
                            std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr, const std::string& unitPath = {});
+/// @brief MergeLayersReflective for a load order someone is using: a layer that can't apply is skipped for this graph and named
+///        (ParsedHky::skippedLayers), so one stale mod doesn't cost the graph every other mod's edits. Fails only when the base layer does.
+/// @param editedStem the layer an editor has open: what it names that's gone is left empty and listed (ParsedHky::breaks), so its author can fix it.
+bool MergeLayersSkippingBroken(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                               const std::vector<std::string>* bones, ParsedHky& graph, std::string& err,
+                               std::vector<std::pair<std::string, std::size_t>>* nullMarkers = nullptr, const std::string& unitPath = {},
+                               const std::string& editedStem = {});
+/// @brief A field one layer states for one node: its top-level name, and its value as text.
+struct StatedField {
+    std::string stem, field, value;
+};
+/// @brief What each of `layers` states for the node `graphId` (an id of the merged graph), base first. A layer that doesn't state the node adds nothing.
+std::vector<StatedField> ReadStatedFields(const std::vector<CB::engine::common::LayerSource>& layers, const std::string& graphId, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
                     const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief SerializeGraph, also reporting where every written object came from: its offset in the packfile's data

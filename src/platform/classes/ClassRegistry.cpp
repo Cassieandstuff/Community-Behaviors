@@ -8,6 +8,7 @@
 
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Generator/hkbGenerator.h>
+#include <Behavior/Behavior/Generator/Blender/hkbBlenderGenerator.h>
 #include <Behavior/Behavior/Modifier/hkbModifier.h>
 #include <Common/Base/Container/hkContainerAllocators.h>
 #include <Common/Base/Reflection/hkClassAccess.h>
@@ -79,7 +80,9 @@ namespace CB::platform::classes {
         const ::hkClass* GameClass(const std::string& name)
         {
             if (name == "hkbGenerator") return &::hkbGeneratorClass;
+            if (name == "hkbBlenderGenerator") return &::hkbBlenderGeneratorClass;
             if (name == "hkbModifier") return &::hkbModifierClass;
+            if (name == "hkbBindable") return &::hkbBindableClass;
             if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }
@@ -143,6 +146,8 @@ namespace CB::platform::classes {
                 MemberAccess::type(m) = t;
                 return true;
             case sc::FieldKind::String:      MemberAccess::type(m) = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::Vector4:     MemberAccess::type(m) = M::TYPE_VECTOR4; return true;
+            case sc::FieldKind::Quaternion:  MemberAccess::type(m) = M::TYPE_QUATERNION; return true;
             case sc::FieldKind::EmptyPtr:    MemberAccess::type(m) = M::TYPE_POINTER; MemberAccess::subtype(m) = M::TYPE_VOID; return true;
             case sc::FieldKind::EmptyArray:  MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_VOID; return true;
             case sc::FieldKind::StringArray: MemberAccess::type(m) = M::TYPE_ARRAY;   MemberAccess::subtype(m) = M::TYPE_STRINGPTR; return true;

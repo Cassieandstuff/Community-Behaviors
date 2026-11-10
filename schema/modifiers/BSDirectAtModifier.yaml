@@ -2,6 +2,7 @@ name:      BSDirectAtModifier
 parent:    hkbModifier
 signature: 0x19a005c0
 size:      224
+defaults:  { directAtTarget: true, enable: true, limitHeadingDegrees: 90, limitPitchDegrees: 90 }
 fields:
   - { name: directAtTarget, type: bool }
   - { skip: 1 }

@@ -2,6 +2,7 @@ name:      hkbVariableBindingSet
 parent:    hkReferencedObject
 signature: 0x338ad4ff
 size:      40
+defaults:  { indexOfBindingToEnable: -1 }
 fields:
   - { name: bindings,               type: structarray, ref: hkbVariableBindingSetBinding, roster: field:memberPath }   # ReadClassArray
   - { name: indexOfBindingToEnable, type: int32 }

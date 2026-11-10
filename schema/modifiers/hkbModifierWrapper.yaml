@@ -2,5 +2,6 @@ name:      hkbModifierWrapper
 parent:    hkbModifier
 signature: 0x3697e044
 size:      88
+abstract:  true
 fields:
-  - { name: modifier, type: ptr, ref: hkbModifier }
+  - { name: modifier, type: ptr, ref: hkbModifier, required: true }

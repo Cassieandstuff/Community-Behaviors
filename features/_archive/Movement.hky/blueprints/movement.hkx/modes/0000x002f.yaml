@@ -1,0 +1,12 @@
+id: 0000x002f
+class: CBMovementMode
+name: 'Virtual Flying (088)'
+modeId: 11
+installs: 'MovementConfigVirtualFlying'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+agents:
+  '0000x0014': {}

@@ -1,6 +1,7 @@
 name:      CBPoseSearchChooserRow
 parent:    null
 size:      24
+view:      { kind: chooserrow, when: when, results: databases }
 # A chooser row: when `when` holds, its databases (by name) join the searched set. `when` is a condition expression
 # (CB's condition language, e.g. GraphVar("MM_Gait") == 2 && GraphVar("MM_IsStarting")); empty always holds, one that
 # does not compile never does.

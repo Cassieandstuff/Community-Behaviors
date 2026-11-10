@@ -137,13 +137,16 @@ namespace CB::engine::locomotion {
                 halflife = p.digInFacingHalflife;
             }
             if (!have && std::hypot(s.vx, s.vy) >= p.facingMinSpeed) goal = std::atan2(s.vx, s.vy), have = true;
+            const bool turning = !have && in.turnInPlace && in.haveStick;
+            if (turning) goal = std::atan2(in.stickX, in.stickY), have = true;
             if (have) goal = s.yaw + WrapPi(goal - s.yaw);
             const float before = s.yaw;
             SpringDamperExact(s.yaw, s.yawRate, goal, halflife, dt);
-            if (!in.airborne) return;
-            const float limit = p.airTurnRate * dt;
+            const float rate = in.airborne ? p.airTurnRate : turning ? p.turnInPlaceRate : 0.0f;
+            if (rate <= 0.0f) return;
+            const float limit = rate * dt;
             s.yaw             = before + std::clamp(s.yaw - before, -limit, limit);
-            s.yawRate         = std::clamp(s.yawRate, -p.airTurnRate, p.airTurnRate);
+            s.yawRate         = std::clamp(s.yawRate, -rate, rate);
         }
 
     }  // namespace
@@ -173,10 +176,12 @@ namespace CB::engine::locomotion {
         if (dt <= 0.0f) return;
         bool dig = false;
         if (!in.airborne) {
+            Input move = in;
+            if (in.turnInPlace) move.haveStick = false;
             const float velYaw = std::hypot(s.vx, s.vy) > 1.0f ? std::atan2(s.vx, s.vy) : s.yaw;
             const float v0x = s.vx, v0y = s.vy;
-            Velocity(s, in, profile, MaxSpeed(caps, in.mode, velYaw, s.yaw), dt);
-            dig = Traction(s, in, profile, v0x, v0y, dt);
+            Velocity(s, move, profile, MaxSpeed(caps, in.mode, velYaw, s.yaw), dt);
+            dig = Traction(s, move, profile, v0x, v0y, dt);
         }
         Facing(s, in, profile, dig, px, py, dt);
     }

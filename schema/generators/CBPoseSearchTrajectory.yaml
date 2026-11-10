@@ -1,0 +1,7 @@
+name:      CBPoseSearchTrajectory
+parent:    CBPoseSearchFeature
+size:      72
+# The root's path: per sample (seconds ahead, or back when negative) its position, facing, velocity and height relative to
+# the current frame's root, each part weighed by its own sample weight.
+fields:
+  - { name: samples, type: structarray, ref: CBPoseSearchTrajectorySample, roster: slot }

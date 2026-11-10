@@ -3,6 +3,10 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+#include "CharLoad.h"
+
+#include <memory>
+#include <unordered_map>
 #include "CharMotionMatching.h"
 #include "CharMovementModel.h"
 #include "CharSweep.h"
@@ -41,6 +45,11 @@ namespace CB::feature {
         constexpr CB::engine::locomotion::Pogo kPogo{};
 
         constexpr int   kFutureSamples = 3;
+        /// @brief Motion matching's samples each way (anim::features::kAhead and kBack).
+        constexpr int   kQuerySamples = static_cast<int>(CB::engine::anim::features::kAhead.size());
+        static_assert(CB::engine::anim::features::kBack.size() == kQuerySamples);
+        /// @brief How far apart the two history points a past sample's velocity is taken over are, seconds.
+        constexpr float kPastVelocityStep = 1.0f / 30.0f;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
         constexpr float kPastTime      = 1.0f / 3.0f;
         /// @brief The predicted path: a point every kPathStep seconds over the 1 s horizon, each resolved against the
@@ -90,6 +99,26 @@ namespace CB::feature {
         /// @brief How often the gate reports and the full trajectory is dumped, in simulated seconds.
         constexpr double kReportPeriod = 5.0;
         constexpr double kDumpPeriod   = 3.0;
+
+        /// @brief An NPC farther than `within` game units from the player predicts at most every `every` seconds.
+        /// @note  Why: a prediction is about 9 legs of 3 floor footprints (9 rays each) and up to 4 sweeps, every step, so
+        ///        the controller's casts grew with every managed NPC near the player (a session's log: about 2800 floor
+        ///        rays a frame). `every` stays under motion matching's query lifetime (kQueryStale, 0.25 s), so a far
+        ///        NPC's query is always fresh; the search runs every 0.1 s anyway. 0 predicts every step.
+        struct NpcRate {
+            float within = 0.0f;
+            float every = 0.0f;
+        };
+        const NpcRate& NpcPredictRate()
+        {
+            static const NpcRate rate = [] {
+                NpcRate r{ (std::max)(0.0f, ch::SettingFloat("fNpcPredictNear", 1500.0f)),
+                           std::clamp(ch::SettingFloat("fNpcPredictEvery", 0.1f), 0.0f, 0.2f) };
+                LOG_INFO("predictor: NPCs beyond {:.0f} game units of the player predict every {:.2f} s", r.within, r.every);
+                return r;
+            }();
+            return rate;
+        }
         /// @brief The predictor's whole log budget (lines), so a long session cannot flood the log.
         constexpr std::uint32_t kMaxLines = 4000;
 
@@ -109,6 +138,7 @@ namespace CB::feature {
             float      time    = 0;   ///< seconds from now, negative for the past sample
             float      forward = 0, side = 0, up = 0;   ///< Havok units; side runs along the axis a sideways request moves the character (MovementAxes)
             float      facing  = 0;   ///< radians relative to the current facing
+            float      vForward = 0, vSide = 0;   ///< velocity, Havok units/s (query samples only)
             ch::Ground ground  = ch::Ground::Airborne;
             float      support = 0;   ///< how much the ground there holds the character (FloorVerdict::support), 0 airborne
             bool       valid   = false;
@@ -118,8 +148,8 @@ namespace CB::feature {
         struct Trajectory {
             Sample                             past;
             std::array<Sample, kFutureSamples> future{};
-            std::array<Sample, kFutureSamples> query{};   ///< at the caller's query times (motion matching), the gate's never
-            std::array<Sample, kFutureSamples> queryPast{};   ///< the history as long ago as each query time, held at its oldest
+            std::array<Sample, kQuerySamples> query{};   ///< at the caller's query times (motion matching), the gate's never
+            std::array<Sample, kQuerySamples> queryPast{};   ///< the history as long ago as each past time, held at its oldest
             std::int32_t                       iState   = 0;   ///< held constant over the horizon (P1)
             float                              velForward = 0, velSide = 0;   ///< current velocity, Havok units/s
             float                              desiredForward = 0, desiredSide = 0;
@@ -186,10 +216,34 @@ namespace CB::feature {
             std::int32_t                   lastIState = -1;
             bool                           lastBlocked = false;
             bool                           lastWindup  = false;
+            double                         lastPredict = -1.0e9;   ///< clock of the last trajectory (NpcPredictRate)
         };
 
-        std::mutex                 g_lock;
-        State                      g_state;
+        /// @brief Each managed controller's prediction. Only the thread stepping a controller touches its State, so the lock
+        ///        covers finding it. Entries stay and restart on a reused address (Reset below): a few dozen KB each, bounded
+        ///        by the controller addresses the allocator hands out.
+        std::mutex                                                g_lock;
+        std::unordered_map<const void*, std::unique_ptr<State>>   g_states;
+
+        State& StateOf(const void* ctrl)
+        {
+            std::scoped_lock lock(g_lock);
+            std::unique_ptr<State>& state = g_states[ctrl];
+            if (!state) state = std::make_unique<State>();
+            return *state;
+        }
+
+        /// @return whether `npc` predicts this step (NpcPredictRate); the player always does.
+        bool NpcDue(State& s, const RE::Actor& npc)
+        {
+            const NpcRate& rate = NpcPredictRate();
+            if (rate.every > 0.0f && s.clock - s.lastPredict < rate.every) {
+                const auto* player = RE::PlayerCharacter::GetSingleton();
+                if (!player || npc.GetPosition().GetSquaredDistance(player->GetPosition()) > rate.within * rate.within) return false;
+            }
+            s.lastPredict = s.clock;
+            return true;
+        }
         std::atomic<std::uint32_t> g_lines{ 0 };
 
         bool TakeLine() { return g_lines.fetch_add(1, std::memory_order_relaxed) < kMaxLines; }
@@ -329,11 +383,13 @@ namespace CB::feature {
         ///        at note.jumpIn seconds with note.jumpSpeed upward; empty without them.
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
         /// @param queryTimes seconds ahead for Trajectory::query, ascending, each at most kMaxPathPoints * kPathStep; 0 = none.
+        /// @param pastTimes seconds back for Trajectory::queryPast; 0 = none.
         ///        A query sample's facing is its integration substep's; its position and height lie between the resolved
         ///        points on either side, by time; its ground is the later point's.
         Trajectory Predict(State& s, ::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
                            const ::hkVector4& velocity, const ch::GroundNote& note, const Drive& drive, std::int32_t iState,
-                           const std::array<float, kFutureSamples>& queryTimes, std::array<Vec2, kFutureSamples>& worldOut, Path& path)
+                           const std::array<float, kQuerySamples>& queryTimes, const std::array<float, kQuerySamples>& pastTimes,
+                           std::array<Vec2, kFutureSamples>& worldOut, Path& path)
         {
             CB_ZONE(zone, "predictor step");
             Trajectory tr;
@@ -363,11 +419,16 @@ namespace CB::feature {
                 tr.past.support = pastFloor.support;
                 tr.past.valid  = true;
             }
-            for (int k = 0; k < kFutureSamples; k++) {
-                HistoryEntry e;
-                if (queryTimes[k] <= 0.0f || !HistoryAtOrOldest(s, s.clock - queryTimes[k], e)) continue;
+            for (int k = 0; k < kQuerySamples; k++) {
+                HistoryEntry e, before;
+                if (pastTimes[k] <= 0.0f || !HistoryAtOrOldest(s, s.clock - pastTimes[k], e)) continue;
                 Sample& out = tr.queryPast[k];
-                out.time    = -queryTimes[k];
+                out.time    = -pastTimes[k];
+                if (HistoryAtOrOldest(s, s.clock - pastTimes[k] - kPastVelocityStep, before) && e.t > before.t) {
+                    const float dt = static_cast<float>(e.t - before.t);
+                    out.vForward   = ((e.x - before.x) * tangent.x + (e.y - before.y) * tangent.y) / dt;
+                    out.vSide      = ((e.x - before.x) * sideAxis.x + (e.y - before.y) * sideAxis.y) / dt;
+                }
                 toLocal(e.x - hull.cx, e.y - hull.cy, out);
                 out.up      = e.z - hull.feetZ;
                 out.facing  = WrapAngle(e.heading - heading);
@@ -422,8 +483,9 @@ namespace CB::feature {
                 int   index = 0;
                 float frac  = 0;   ///< how far into the leg, by time
                 float facing = 0;
+                float vx = 0, vy = 0;   ///< the velocity then, world, Havok units/s
             };
-            std::array<Due, kFutureSamples> due{};
+            std::array<Due, kQuerySamples> due{};
             int                             dueCount = 0;
             const float lastQuery = queryTimes.back();
             const int   points    = std::clamp(static_cast<int>(std::ceil(lastQuery / kPathStep - 1.0e-4f)), kPathPoints, kMaxPathPoints);
@@ -478,8 +540,8 @@ namespace CB::feature {
                         py += (oy + vy + sy) * 0.5f * h;
                     }
                     const float t = static_cast<float>(i * kSubstepsPerPoint + k + 1) * h;
-                    while (query < kFutureSamples && queryTimes[query] > 0.0f && queryTimes[query] <= t + 0.5f * h) {
-                        due[dueCount++] = { query, (t - i * kPathStep) / kPathStep, f };
+                    while (query < kQuerySamples && queryTimes[query] > 0.0f && queryTimes[query] <= t + 0.5f * h) {
+                        due[dueCount++] = { query, (t - i * kPathStep) / kPathStep, f, vx + sx, vy + sy };
                         ++query;
                     }
                 }
@@ -605,6 +667,8 @@ namespace CB::feature {
                     toLocal(prev.x + (at.x - prev.x) * due[d].frac, prev.y + (at.y - prev.y) * due[d].frac, out);
                     out.up      = prevFz + (fz - prevFz) * due[d].frac;
                     out.facing  = WrapAngle(due[d].facing - heading);
+                    out.vForward = due[d].vx * tangent.x + due[d].vy * tangent.y;
+                    out.vSide    = due[d].vx * sideAxis.x + due[d].vy * sideAxis.y;
                     out.ground  = floor.ground;
                     out.support = floor.support;
                     out.valid   = true;
@@ -711,20 +775,21 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, ::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsManaged(*self) || !ch::IsControlled(self)) return;
+            const bool npc = self && ch::IsManagedNpc(self);
+            if (!self || !ch::IsManaged(*self) || !(npc || ch::IsControlled(self))) return;
             ::bhkCharacterController& ctrl = *self;
             const RE::NiPointer<RE::Actor> actor = ch::ManagedActor(ctrl);
             if (!actor) return;
-            /// @note Motion matching and the frame speed are the player's: the ridden horse's prediction feeds the HUD and
-            ///       the scoring only.
-            const bool isPlayer = ch::IsPlayer(self);
+            /// @note Motion matching and the frame speed are the player's and the NPCs': the ridden horse's prediction feeds
+            ///       the HUD and the scoring only.
+            const bool       matches = ch::IsPlayer(self) || npc;
+            const RE::FormID actorId = actor->GetFormID();
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);
             Vec2 tangent, sideAxis;
             if (!hull.valid || !MovementFrame(ctrl, tangent, sideAxis)) return;
 
-            std::scoped_lock lock(g_lock);
-            State& s = g_state;
+            State& s = StateOf(self);
             if (s.ctrl != self) Reset(s, self);
             const HistoryEntry here{ s.clock + (dt > 0 ? dt : 0), hull.cx, hull.cy, hull.feetZ, std::atan2(tangent.y, tangent.x) };
             if (s.historyCount) {
@@ -741,6 +806,12 @@ namespace CB::feature {
             s.clock = here.t;
             if (s.historyCount) Score(s, s.history[s.historyHead], here);
             PushHistory(s, here);
+            if (npc && !NpcDue(s, *actor)) {
+                ch::CountLoad(ch::LoadCounter::PredictNpcSkipped);
+                return;
+            }
+            ch::CountLoad(npc ? ch::LoadCounter::PredictNpc : ch::LoadCounter::PredictPlayer);
+            const ch::LoadTimer timer;
 
             ::hkVector4 v;
             self->GetLinearVelocityImpl(v);
@@ -751,7 +822,7 @@ namespace CB::feature {
             Drive drive;
             drive.desired = desired;
             ch::FrameSpeed     fs;
-            const bool         haveSpeed = isPlayer && ch::CurrentSpeed(fs);
+            const bool         haveSpeed = matches && ch::CurrentSpeed(actorId, fs);
             ch::move::Snapshot snap;
             if (ch::move::Current(actor->GetFormID(), snap)) {
                 drive.model   = true;
@@ -789,49 +860,53 @@ namespace CB::feature {
             ch::PublishedGroundNote(ctrl, note);
             /// @note The body's velocity carries the pogo's last correction, which is no velocity of the character's.
             if (note.pogo && hull.lift > 0.0f) v(2) -= note.pogoRate;
-            /// @note A clip playing at `rate` reaches its horizon h after h / rate real seconds: the query is where the
-            ///       prediction is then, so turns compare as well as distances.
-            static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
-            std::array<float, kFutureSamples> queryTimes{};
-            if (isPlayer && ch::motion::On()) {
-                const float rate = ch::motion::Rate(haveSpeed ? &fs : nullptr);
-                for (int k = 0; k < kFutureSamples; k++) queryTimes[k] = static_cast<float>(CB::engine::anim::features::kHorizons[k]) / rate;
+            /// @note The query is in real time, at the clips' own sample times and with real velocities: the search must see
+            ///       the speed asked for to pick the clip that moves at it. A clip-time query (scaled by the playback rate) asked
+            ///       for the playing clip's own speed whatever the speed, so no gait change could ever win.
+            std::array<float, kQuerySamples> queryTimes{}, pastTimes{};
+            if (matches && ch::motion::On()) {
+                for (int k = 0; k < kQuerySamples; k++) {
+                    queryTimes[k] = static_cast<float>(CB::engine::anim::features::kAhead[k]);
+                    pastTimes[k]  = static_cast<float>(CB::engine::anim::features::kBack[k]);
+                }
             }
-            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, world, path);
+            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, pastTimes, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
-            if (isPlayer && ch::motion::On()) {
+            if (matches && ch::motion::On()) {
                 float land = ch::motion::kNoLanding;
                 for (int i = 0; i < kPathPoints; i++)
                     if (path.ground[i] == ch::Ground::Grounded) {
                         land = static_cast<float>(i + 1) * kPathStep;
                         break;
                     }
-                ch::motion::SetTimeToLand(land);
+                ch::motion::SetTimeToLand(actorId, land);
             }
             /// @note The query in the clips' root space: x along the side axis (where a rightward request moves the
             ///       character), y forward, game units; a facing turned by `f` (counter-clockwise, the math angle's sense)
             ///       points along (-sin f, cos f).
-            const auto allValid = [](const std::array<Sample, kFutureSamples>& a) {
+            const auto allValid = [](const std::array<Sample, kQuerySamples>& a) {
                 return std::all_of(a.begin(), a.end(), [](const Sample& p) { return p.valid; });
             };
-            if (isPlayer && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
+            if (matches && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
-                for (int k = 0; k < kFutureSamples; k++) {
-                    q.x[k]        = tr.query[k].side * kGameUnitsPerHavok;
-                    q.y[k]        = tr.query[k].forward * kGameUnitsPerHavok;
-                    q.dirX[k]     = -std::sin(tr.query[k].facing);
-                    q.dirY[k]     = std::cos(tr.query[k].facing);
-                    q.pastX[k]    = tr.queryPast[k].side * kGameUnitsPerHavok;
-                    q.pastY[k]    = tr.queryPast[k].forward * kGameUnitsPerHavok;
-                    q.pastDirX[k] = -std::sin(tr.queryPast[k].facing);
-                    q.pastDirY[k] = std::cos(tr.queryPast[k].facing);
+                for (int s = 0; s < 2 * kQuerySamples; s++) {
+                    const Sample& from = s < kQuerySamples ? tr.query[s] : tr.queryPast[s - kQuerySamples];
+                    auto&         to   = q.samples[s];
+                    to.x    = from.side * kGameUnitsPerHavok;
+                    to.y    = from.forward * kGameUnitsPerHavok;
+                    to.dirX = -std::sin(from.facing);
+                    to.dirY = std::cos(from.facing);
+                    to.vx   = from.vSide * kGameUnitsPerHavok;
+                    to.vy   = from.vForward * kGameUnitsPerHavok;
+                    to.z    = from.up * kGameUnitsPerHavok;
                 }
                 q.desiredX = tr.desiredWorld.x * kGameUnitsPerHavok;
                 q.desiredY = tr.desiredWorld.y * kGameUnitsPerHavok;
-                if (haveSpeed) q.gait = fs.gait;
-                ch::motion::Search(q);
+                ch::motion::Publish(actorId, q);
+            } else if (matches && ch::motion::On()) {
+                ch::motion::PublishNoQuery(actorId);
             }
             if (ch::hud::On() && ch::IsControlled(self)) {
                 ch::hud::Prediction h;
@@ -854,8 +929,8 @@ namespace CB::feature {
                 h.iState    = iState;
                 /// @note The past path: the history every 1/12 s back to the farthest past sample, motion matching's when it
                 ///       runs, else the prediction's own horizons mirrored.
-                const bool  mmPast   = queryTimes.back() > 0.0f;
-                const float farthest = mmPast ? queryTimes.back() : kSampleTimes[kFutureSamples - 1];
+                const bool  mmPast   = pastTimes.back() > 0.0f;
+                const float farthest = mmPast ? pastTimes.back() : kSampleTimes[kFutureSamples - 1];
                 const int   back     = (std::min)(ch::hud::Prediction::kHistory, static_cast<int>(std::ceil(farthest * 12.0f)));
                 for (int i = 1; i <= back; i++) {
                     HistoryEntry e;
@@ -864,7 +939,7 @@ namespace CB::feature {
                 }
                 for (int k = 0; k < kFutureSamples; k++) {
                     HistoryEntry e;
-                    if (HistoryAt(s, s.clock - (mmPast ? queryTimes[k] : kSampleTimes[k]), e)) h.pastAt[h.pastCount++] = { e.x, e.y, e.z };
+                    if (HistoryAt(s, s.clock - (mmPast ? pastTimes[kQuerySamples - kFutureSamples + k] : kSampleTimes[k]), e)) h.pastAt[h.pastCount++] = { e.x, e.y, e.z };
                 }
                 ch::hud::Publish(h);
             }
@@ -884,14 +959,25 @@ namespace CB::feature {
             else if (blocked && !s.lastBlocked) why = "blocked";
             else if (active && s.clock - s.lastDump >= kDumpPeriod) why = "periodic";
             if (why) {
-                Dump(s, tr, why);
+                /// @note The log's lines are for the character being controlled: an NPC's would spend them all.
+                if (!npc) Dump(s, tr, why);
                 s.lastDump = s.clock;
             }
             s.lastIState  = iState;
             s.lastBlocked = blocked;
             s.lastWindup  = tr.jumpIn >= 0.0f;
-            Report(s);
+            if (!npc) Report(s);
         }
+
+    }  // namespace
+
+    std::size_t controller::PredictorStateCount()
+    {
+        std::scoped_lock lock(g_lock);
+        return g_states.size();
+    }
+
+    namespace {
 
         [[maybe_unused]] const bool s_predictor =
             CheckSupport::Subscribe(&OnCheckSupport, platform::hooks::Priority::First, "CharPredictor", "char_predictor");
