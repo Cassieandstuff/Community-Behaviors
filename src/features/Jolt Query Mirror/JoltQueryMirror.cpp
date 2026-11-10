@@ -11,7 +11,9 @@
 #include <platform/hooks/hookslib.h>
 
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
+#include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
 #include <Physics/Dynamics/World/hkpWorld.h>
+#include <BSHavok/bhkCharProxyController.h>
 #include <BSHavok/bhkCollisionFilter.h>
 #include <BSHavok/bhkPickData.h>
 #include <BSHavok/bhkWorld.h>
@@ -49,7 +51,7 @@ namespace CB::feature::joltmirror {
         using RemoveBatch  = hooks::Override<&::hkpWorld::removeEntityBatch>;
         using PickObject   = hooks::Override<&::bhkWorld::PickObject>;
 
-        constexpr int kMaxMismatchLogs = 200;
+        constexpr int kMaxMismatchLogsPerKind = 15;
         constexpr auto kSummaryPeriod  = std::chrono::seconds(60);
         constexpr std::size_t kMaxWatchedMoving = 192;
         constexpr std::size_t kMaxWatchedFixed  = 64;
@@ -91,7 +93,17 @@ namespace CB::feature::joltmirror {
         std::atomic<int>                                                         s_missingLogs{ 0 };
         std::atomic<std::uint64_t>                                               s_usedLoaded{ 0 };
         std::atomic<std::uint64_t>                                               s_usedWalk{ 0 };
-        std::atomic<int>                                                         s_mismatchLogs{ 0 };
+        std::atomic<int>                                                         s_mismatchLogs[int(bhkJoltQueryComparison::Result::Count)][128]{};
+        std::atomic<std::uint64_t>                                               s_havokRayMicros{ 0 };
+        std::atomic<std::uint64_t>                                               s_joltRayMicros{ 0 };
+        std::atomic<std::uint64_t>                                               s_comparedRays{ 0 };
+        std::atomic<std::uint64_t>                                               s_addSingle{ 0 };
+        std::atomic<std::uint64_t>                                               s_addBatchCount{ 0 };
+        std::atomic<std::uint64_t>                                               s_removeSingle{ 0 };
+        std::atomic<std::uint64_t>                                               s_removeBatchCount{ 0 };
+        std::atomic<std::uint64_t>                                               s_removeFound{ 0 };
+        std::atomic<std::uint64_t>                                               s_removeNoWorld{ 0 };
+        std::atomic<int>                                                         s_addsSinceOptimize{ 0 };
 
         std::mutex                                     s_watchLock;
         std::unordered_map<const ::hkpEntity*, bool>   s_watched;   ///< entity -> is fixed
@@ -220,6 +232,64 @@ namespace CB::feature::joltmirror {
             std::scoped_lock lock(s_lock);
             if (MirrorOf(world).AddStatic(reinterpret_cast<std::uint64_t>(entity), used, matrix.GetTranslation(), matrix.GetQuaternion().Normalized(), filter)) {
                 ++s_bodies;
+                ++s_addsSinceOptimize;
+            }
+        }
+
+        // Crash hunt: a character phantom's collision detail holds an agent with a bad vtable. Remember recent removals
+        // so a bad detail can name what happened to the body it pointed at.
+        struct RemovedBody {
+            const void*   collidable;
+            const void*   entity;
+            std::uint32_t thread;
+            std::int64_t  time;
+        };
+        constexpr std::size_t kRemovedRing = 8192;
+        RemovedBody           s_removedRing[kRemovedRing];
+        std::size_t           s_removedNext = 0;
+        std::atomic<int>      s_badDetailLogs{ 0 };
+
+        std::uintptr_t ReadVtable(const void* object)
+        {
+            __try {
+                return *static_cast<const std::uintptr_t*>(object);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return 0;
+            }
+        }
+
+        void CheckPhantom(::bhkCharacterController* self)
+        {
+            auto* proxy = static_cast<::bhkCharProxyController*>(self);
+            if (!proxy->m_shapePhantom) return;
+            auto* phantom = static_cast<::hkpCachingShapePhantom*>(proxy->m_shapePhantom->GetPhantom());
+            if (!phantom) return;
+            const auto&          details = phantom->getCollisionDetails();
+            const std::uintptr_t base    = REL::Module::get().base();
+            const std::uintptr_t end     = base + REL::Module::get().segment(REL::Segment::rdata).offset() + REL::Module::get().segment(REL::Segment::rdata).size();
+            const auto inImage = [&](std::uintptr_t v) { return v >= base && v < end; };
+            for (int i = 0; i < details.getSize(); ++i) {
+                if (inImage(ReadVtable(details[i].m_agent))) continue;
+                if (s_badDetailLogs.fetch_add(1) >= 20) return;
+                const void*  collidable = details[i].m_collidable;
+                const auto   now        = std::chrono::steady_clock::now().time_since_epoch().count();
+                RemovedBody  found{};
+                {
+                    std::scoped_lock lock(s_lock);
+                    for (const RemovedBody& removed : s_removedRing)
+                        if (removed.collidable == collidable && removed.time > found.time) found = removed;
+                }
+                LOG_INFO("JoltMirror: bad phantom detail {} of {} on phantom {:x} thread {}: agent {:x} vtable {:x}, collidable {:x} vtable {:x}", i, details.getSize(),
+                         reinterpret_cast<std::uintptr_t>(phantom), GetCurrentThreadId(), reinterpret_cast<std::uintptr_t>(details[i].m_agent), ReadVtable(details[i].m_agent),
+                         reinterpret_cast<std::uintptr_t>(collidable), ReadVtable(collidable));
+                if (found.collidable)
+                    LOG_INFO("JoltMirror: bad detail's body {:x} was removed {} ms ago on thread {}", reinterpret_cast<std::uintptr_t>(found.entity),
+                             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::duration(now - found.time)).count(), found.thread);
+                else
+                    LOG_INFO("JoltMirror: bad detail's body is not in the removed list");
+                for (int j = 0; j < details.getSize(); ++j)
+                    LOG_INFO("JoltMirror:   detail {}: agent {:x} vtable rva {:x}", j, reinterpret_cast<std::uintptr_t>(details[j].m_agent), ReadVtable(details[j].m_agent) - base);
+                return;
             }
         }
 
@@ -237,9 +307,12 @@ namespace CB::feature::joltmirror {
             if (TripwireOn()) UnwatchSample(entity);
             if (!MirrorOn()) return;
             std::scoped_lock lock(s_lock);
+            s_removedRing[s_removedNext++ % kRemovedRing] = { entity->getCollidable(), entity, GetCurrentThreadId(), std::chrono::steady_clock::now().time_since_epoch().count() };
             const auto it = s_mirrors.find(world);
+            if (it == s_mirrors.end()) ++s_removeNoWorld;
             if (it != s_mirrors.end() && it->second->Remove(reinterpret_cast<std::uint64_t>(entity))) {
                 --s_bodies;
+                ++s_removeFound;
             }
         }
 
@@ -273,6 +346,22 @@ namespace CB::feature::joltmirror {
             }
             LOG_INFO("JoltMirror: missing by outer type: {}", missingTypes);
             LOG_INFO("JoltMirror: queries on loaded shapes {}, on walked shapes {}", s_usedLoaded.load(), s_usedWalk.load());
+            const auto cost = bhkJoltLoadedShapes::GetCost();
+            unsigned numBodies = 0, numStale = 0, numWorlds = 0;
+            {
+                std::scoped_lock lock(s_lock);
+                numWorlds = unsigned(s_mirrors.size());
+                for (const auto& entry : s_mirrors) {
+                    LOG_INFO("JoltMirror: world {:x}: {} bodies, {} stale replaced", reinterpret_cast<std::uintptr_t>(entry.first), entry.second->GetNumBodies(), entry.second->GetNumStaleReplaced());
+                    numBodies += entry.second->GetNumBodies();
+                    numStale += entry.second->GetNumStaleReplaced();
+                }
+            }
+            LOG_INFO("JoltMirror: add calls single {} batch {}; remove calls single {} batch {}, found {}, no world {}", s_addSingle.load(), s_addBatchCount.load(),
+                     s_removeSingle.load(), s_removeBatchCount.load(), s_removeFound.load(), s_removeNoWorld.load());
+            LOG_INFO("JoltMirror: world: {} worlds, {} live bodies, {} stale replaced; shapes {} MB live, {} released of {} wrapper deletes ({} shared), {} flat hulls, {} ms building; rays {}: jolt {} ms, every pick havok {} ms",
+                     numWorlds, numBodies, numStale, cost.m_liveBytes / (1024 * 1024), cost.m_released, cost.m_deletes, cost.m_deletesShared, cost.m_flatHulls, cost.m_buildMicros / 1000,
+                     s_comparedRays.load(), s_joltRayMicros.load() / 1000, s_havokRayMicros.load() / 1000);
             static constexpr const char* kKinds[] = { "box", "sphere", "capsule", "convex", "convexTransform", "transform", "list", "mopp", "compressed", "terrain" };
             std::string kinds;
             for (int i = 0; i < int(bhkJoltLoadedShapes::Kind::Count); ++i)
@@ -322,7 +411,14 @@ namespace CB::feature::joltmirror {
                     ++s_picksSkipped;
                     return;
                 }
+                if (s_addsSinceOptimize.load() >= 256) {
+                    s_addsSinceOptimize = 0;
+                    it->second->Optimize();
+                }
+                const auto joltStart = std::chrono::steady_clock::now();
                 hit = it->second->CastRay(from, to, pick.m_rayInput.m_filterInfo);
+                s_joltRayMicros += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - joltStart).count();
+                ++s_comparedRays;
             }
 
             const ::hkpCollidable* root = pick.m_rayOutput.m_rootCollidable;
@@ -335,7 +431,7 @@ namespace CB::feature::joltmirror {
 
             const auto result = s_comparison.Record(ray, hit);
             if (result != bhkJoltQueryComparison::Result::Agree && result != bhkJoltQueryComparison::Result::Inconclusive &&
-                s_mismatchLogs.fetch_add(1) < kMaxMismatchLogs) {
+                s_mismatchLogs[int(result)][pick.m_rayInput.m_filterInfo & 0x7f].fetch_add(1) < kMaxMismatchLogsPerKind) {
                 LOG_INFO("JoltMirror: mismatch {} from ({:.2f} {:.2f} {:.2f}) to ({:.2f} {:.2f} {:.2f}) filter {:x}: havok {:.4f} body {:x}, jolt {} {:.4f} body {:x}",
                          int(result), from.GetX(), from.GetY(), from.GetZ(), to.GetX(), to.GetY(), to.GetZ(), pick.m_rayInput.m_filterInfo,
                          ray.m_havokFraction, reinterpret_cast<std::uintptr_t>(owner), hit.m_hit, hit.m_fraction, hit.m_key);
@@ -345,36 +441,52 @@ namespace CB::feature::joltmirror {
         ::hkpEntity* OnAddEntity(AddEntity::Next next, ::hkpWorld* world, ::hkpEntity* entity, ::hkpEntityActivation activation)
         {
             ::hkpEntity* result = next(world, entity, activation);
+            ++s_addSingle;
             Added(world, entity);
             return result;
         }
 
         ::hkBool OnRemoveEntity(RemoveEntity::Next next, ::hkpWorld* world, ::hkpEntity* entity)
         {
-            Removing(world, entity);
+            ++s_removeSingle;
+            // hkBool comes back through a hidden pointer, which sits after `this` in the game's member function but
+            // before it in this free signature, so `world` here is really the result slot. Ask the entity instead.
+            if (entity) Removing(entity->getWorld(), entity);
             return next(world, entity);
         }
 
         void OnAddBatch(AddBatch::Next next, ::hkpWorld* world, ::hkpEntity* const* entities, int count, ::hkpEntityActivation activation)
         {
             next(world, entities, count, activation);
+            s_addBatchCount += count;
             for (int i = 0; i < count; ++i) Added(world, entities[i]);
         }
 
         void OnRemoveBatch(RemoveBatch::Next next, ::hkpWorld* world, ::hkpEntity* const* entities, int count)
         {
+            s_removeBatchCount += count;
             for (int i = 0; i < count; ++i) Removing(world, entities[i]);
             next(world, entities, count);
         }
 
         bool OnPickObject(PickObject::Next next, ::bhkWorld* world, ::bhkPickData& pick)
         {
+            const auto havokStart = std::chrono::steady_clock::now();
             const bool result = next(world, pick);
+            s_havokRayMicros += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - havokStart).count();
             if (MirrorOn()) {
                 Compare(world, pick);
                 LogSummary();
             }
             return result;
+        }
+
+        using CharIntegrate = hooks::Override<&::bhkCharProxyController::Unk_0B>;
+
+        bool OnCharIntegrate(CharIntegrate::Next next, ::bhkCharacterController* self)
+        {
+            if (self && MirrorOn()) CheckPhantom(self);
+            return next(self);
         }
 
         bool LoadedShapesGate()
@@ -386,6 +498,7 @@ namespace CB::feature::joltmirror {
         }
 
         [[maybe_unused]] const int s_loadedShapes = bhkJoltLoadedShapes::Install(&LoadedShapesGate);
+        [[maybe_unused]] const bool s_charIntegrate = CharIntegrate::Subscribe(&OnCharIntegrate, hooks::Priority::Normal, "JoltQueryMirror");
         [[maybe_unused]] const bool s_addEntity    = AddEntity::Subscribe(&OnAddEntity, hooks::Priority::Normal, "JoltQueryMirror");
         [[maybe_unused]] const bool s_removeEntity = RemoveEntity::Subscribe(&OnRemoveEntity, hooks::Priority::Normal, "JoltQueryMirror");
         [[maybe_unused]] const bool s_addBatch     = AddBatch::Subscribe(&OnAddBatch, hooks::Priority::Normal, "JoltQueryMirror");

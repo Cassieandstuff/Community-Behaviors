@@ -243,6 +243,7 @@ if(CB_WITH_JOLT)
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltCompressedMesh.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltLoadedShapes.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltQueryMirror.cpp"
+        "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltWorld.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltRuntime.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkTripwire.cpp"
         "${CB_SDK_ROOT}/Bethesda/BSJolt/bhkJoltHavokShapes.cpp")
