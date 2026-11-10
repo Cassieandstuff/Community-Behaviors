@@ -73,26 +73,14 @@ namespace CB::feature::camera {
             return a < 0.0f ? a + kTwoPi : a;
         }
 
-        /// @brief Plugins that drive the same third-person camera: with either loaded, two writers fight over the camera
-        ///        every frame (seen with SmoothCam: the camera flashes between their positions).
-        constexpr std::pair<const wchar_t*, const char*> kRivals[] = {
-            { L"TrueDirectionalMovement.dll", "True Directional Movement" },
-            { L"SmoothCam.dll", "SmoothCam" },
-        };
-
-        /// @note Decided on the first camera frame, not at plugin load, so a rival that loads after CB is seen.
+        /// @note Whether a rival camera mod (True Directional Movement, SmoothCam) is loaded is the compatibility registry's
+        ///       call (engine/compat): it forces the `camera` flag off before the hooks attach, so none of this runs.
         bool Enabled()
         {
             static const bool on = [] {
                 if (REL::Module::IsVR()) {
                     LOG_WARN("camera: VR is not supported - vanilla's camera stays");
                     return false;
-                }
-                for (const auto& [dll, rival] : kRivals) {
-                    if (::GetModuleHandleW(dll)) {
-                        LOG_WARN("camera: {} is loaded and drives the same camera - CB's camera stays off", rival);
-                        return false;
-                    }
                 }
                 LOG_INFO("camera: CB drives the third-person camera");
                 return true;

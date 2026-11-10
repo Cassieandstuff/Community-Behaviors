@@ -872,6 +872,22 @@ LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const Log
                 " cross-bundle bundle(s) via shared code(s).");
         plan.mods.push_back(std::move(pm));
     }
+    /// @note The same table the plugin scans Data/SKSE/Plugins with, run over each enabled mod's own SKSE/Plugins: the
+    ///       user sees which mod brings the clash before converting. File names are handed to the filesystem as the
+    ///       registry spells them.
+    for (const std::string& modName : mo2.enabledTopFirst) {
+        const fs::path plugins = mo2.modsDir / modName / "SKSE" / "Plugins";
+        std::error_code pe;
+        if (!fs::is_directory(plugins, pe)) continue;
+        for (auto& found : CB::engine::compat::Match([&](std::string_view dll) {
+                 std::error_code fe;
+                 return fs::is_regular_file(plugins / fs::path(std::string(dll)), fe);
+             }))
+            plan.compat.push_back({ modName, std::move(found) });
+    }
+    if (log && !plan.compat.empty())
+        log("  plan: " + std::to_string(plan.compat.size()) + " mod(s) ship a DLL CB does not coexist with.");
+
     plan.ok = true;
     return plan;
 }

@@ -296,6 +296,10 @@ namespace CB::core::debug {
           "Start the Tracy profiler client built into the plugin: zones on every hook subscriber, the warm-up and motion "
           "matching, plots, and a frame mark per present. It records only while a Tracy 0.13.1 viewer on this machine is "
           "connected. Off = no profiler thread and no socket." },
+        { "ui_test_modal", FlagKind::IniBool, "Debug", "bUiTestModal", false, false,
+          "UI test prompt",
+          "Show a Yes/No prompt over the game at start-up (AE only): the game gets no input and a cursor is drawn until it "
+          "is answered. Enter and Escape answer No. For trying the UI host's input path. Off = nothing shown." },
     });
 
 }  // namespace CB::core::debug

@@ -113,6 +113,7 @@ int main(int argc, char** argv) {
     t::RunRootMotionTests(reg);
     t::RunSetDataTests(reg);
     t::RunDodgeTests();
+    t::RunCompatTests();
 
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");

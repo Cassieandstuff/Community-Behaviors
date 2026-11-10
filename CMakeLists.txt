@@ -231,8 +231,8 @@ target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml:
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
-# Drives the cold-compile progress bar: ProgressHud draws ImGui frames after the game's hooked
-# present call during the compile (see ProgressHud.cpp). Fetched unconditionally (small; the converter's
+# Drives CB's in-game overlays (the cold-compile progress bar, the debug HUD): the UI host draws ImGui frames after
+# the game's hooked present call (see src/core/ui/UiHost.cpp). Fetched unconditionally (small; the converter's
 # separate glfw/opengl3 `imgui` lib, below, reuses the same populated source). d3d11/dxgi for the
 # swapchain + device the game hands us.
 include(FetchContent)
@@ -363,6 +363,22 @@ if(CB_BUILD_CONVERTER)
     target_link_libraries(imgui PUBLIC glfw glad_gl_45_core)
     target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
     set_target_properties(imgui PROPERTIES CXX_STANDARD 17)
+
+    # ── Raven (the rewrite's UI toolkit) ──────────────────────────────────────
+    # Pinned by full commit: Raven's API is unstable and its history is a single line. Static, none of its examples,
+    # tests, tools or web view. Off until the rewrite lands; the GLFW + ImGui stack above stays the converter's UI.
+    option(CB_CONVERTER_RAVEN "Fetch and build Raven for the converter rewrite" OFF)
+    if(CB_CONVERTER_RAVEN)
+        FetchContent_Declare(raven
+            GIT_REPOSITORY https://github.com/oscar-soirey/Raven.git
+            GIT_TAG        4a05d6f11c79e5a6eae77d7fe26f702f5fea4331)
+        set(RAVEN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_WEB      OFF CACHE BOOL "" FORCE)
+        set(RAVEN_BUILD_SHARED   OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(raven)
+    endif()
 
     add_subdirectory(src/converter)
 endif()
