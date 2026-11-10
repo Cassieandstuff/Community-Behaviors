@@ -30,13 +30,20 @@ string(ASCII 5 _sdkMark)
 # skipped, and an SDK row whose name engine.yaml already has yields to it. Their `header` paths are matched to the
 # SDK tree by file name (the converted rows keep the old havok/ paths).
 set(_shipped "")
+set(_shippedTier "")
 if(DEFINED SDK_ROOT)
     # The bodies the SDK ships, the only functions the takeover jumps: the plugin also holds inline copies of other
-    # functions, built by another compiler and never compared with the exe.
+    # functions, built by another compiler and never compared with the exe. Each carries its match tier (exact,
+    # structural, parked); a row without one predates tiers, when only exact bodies shipped.
     file(STRINGS "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" _definedRows REGEX "mangled:")
     foreach(_row IN LISTS _definedRows)
         if(_row MATCHES "mangled: \"([^\"]*)\"")
             string(APPEND _shipped "    \"${CMAKE_MATCH_1}\",\n")
+            set(_tier "exact")
+            if(_row MATCHES "tier:[ ]*\"([a-z]+)\"")
+                set(_tier "${CMAKE_MATCH_1}")
+            endif()
+            string(APPEND _shippedTier "    \"${_tier}\",\n")
         endif()
     endforeach()
     foreach(_sdkFile "${SDK_ROOT}/Tools/cbmatch/registry.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/ExeClasses.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Defined.yaml" "${SDK_ROOT}/Tools/Reconstruction/generated/Referenced.yaml")
@@ -66,7 +73,7 @@ string(REGEX MATCHALL "(^|\n)${_sdkMark}?[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|code|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|code|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig|tier):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
@@ -562,6 +569,10 @@ const char* const kShipped[] = {
 ${_shipped}    nullptr,
 };
 const char* const*           ShimShipped() { return kShipped; }
+const char* const kShippedTier[] = {
+${_shippedTier}    nullptr,
+};
+const char* const*           ShimShippedTier() { return kShippedTier; }
 std::size_t                 ShimFunctionCount() { return kFuncCount; }
 
 } // namespace CB::platform::hooks::detail

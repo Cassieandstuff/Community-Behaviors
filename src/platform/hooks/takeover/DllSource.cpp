@@ -11,7 +11,10 @@
 
 #include <codec/image/RuntimeImage.h>
 
+#include <algorithm>
+#include <map>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 /// @brief cmake/EmbedEngineRegistry.cmake's tables, one QWORD per shim slot: what the slot's decorated name linked to,
@@ -41,30 +44,51 @@ namespace CB::platform::hooks {
     {
         const auto* funcs   = detail::ShimFunctions();
         const auto* mangled = detail::ShimFunctionMangled();
-        std::unordered_set<std::string_view> shipped;
-        for (const char* const* s = detail::ShimShipped(); *s; ++s) shipped.insert(*s);
-        /// @note [HavokRuntime] sFunctionsOff: `method@Class` entries, comma-separated, left to vanilla: bisects a class.
-        std::vector<std::string> functionsOff;
+        std::unordered_map<std::string_view, std::string_view> shipped;   ///< decorated name -> match tier
         {
-            std::string list = core::debug::Value("HavokRuntime", "sFunctionsOff");
+            const char* const* tier = detail::ShimShippedTier();
+            for (const char* const* s = detail::ShimShipped(); *s; ++s, ++tier) shipped.emplace(*s, *tier ? *tier : "exact");
+        }
+        const auto commaList = [](const char* key) {
+            std::vector<std::string> out;
+            const std::string        list = core::debug::Value("HavokRuntime", key);
             for (std::size_t at = 0; at < list.size();) {
                 const auto end = (std::min)(list.find(',', at), list.size());
-                if (end > at) functionsOff.push_back(list.substr(at, end - at));
+                if (end > at) out.push_back(list.substr(at, end - at));
                 at = end + 1;
             }
-        }
+            return out;
+        };
+        /// @note [HavokRuntime] sFunctionsOff: `method@Class` entries, comma-separated, left to vanilla: bisects a class.
+        const std::vector<std::string> functionsOff = commaList("sFunctionsOff");
+        /// @note [HavokRuntime] sTiersOff: match tiers (structural, parked) left to vanilla, so a problem can be tested
+        ///       against every unproven body at once. Tier names are compared exactly, as the export writes them.
+        const std::vector<std::string> tiersOff = commaList("sTiersOff");
+        std::map<std::string_view, std::size_t> installed, off;
         for (std::size_t i = 0, n = detail::ShimFunctionCount(); i < n; ++i) {
             if (!cb_impl_table[i] || cb_impl_table[i] == cb_stub_table[i] || !engine::Available(*funcs[i])) continue;
-            if (!mangled[i] || !shipped.contains(mangled[i])) continue;
+            if (!mangled[i]) continue;
+            const auto ship = shipped.find(mangled[i]);
+            if (ship == shipped.end()) continue;
             const std::string_view decorated = mangled[i];
+            const std::string_view tier      = ship->second;
+            if (std::find(tiersOff.begin(), tiersOff.end(), tier) != tiersOff.end()) {
+                ++off[tier];
+                continue;
+            }
             if (std::any_of(functionsOff.begin(), functionsOff.end(),
-                            [&](const std::string& off) { return decorated.find(off) != std::string_view::npos; })) {
+                            [&](const std::string& f) { return decorated.find(f) != std::string_view::npos; })) {
                 LOG_INFO("havok runtime: {} left to vanilla by sFunctionsOff", decorated);
                 continue;
             }
+            /// @note Every non-exact body is named in the log, so a crash or a wrong behavior leads straight to it.
+            if (tier != "exact") LOG_INFO("havok runtime: {} body {}", tier, decorated);
+            ++installed[tier];
             slots_[ClassOfDecorated(mangled[i])].push_back(i);
             ++count_;
         }
+        for (const auto& [tier, n] : installed) LOG_INFO("havok runtime: {} {} bodies offered to the takeover", n, tier);
+        for (const auto& [tier, n] : off) LOG_INFO("havok runtime: {} {} bodies left to vanilla by sTiersOff", n, tier);
     }
 
     std::vector<std::string> DllSource::Classes() const
