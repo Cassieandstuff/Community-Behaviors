@@ -265,6 +265,10 @@ add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the 
 add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
 enable_testing()
 add_subdirectory(tools/engine-tests)   # engine-tests: unit tests over the engine lib (ctest)
+option(CB_WITH_METAHUMAN "Build the experimental MetaHuman tools (fetches OpenRigLogic)" OFF)
+if(CB_WITH_METAHUMAN)
+    add_subdirectory(tools/dna-probe)   # dna-probe: DNA contents and RigLogic timings
+endif()
 
 # ── Bundle stage ────────────────────────────────────────────────────────────────
 # Every shipped .hky is a DERIVED bundle the converter regenerates from $CB_REGEN_SOURCE (see
