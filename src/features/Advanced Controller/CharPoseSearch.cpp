@@ -36,7 +36,7 @@
 #include <vector>
 
 /// @file
-/// @brief CBPoseSearchGenerator's behavior, after havok/'s hkbManualSelectorGenerator line for line, with int32 indices.
+/// @brief CBPoseSearchGenerator's behavior, after the SDK's hkbManualSelectorGenerator line for line, with int32 indices.
 /// @note  Registered whatever the flags: a behavior holding this class loads with the add-on whether or not motion
 ///        matching runs, and an unregistered class name loads with a null vtable.
 

@@ -18,7 +18,7 @@ The lookup finds the annotation track named exactly the role prefix. A null pref
 default, the global at 0x142022418, which points to `"NPC"`. `Paired_Mount.hkx` names the rider's track `NPC`
 (track 55) and has none named `""`. With the takeover on, 0x140b948e0 jumps into CB, and Animation64's
 replacement (`OnSyncMark`, `src/features/Animation 64/Readers.cpp`) used a literal `""` for a null prefix.
-So the rider's mark was never found and the mount was rejected every time. The havok/ copy reads the exe
+So the rider's mark was never found and the mount was rejected every time. The SDK's copy reads the exe
 global and was right; only its name (`g_bssyncEmptyString`) and comments said `""`.
 
 Same failure mode as [CB-15](CB-15-sync-prefix-null-marker.md) (a prefix of `&#9216;` matches no track either).

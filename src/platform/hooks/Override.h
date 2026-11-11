@@ -9,11 +9,11 @@
 #include <string>
 
 /// @file
-/// @brief Override<&fn>: subscribe to a declared function, named by its own declaration — a havok/ function or a
+/// @brief Override<&fn>: subscribe to a declared function, named by its own declaration — an SDK function or a
 ///        game function declared in platform/game.
 /// @note Where it attaches is decided at install: the takeover's cell when the runtime image runs the function,
-///       otherwise an entry detour on vanilla's address (engine.yaml). Subscribers are the same either way, and a
-///       havok/ class the takeover leaves to vanilla (settings, another plugin's patch) keeps its overrides.
+///       otherwise an entry detour on vanilla's address (engine.yaml). Subscribers are the same either way, and an
+///       SDK class the takeover leaves to vanilla (settings, another plugin's patch) keeps its overrides.
 /// @note The signature comes from the declaration (decltype of the pointer), so it cannot drift from the header;
 ///       the identity (decorated name, registry pin, the image's `this`) comes from engine.yaml through the
 ///       generated Identity<&fn>. A function engine.yaml has no `mangled` for has no Identity: it fails to compile.

@@ -83,12 +83,6 @@ schema/                      the class schema as DATA — one YAML per class in 
                              metadata/ holds enums, merge semantics, debug probes and the adsf/asdsf descriptors.
                              templates/ = the converter's Nemesis-ingest XML oracles. Deployed as data: plugin →
                              Data/community_behaviors/schema (no templates/), converter → <exe>/schema.
-havok/                       the reimplemented Havok runtime (CB::havok::), laid out like Havok's source tree
-                             (Common/Base, Animation, Behavior, Physics; below them the exe's __FILE__ paths). FROZEN:
-                             matching moved to OPEN-HAVOK (see Correctness gates). Its headers also compile into the
-                             plugin, where the schema link shim (engine.yaml `mangled` rows) binds every out-of-line
-                             function and const global to the exe. Never deployed. The plugin no longer compiles this:
-                             it compiles lib/cb-sdk. Kept until removed.
 lib/cb-sdk/                  the private CB-SDK-Export submodule: the SDK generated from the private CB-SDK repo by
                              Tools/Reconstruction/export.py. Never edit it here. RE and matching happen in CB-SDK;
                              re-export, publish to CB-SDK-Export, and bump the pin. Decompiled output never enters this
@@ -123,11 +117,8 @@ another root renames its namespace; a stray top-level namespace is a bug.
 - **Roots.** `CB::core::` = the plugin (src/core) · `CB::platform::` = the runtime SDK (src/platform) ·
   `CB::engine::` = the shared engine (src/engine) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
-  config scanner · `CB::havok::` = the reimplemented Havok runtime (havok/; Havok's class names directly under
-  the root, opened as `namespace CB { namespace havok {` since VS2015 builds it). Nothing else at the top — no
-  bare `havok::` outside CB, no `sct::` / `bconv::`.
-  The SDK's Havok classes sit at global scope (`::hkbGenerator`), as the exe's names require; `CB::havok::` remains
-  only for `havok/`.
+  config scanner. Nothing else at the top — no `havok::`, no `sct::` / `bconv::`.
+  The SDK's Havok classes sit at global scope (`::hkbGenerator`), as the exe's names require.
 - **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.

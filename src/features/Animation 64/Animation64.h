@@ -5,7 +5,7 @@
 
 /// @file
 /// @brief Animation 64: the 16-bit counts and indices that cap Skyrim's animation data and behavior runtime, to be
-///        widened to 64 bits. Nothing is widened yet; this is the list, checked against havok/'s declarations.
+///        widened to 64 bits. Nothing is widened yet; this is the list, checked against the SDK's declarations.
 /// @note  Owning a class's vtable (platform/classes, [HavokRuntime] sOwnTypes) routes its virtual calls through CB,
 ///        but every slot still runs code compiled against vanilla's offsets. A field widens only once
 ///        (1) every function that touches it, virtual or not, is CB's code built against the new layout,
@@ -24,7 +24,7 @@ namespace CB::feature::widen {
 
     /// @brief One field or parameter Animation 64 widens.
     struct WideField {
-        std::string_view owner;    ///< the class, struct or interface, as havok/ declares it
+        std::string_view owner;    ///< the class, struct or interface, as the SDK declares it
         std::string_view member;   ///< the member, or `function(parameter)`
         int              bits;     ///< its width today
         Kind             kind;

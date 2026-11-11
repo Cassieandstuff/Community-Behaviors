@@ -12,7 +12,7 @@
 #include <Behavior/Behavior/Utils/hkbBoneIndexArray.h>
 
 /// @file
-/// @brief Holds kFields to havok/'s declarations: a row whose width no longer matches fails the build.
+/// @brief Holds kFields to the SDK's declarations: a row whose width no longer matches fails the build.
 
 namespace CB::feature::widen {
 

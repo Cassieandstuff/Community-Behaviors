@@ -26,9 +26,9 @@
 
 /// @file
 /// @brief CB's own readers of the clip's binding index, converted to the 64-bit slot ([Animation64] bReaders): every
-///        havok/ function that indexes the binding set with it, or gates on it, replaced by a copy that reads
+///        SDK function that indexes the binding set with it, or gates on it, replaced by a copy that reads
 ///        BindingIndex() instead of the 16-bit mirror.
-/// @note  havok/ stays the byte-matched mirror of vanilla; each copy here is its function as havok/ has it, with only
+/// @note  the SDK stays the byte-matched mirror of vanilla; each copy here is its function as the SDK has it, with only
 ///        the index reads changed. Calls inside the takeover image reach vanilla's entries, so a replacement here runs
 ///        for every caller. Two more differences, both invisible to the game: clip activate drops its HK_TIMER pair (it
 ///        feeds Havok's own monitor stream through another unbound global; the subscriber is a CB profiler zone), and

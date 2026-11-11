@@ -162,10 +162,5 @@ source. Nothing of a rule is persisted in the bundle. The converter applies them
 `project/`, `arrays/`, `effects/`, `resource/`, `scene/`), and `metadata/` gathers the non-class kinds. A class with no
 parent that only one class owns sits in its owner's family.
 
-The reimplemented Havok runtime is not part of schema/: it lives in the top-level `havok/` (`CB::havok::`), one `.h`/`.cpp` per class, laid out like Havok's
-own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's
-`__FILE__` strings give (`Generator\Clip\hkbClipGenerator.cpp`, `Mapper\hkaSkeletonMapper.cpp`, …). Bethesda's
-behavior classes sit in the same tree, as in their build. A translation unit is part of what gets matched (what a
-caller may assume about a callee it can see), so code is compiled apart only where the bytes demand it, in a file
-named for that (`hkbClipGeneratorOpaque.cpp`), never one posing as a Havok file. Built only by `tools/cbmatch` (VS2015, against
-`tools/cbmatch/manifests/schema.yaml`); the include root is `Havok/` (`#include <Behavior/...>`).
+The reimplemented Havok runtime is not part of schema/: it lives in CB-SDK, which the plugin compiles from
+`lib/cb-sdk`.

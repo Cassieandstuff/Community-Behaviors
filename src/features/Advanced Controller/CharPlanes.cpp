@@ -30,7 +30,7 @@
 /// @file
 /// @brief Step 4 of the character controller spec: the proxy's constraint planes, replacing Bethesda's
 ///        processConstraintsCallback for the managed controller (the player's proxy).
-/// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (havok/.../Bethesda), with
+/// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (CB-SDK's Bethesda tree), with
 ///       the spec's rules in place of its per-contact walkability, TryStep and wall planes: blocking follows the
 ///       contact normal only (M1/M2) and walkability comes from one floor query per callback. No wall planes: a steep
 ///       face blocks along its own normal, and the ground states' grip (their slide and uphill clip) is what keeps the

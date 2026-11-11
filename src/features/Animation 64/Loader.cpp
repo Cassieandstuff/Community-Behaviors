@@ -377,7 +377,7 @@ namespace CB::feature::widen {
             return clip ? BindingIndex(clip) : -1;
         }
 
-        /// @brief BSOffsetAnimationGenerator::activate as havok/ has it, the offset clip's index handed over at 64 bits.
+        /// @brief BSOffsetAnimationGenerator::activate as the SDK has it, the offset clip's index handed over at 64 bits.
         void OnOffsetActivate(OffsetActivate::Next, ::BSOffsetAnimationGenerator* gen, const ::hkbContext& context)
         {
             if (::IAnimationClipLoader* loader = ClipLoader(); loader && !LoadAnimation(loader, context, OffsetIndex(gen))) {

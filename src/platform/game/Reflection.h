@@ -15,7 +15,7 @@ namespace CB::platform::game {
     /// @brief hkClass::getSignature: the CRC the engine derives from a class's reflection (its members and parent
     ///        chain), which the behavior loader compares against every packfile's stored class signatures.
     /// @param flags 1 = this class only (SIGNATURE_LOCAL); 0 = up the parent chain, as the loader asks.
-    /// @note A free function over the class: havok/ declares only proven code.
+    /// @note A free function over the class: the SDK declares only proven code.
     std::uint32_t hkClass_GetSignature(const ::hkClass* cls, int flags);
 
     /// @brief The exe's hkReferencedObject class (filled by its static initializer): the parent CB's own data classes

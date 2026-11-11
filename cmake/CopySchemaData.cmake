@@ -1,5 +1,5 @@
 # CopySchemaData.cmake — copy one top-level schema/ entry to DST, leaving C++ sources out. The schema ships as data
-# (the runtime loads its *.yaml); a C++ source never ships (the reimplemented runtime lives in havok/, outside schema/).
+# (the runtime loads its *.yaml); a C++ source never ships (the reimplemented runtime lives in CB-SDK).
 # Only folders that hold a shipped file are created, so a sources-only folder leaves nothing behind.
 #
 # Invoked as a script:  cmake -DSRC=<schema/entry> -DDST=<dest dir> -P CopySchemaData.cmake
