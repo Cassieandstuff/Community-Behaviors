@@ -102,7 +102,7 @@ namespace {
         auto* parseIndex = &cb::setdata::ParseSetdataIndexYaml; (void)parseIndex;
         auto* stem = &cb::setdata::StemForHeader; (void)stem;
         auto* compile = &cb::setdata::CompileSetdataCrcs; (void)compile;
-        cb::setdata::CrcTriple tri = cb::setdata::TripleForAnimation("meshes\x.hkx"); (void)tri;
+        cb::setdata::CrcTriple tri = cb::setdata::TripleForAnimation("meshes\\x.hkx"); (void)tri;
         auto* gateName = &cb::setdata::GateValueName; (void)gateName;
         std::string unl = cb::animdata::UnlabelSample(""); (void)unl;
 
