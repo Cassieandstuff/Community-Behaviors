@@ -1,5 +1,0 @@
-name:      hkbEventProperty
-parent:    hkbEventBase
-signature: 0x0db38a15
-size:      16
-fields:    []

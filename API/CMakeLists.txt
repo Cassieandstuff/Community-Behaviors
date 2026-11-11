@@ -17,8 +17,8 @@ target_include_directories(cb-api INTERFACE
 # One link name in both modes: FetchContent (this alias) and find_package (exported cb:: namespace).
 add_library(cb::CB-API ALIAS cb-api)
 
-# The engine backs the facade; its PUBLIC include root + link propagate to any cb-api consumer.
-target_link_libraries(cb-api INTERFACE engine)
+# HKY-SDK backs the facade; its PUBLIC include root + link propagate to any cb-api consumer.
+target_link_libraries(cb-api INTERFACE hky::core hky::locomotion)
 
 # Dogfood / drift gate: the facade is header-only (INTERFACE), so this tiny TU is what actually
 # compiles <CB-API.h> and odr-uses every re-exported name. CB being a first-party consumer means a

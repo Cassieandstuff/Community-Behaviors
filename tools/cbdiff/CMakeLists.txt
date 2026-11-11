@@ -5,7 +5,7 @@
 
 add_executable(cbdiff cbdiff.cpp)
 
-target_link_libraries(cbdiff PRIVATE engine)
+target_link_libraries(cbdiff PRIVATE hky::core)
 
 set_target_properties(cbdiff PROPERTIES
     CXX_STANDARD 23

@@ -1,9 +1,0 @@
-name:      hkbRigidBodyRagdollControlsModifier
-parent:    hkbModifier
-signature: 0xaa87d1eb
-size:      160
-defaults:  { enable: true, userData: 1 }
-fields:
-  - { name: controlData, type: struct, ref: hkbRigidBodyRagdollControlData }
-  - { name: bones,       type: ptr, ref: hkbBoneIndexArray, charprop: hkbBoneIndexArray }
-  - { skip: 8 }

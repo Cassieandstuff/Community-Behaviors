@@ -3,7 +3,7 @@
 /// @brief The converter core: turns a Nemesis/Pandora behavior load order into per-mod Community Behaviors .hky
 ///        bundles plus a loadorder.txt, each graph patch derived against the shipped Skyrim.hky base
 ///        (CB::engine::decompile::ConvertModDelta); also the derived-bundle regen and the offline gates.
-#include <compat/Registry.h>
+#include <config/compat/Registry.h>
 
 #include <atomic>
 #include <functional>
@@ -62,7 +62,7 @@ struct PlanMod {
 ///        knows which one to disable.
 struct PlanCompat {
     std::string                  modName;
-    CB::engine::compat::Finding  finding;   ///< the registry entry and the DLLs of it this mod ships
+    CB::config::compat::Finding  finding;   ///< the registry entry and the DLLs of it this mod ships
 };
 
 // The whole plan: mods in load order + the code->owning-mod map the cross-bundle master resolution used.

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <compat/Registry.h>
+#include <config/compat/Registry.h>
 
 #include <span>
 #include <string>
 #include <vector>
 
 /// @file
-/// @brief The plugin side of the compatibility registry (<compat/Registry.h>): finds the mods CB does not coexist with
+/// @brief The plugin side of the compatibility registry (<config/compat/Registry.h>): finds the mods CB does not coexist with
 ///        and acts on them before anything of CB's reads a flag.
 
 namespace CB::core::bootstrap::compat {
@@ -26,7 +26,7 @@ namespace CB::core::bootstrap::compat {
     void Postflight();
 
     /// @return What Preflight found, in table order. Empty before it runs; stable after.
-    const std::vector<engine::compat::Finding>& Findings();
+    const std::vector<CB::config::compat::Finding>& Findings();
 
     /// @return One line per disagreement Postflight found; empty when it agreed (or has not run).
     std::vector<std::string> Drift();

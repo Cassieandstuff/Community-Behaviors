@@ -1,9 +1,0 @@
-name:   AnimSetTypeCondition
-kind:   metadata
-# A gate: "<variable> in [value, extra]", an inclusive int range (vanilla often sets value == extra, so it reads
-# like equality). Both integers preserved verbatim. `enumby` names the enum each bound reads by, per variable: a
-# reader's hint only (no serde effect); a variable not listed reads as a number.
-fields:
-  - { name: variable, type: string }   # e.g. "iLeftHandType", "iRightHandType"
-  - { name: value,    type: int, enumby: { field: variable, iLeftHandType: HandType, iRightHandType: HandType } }   # min
-  - { name: extra,    type: int, enumby: { field: variable, iLeftHandType: HandType, iRightHandType: HandType } }   # max

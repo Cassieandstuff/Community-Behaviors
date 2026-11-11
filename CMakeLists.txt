@@ -6,9 +6,10 @@
 # the build-time gates.
 #
 # CONSUMED as a subproject (FetchContent / add_subdirectory): exposes ONLY the
-# public API surface — the `cb::CB-API` target (<CB-API.h>) and its engine modules —
+# public API surface — the `cb::CB-API` target (<CB-API.h>) over HKY-SDK —
 # so a tool (e.g. a behavior editor) merges a load order IDENTICALLY to the CB
 # compiler, WITHOUT pulling in CommonLibSSE, the SKSE plugin, or the converter.
+# New consumers should link HKY-SDK (hky::core) directly.
 #
 # Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
@@ -16,8 +17,8 @@
 #   CB_REGEN_SOURCE       — root of <Name>.hky regen source folders (arms the derived-bundle regen)
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
 #
-# Consumer contract (subproject): the consumer's toolchain must provide `ryml` + `lz4`
-# (find_package CONFIG — the YAML front-end + the animation-cache codec). Link `cb::CB-API`.
+# Consumer contract (subproject): the consumer's toolchain must provide ryml, lz4 and nlohmann_json
+# (find_package CONFIG, for HKY-SDK and VFS). Link `cb::CB-API`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
 project(CommunityBehaviors VERSION 0.5.2 LANGUAGES CXX C
@@ -44,76 +45,30 @@ endif()
 
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
-# ── Schema contract version — the ONE source ─────────────────────────────────────
-# The identity of the schema/ class-layout + merge-policy contract. Generates both the SCHEMA.yaml stamp every
-# shipped tree carries (cmake/Schema.cmake) and the version the engine expects (SchemaVersion.gen.h); it is
-# written nowhere else. Independent of the plugin VERSION above. ONE tree = ONE version — no per-class versions.
-#
-# Bump rules (SemVer over WIRE + MERGE compatibility):
-#   MAJOR - makes old output wrong: field reorder, size:/type/signature: change, field removal, a merge:
-#           strategy rename or semantic change.  (old bytes mis-parse)
-#   MINOR - additive & back-compatible: a new class, a new optional field key.
-#   PATCH - no wire effect: comments, file moves, a rendering-only hint.
-# Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
-# a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
-set(CB_SCHEMA_VERSION "1.0.0-rc.6")
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Schema.cmake")   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
-
-# ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
-# src/engine is CB's shared reflection engine (one `engine` target). cb::CB-API (<CB-API.h>) is the curated
-# public contract a consumer links; it PUBLIC-pulls the engine, so linking it is all a consumer needs.
+# ── HKY-SDK: the engine (built in BOTH modes) ───────────────────────────────────
+# HKY-SDK (github.com/Cassieandstuff/HKY-SDK, private) is the shared engine CB used to carry as src/engine: codecs,
+# the class schema, units, compile/decompile/merge, rules, relay (hky::core) and the locomotion model
+# (hky::locomotion). It also owns schema/ and its version (HKY_SCHEMA_VERSION) and the hky_*_schema ship helpers.
+# Local builds point FETCHCONTENT_SOURCE_DIR_HKY-SDK at a checkout. The engine's tests (engine-tests) build here too
+# when CB is top-level, so one ctest covers both.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SctSources.cmake")   # sct_collect_sources() — the underscore-exclusion source glob
-add_subdirectory(src/engine)
-add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
-
-# ── Install / export rules for the cb-api surface ────────────────────────────────
-# So a consumer can `find_package(cb-api)` (vcpkg, or a manual cmake --install). Top-level only: a FetchContent
-# consumer's own `cmake --install` must not also install CB's headers, schema and package config.
-# Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
-if(PROJECT_IS_TOP_LEVEL)
-include(CMakePackageConfigHelpers)
-# VFS (fetched by src/engine) is a PUBLIC dependency of the engine, so it ships in the same export set; NIFFER is a
-# PRIVATE one, but a static engine still lists it as a link dependency, so it ships too.
-install(TARGETS cb-api engine vfs niffer
-        EXPORT  cb-api-targets
-        ARCHIVE DESTINATION lib
-        INCLUDES DESTINATION include)
-# Headers: the engine include root, headers only (sources sit beside them and are not installed).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/" DESTINATION include FILES_MATCHING PATTERN "*.h")
-# The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
-install(DIRECTORY "${vfs_SOURCE_DIR}/API/vfs" DESTINATION include FILES_MATCHING PATTERN "*.h")
-# The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
-# ground truth for class layout + per-field `merge:` policy, plus the generated SCHEMA.yaml stamp. Without it a
-# consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
-# package config and expose its location as CB_API_SCHEMA_DIR (see cb-api-config.cmake.in).
-cb_install_schema(DESTINATION share/cb-api/schema EXCLUDE templates)
-install(EXPORT cb-api-targets
-        NAMESPACE cb::
-        FILE      cb-api-targets.cmake
-        DESTINATION share/cb-api)
-# Relocatable path to the shipped schema tree, resolved by set_and_check(@PACKAGE_...@) in the
-# config template regardless of where the package is installed/moved.
-set(CB_API_SCHEMA_INSTALL_DIR share/cb-api/schema)
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-api-config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
-    INSTALL_DESTINATION share/cb-api
-    PATH_VARS CB_API_SCHEMA_INSTALL_DIR)
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config-version.cmake"
-    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config-version.cmake"
-    DESTINATION share/cb-api)
+include(FetchContent)
+if(CB_STANDALONE)
+    set(HKY_BUILD_TESTS ON CACHE BOOL "Build HKY-SDK's tests" FORCE)
 endif()
+FetchContent_Declare(HKY-SDK
+    GIT_REPOSITORY https://github.com/Cassieandstuff/HKY-SDK.git
+    GIT_TAG        749c4045b519501f1d63d807fb507e1bf5897665)
+FetchContent_MakeAvailable(HKY-SDK)
+get_property(HKY_SCHEMA_DIR GLOBAL PROPERTY HKY_SCHEMA_SOURCE_DIR)
+
+add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
 # never configures the plugin / converter / tools / CommonLibSSE.
 if(NOT CB_STANDALONE)
-    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api + the engine "
-                   "only (plugin, converter, tools, CommonLibSSE skipped). Consumer must provide ryml + lz4.")
+    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api over HKY-SDK "
+                   "only (plugin, converter, tools, CommonLibSSE skipped). Consumer must provide ryml, lz4 and nlohmann_json.")
     return()
 endif()
 
@@ -222,10 +177,10 @@ add_dependencies(CommunityBehaviors cb_engine_registry)
 target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}" "${_cb_identity}" "${_cb_shim_cpp}" $<TARGET_OBJECTS:cb_schema_shim_asm>)
 target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 
-# engine = the shared reflection engine; feature-sdk = the graph-feature SDK
+# hky::core + hky::locomotion = HKY-SDK, the engine; feature-sdk = the graph-feature SDK
 # (<feature-sdk/FeatureRegistry.h>); config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
-target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml::ryml minhook::minhook)
+target_link_libraries(CommunityBehaviors PRIVATE feature-sdk hky::core hky::locomotion config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
@@ -277,7 +232,7 @@ target_link_libraries(CommunityBehaviors PRIVATE tracy_client)
 add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the deployed master for diffing)
 add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
 enable_testing()
-add_subdirectory(tools/engine-tests)   # engine-tests: unit tests over the engine lib (ctest)
+add_subdirectory(tools/cb-tests)       # cb-tests: unit tests over CB's own libraries (ctest; engine-tests comes with HKY-SDK)
 
 # ── Bundle stage ────────────────────────────────────────────────────────────────
 # Every shipped .hky is a DERIVED bundle the converter regenerates from $CB_REGEN_SOURCE (see
@@ -298,10 +253,10 @@ endif()
 
 # The "Community Behaviors" mod: DLL + pdb, the stamped class schema (owned: cleared, so a stale tree can't
 # double-register classes) and the packed bundles (merged: a Skyrim.hky regenerated earlier stays). The plugin never
-# reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod. The regen
+# reads the converter's Nemesis-ingest templates (src/converter/templates), so they stay out of the mod. The regen
 # (generate-base-master) is deliberately not a dependency: a plugin build ships whatever the stage already holds.
 builder_stage_plugin(CommunityBehaviors MOD "Community Behaviors")
-cb_builder_schema(MOD "Community Behaviors" TO community_behaviors/schema EXCLUDE templates)
+hky_builder_schema(MOD "Community Behaviors" TO community_behaviors/schema)
 builder_stage_generated(MOD "Community Behaviors" DIR "${CB_HKY_STAGE}"
     DEPENDS CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
 builder_package(MOD "Community Behaviors" VERSION ${PROJECT_VERSION})

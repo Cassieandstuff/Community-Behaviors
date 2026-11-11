@@ -1,7 +1,0 @@
-name:      hkbEvent
-parent:    hkbEventBase
-signature: 0x3e0fd810
-size:      24
-defaults:  { id: -1 }
-fields:
-  - { empty: ptr }   # m_sender — void-typed SERIALIZE_IGNORED (ReadEmptyPointer)

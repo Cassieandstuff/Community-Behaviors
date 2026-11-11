@@ -1,9 +1,0 @@
-name:      hkpConvexVerticesConnectivity
-parent:    hkReferencedObject
-signature: 0x63d38e9c
-size:      48
-# hkReferencedObject ends @16. Two hkArrays (16-byte headers): m_vertexIndices (uint16),
-# m_numVerticesPerFace (uint8). Array CONTENTS are inlined after the struct (real object ~112).
-fields:
-  - { name: vertexIndices,      type: scalararray, scalar: uint16, roster: whole }  # @16
-  - { name: numVerticesPerFace, type: scalararray, scalar: byte, roster: whole }    # @32 -> 48

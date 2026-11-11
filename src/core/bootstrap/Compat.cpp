@@ -13,7 +13,7 @@ namespace CB::core::bootstrap::compat {
 
     namespace {
 
-        namespace reg = CB::engine::compat;
+        namespace reg = CB::config::compat;
 
         constexpr const char* kPluginsDir = "Data/SKSE/Plugins";
 

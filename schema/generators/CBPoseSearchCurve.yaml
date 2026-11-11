@@ -1,8 +1,0 @@
-name:      CBPoseSearchCurve
-parent:    CBPoseSearchFeature
-size:      72
-# A clip curve's value at the frame. The query is bound (query), or the playing frame's when it is not.
-fields:
-  - { name: curve, type: string }
-  - { name: query, type: float }
-  - { pad: 8 }

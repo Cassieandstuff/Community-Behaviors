@@ -58,7 +58,7 @@
 using namespace std::literals;
 #endif
 
-// CB Havok-stack shared vocabulary (see src/engine/common/CorePrelude.h). The plugin includes
+// The engine's shared vocabulary (see HKY-SDK src/hky/common/CorePrelude.h). The plugin includes
 // the codec/compile/decompile headers, which reference CB::engine::common / CB::engine::codec names
 // unqualified; forward-declare + make ambient here so those headers resolve in plugin TUs too.
 namespace CB::engine { namespace common {} namespace codec {} }

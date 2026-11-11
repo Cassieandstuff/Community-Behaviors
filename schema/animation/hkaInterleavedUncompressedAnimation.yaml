@@ -1,7 +1,0 @@
-name:      hkaInterleavedUncompressedAnimation
-parent:    hkaAnimation
-signature: 0x930af031
-size:      88
-fields:
-  - { name: transforms, type: qstransformarray, roster: whole }
-  - { name: floats,     type: scalararray, scalar: float, roster: whole }

@@ -9,7 +9,7 @@
 
 #include "core/debug/Settings.h"
 
-#include <codec/image/RuntimeImage.h>
+#include "platform/hooks/takeover/RuntimeImage.h"
 
 #include <algorithm>
 #include <map>
@@ -125,7 +125,7 @@ namespace CB::platform::hooks {
             }
             const auto length = static_cast<std::uint32_t>(fn->EndAddress - fn->BeginAddress);
             out.push_back({ funcs[i]->name, mangled[i], static_cast<std::uint32_t>(at - exe), length,
-                            CB::engine::codec::image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(at), length), cb_impl_table[i] });
+                            CB::platform::hooks::image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(at), length), cb_impl_table[i] });
         }
         return out;
     }

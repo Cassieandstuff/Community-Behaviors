@@ -1,6 +1,0 @@
-# An animation unit: a bare `.hkx` YAML file whose top-level `animation:` map is a CBAnimation, read and written
-# through the schema (AnimationYamlLoader keeps only the legacy `motion: none` shim).
-kind:  embedded
-name:  AnimationFile
-root:  animation
-class: CBAnimation
