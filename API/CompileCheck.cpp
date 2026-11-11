@@ -164,10 +164,11 @@ namespace {
         bool cwok = cb::mm::WriteMmCache(cachedClips, bytes, err); (void)cwok;
         bool crok = cb::mm::ReadMmCache(bytes, cachedClips, err); (void)crok;
         const cb::resolve::Object* selector = cb::mm::RootSelector(g);
-        cb::mm::ClipSource csource = [&](const std::string&) -> const cb::mm::CachedClip& { return cached; };
+        cb::mm::ClipSource csource = [&](const std::string&, const cb::mm::ClipNeeds&) -> const cb::mm::CachedClip& { return cached; };
         cb::mm::WarnFn cwarn = [](const std::string&) {};
         cb::mm::BuildReport breport;
-        std::unique_ptr<cb::mm::SearchDatabase> sdb = selector ? cb::mm::BuildDatabase(*selector, csource, cwarn, &breport) : nullptr;
+        const cb::mm::Rig* mrig = nullptr;
+        std::unique_ptr<cb::mm::SearchDatabase> sdb = selector ? cb::mm::BuildDatabase(*selector, mrig, csource, cwarn, &breport) : nullptr;
         const cb::mm::SearchClip& sclip = sdb->clips.front();
         int sframe = cb::mm::FrameOf(sclip, 0.0); (void)sframe;
         const cb::mm::PoseDatabase& pdb = sdb->databases.front();
@@ -216,7 +217,7 @@ namespace {
         cb::locomotion::DeadBlendTuning lbt;
         cb::locomotion::BlendFault lfault;
         cb::locomotion::Bone lpose[1];
-        bool lstep = lblend.Step(lpose, 1, 0, lbt, &lfault); (void)lstep;
+        bool lstep = lblend.Step(lpose, 1, 0, false, lbt, &lfault); (void)lstep;
         float lleft = lblend.Remaining(lbt); (void)lleft;
         bool lfin = cb::locomotion::FiniteBone(lpose[0]); (void)lfin;
     }
