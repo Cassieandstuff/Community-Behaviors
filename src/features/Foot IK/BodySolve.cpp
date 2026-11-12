@@ -190,7 +190,7 @@ namespace CB::feature::footik {
 
         ik::Vec3 Target(const LegRequest& request, const ik::Vec3& ankle)
         {
-            const float weight = std::clamp(request.setup.m_secondJointIkGain, 0.0f, 1.0f);
+            const float weight = std::clamp(request.setup.m_firstJointIkGain, 0.0f, 1.0f);
             return ankle + (V(request.setup.m_endTargetMS) - ankle) * weight;
         }
 
