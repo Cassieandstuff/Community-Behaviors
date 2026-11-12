@@ -1,6 +1,0 @@
-name:      hkbReferencePoseGenerator
-parent:    hkbGenerator
-signature: 0x26a5675a
-size:      80
-fields:
-  - { empty: ptr }   # m_skeleton (SERIALIZE_IGNORED, null)

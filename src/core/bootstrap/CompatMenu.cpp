@@ -30,7 +30,7 @@ namespace CB::core::bootstrap::compat {
         void __stdcall Render()
         {
             if (!igText) return;
-            namespace reg = CB::engine::compat;
+            namespace reg = CB::config::compat;
 
             const auto& findings = Findings();
             if (findings.empty()) Line("No mod CB knows it clashes with is installed.");

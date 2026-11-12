@@ -9,7 +9,7 @@ sct_collect_sources(CB_FEATURE_SDK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAK
 
 add_library(feature-sdk STATIC ${CB_FEATURE_SDK_SOURCES})
 target_include_directories(feature-sdk PUBLIC "${CMAKE_SOURCE_DIR}/common")
-target_link_libraries(feature-sdk PUBLIC engine)
+target_link_libraries(feature-sdk PUBLIC hky::core)
 
 set_target_properties(feature-sdk PROPERTIES
     CXX_STANDARD 23

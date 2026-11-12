@@ -22,7 +22,7 @@ nodes:
 ```
 
 Transforms are **local to parent**; the addon forward-kinematics-composes them to world space
-(quaternion math mirroring the engine's `src/engine/interface/SkeletonMath.h`). A `transform: derive` node has no
+(quaternion math mirroring HKY-SDK's `src/hky/interface/SkeletonMath.h`). A `transform: derive` node has no
 recovered pose, so it's placed on its parent (identity local) and tagged, rather than dropped.
 
 ## Install

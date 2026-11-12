@@ -63,31 +63,30 @@ src/                         CB's code. src/ is the plugin's private include roo
                              settings, the overlay host and startup phases move here next; until then it still
                              reads core/debug. relay/ = Animation Relay's game-state primitives
                              (<platform/relay/Relay.h>) over the engine's condition language (<relay/Relay.h>).
-  engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
-                             converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
-                             or REL/ include. The folder IS the include root (<common/…> <interface/…>
-                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…> <text/…> <disk/…> <exec/…>
-                             <locomotion/…> <relay/…>); headers sit beside their sources.
   features/<Owner>/          self-registered graph features (CB_REGISTER_FEATURE, CB::feature::), compiled
                              straight into the plugin; ERGate.h (the ER wildcard-gate hook) lives here too
   converter/                 the GLFW+ImGui Behavior Converter (BehaviorConverter.exe, CB::converter::);
-                             platform/ = native dialogs, known folders, zip
+                             platform/ = native dialogs, known folders, zip; templates/ = the Nemesis-ingest XML oracles
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::).
                              Features include lib/cb-sdk's headers and call them as declared;
                              Override<&fn> and Live<&global>() (platform/hooks) reach the takeover's cells and the
                              exe's mutable globals. The SDK stays pristine; changes are overrides.
-  config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
-schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
-                             modifiers/, …; vanilla hk*, Bethesda BS*, CB* custom classes told apart by prefix);
-                             metadata/ holds enums, merge semantics, debug probes and the adsf/asdsf descriptors.
-                             templates/ = the converter's Nemesis-ingest XML oracles. Deployed as data: plugin →
-                             Data/community_behaviors/schema (no templates/), converter → <exe>/schema.
+  config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::);
+                             compat/ = the registry of mods CB does not coexist with (CB::config::compat)
+HKY-SDK (fetched)            THE SHARED ENGINE, its own private repo (github.com/Cassieandstuff/HKY-SDK, FetchContent;
+                             FETCHCONTENT_SOURCE_DIR_HKY-SDK for a local checkout): hky::core (codecs, schema registry,
+                             units, compile/decompile/merge, rules, relay) + hky::locomotion. CommonLib-FREE; code is
+                             CB::engine:: with bare includes (<codec/…> <compile/…> <interface/…> …) until its hky::
+                             rename. It owns schema/ (one YAML per class; metadata/ = enums, merge semantics, probes,
+                             adsf/asdsf descriptors), HKY_SCHEMA_VERSION and the hky_*_schema ship helpers; deployed as
+                             data: plugin → Data/community_behaviors/schema, converter → <exe>/schema (+ templates/).
+                             Engine changes, and their engine-tests, land in HKY-SDK; bump the pin here.
 lib/cb-sdk/                  the private CB-SDK-Export submodule: the SDK generated from the private CB-SDK repo by
                              Tools/Reconstruction/export.py. Never edit it here. RE and matching happen in CB-SDK;
                              re-export, publish to CB-SDK-Export, and bump the pin. Decompiled output never enters this
                              repo.
-tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
+tools/                       dev-only, never shipped: hky-tool, cbdiff, cb-tests, x64dbg-autoattach, blender-control-rig
 features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
                              folder per feature, assembled at build time into the shipped <Name>.hky
                              (cmake/FeatureBundles.cmake: an LFS-pointer guard, then `hky-tool assemble`; the plugin
@@ -101,7 +100,7 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              never drift from it — and inject/ —
                              JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
                              "values"}]} keyed by a file's path inside the
-                             bundle, writing the fields schema/metadata/injectables.json allows per file kind (today:
+                             bundle, writing the fields HKY-SDK's schema/metadata/injectables.json allows per file kind (today:
                              animation -> curves, motionTarget, preload; anything else fails the build). A hand-authored
                              curve replaces the measured curve of its name.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
@@ -115,7 +114,7 @@ The top-level folder picks the ROOT; the purpose word names what the code is for
 another root renames its namespace; a stray top-level namespace is a bug.
 
 - **Roots.** `CB::core::` = the plugin (src/core) · `CB::platform::` = the runtime SDK (src/platform) ·
-  `CB::engine::` = the shared engine (src/engine) ·
+  `CB::engine::` = the shared engine (HKY-SDK, until its hky:: rename) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
   config scanner. Nothing else at the top — no `havok::`, no `sct::` / `bconv::`.
   The SDK's Havok classes sit at global scope (`::hkbGenerator`), as the exe's names require.
@@ -137,7 +136,7 @@ another root renames its namespace; a stray top-level namespace is a bug.
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,
   `LayerSource`) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those
   stay in their purpose namespaces. Because the engine references these types UNqualified throughout, a
-  force-included prelude (`src/engine/common/CorePrelude.h`, the engine's PCH, also pulled by the plugin
+  force-included prelude (HKY-SDK `src/hky/common/CorePrelude.h`, the engine's PCH, also pulled by the plugin
   PCH and the converter) forward-declares and makes `CB::engine::common` + `CB::engine::codec` ambient in
   every TU. So a file never needs a per-file `using namespace` for the shared vocabulary.
 - **Depth is free — use the language.** Define with nested syntax `namespace CB::core::resolve { … }`

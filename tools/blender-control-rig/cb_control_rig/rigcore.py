@@ -196,7 +196,7 @@ def _parse_block(rows, i, parent_indent):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Quaternion / vector math (mirrors the engine's src/engine/interface/SkeletonMath.h)
+# Quaternion / vector math (mirrors HKY-SDK's src/hky/interface/SkeletonMath.h)
 # quats are [x, y, z, w]; vectors [x, y, z]
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -879,7 +879,7 @@ LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const Log
         const fs::path plugins = mo2.modsDir / modName / "SKSE" / "Plugins";
         std::error_code pe;
         if (!fs::is_directory(plugins, pe)) continue;
-        for (auto& found : CB::engine::compat::Match([&](std::string_view dll) {
+        for (auto& found : CB::config::compat::Match([&](std::string_view dll) {
                  std::error_code fe;
                  return fs::is_regular_file(plugins / fs::path(std::string(dll)), fe);
              }))

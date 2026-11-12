@@ -18,10 +18,15 @@ The exceptions are the ones the SKSE / CommonLib plugin ecosystem uses:
   *Modding Libraries* whose licenses aren't GPL-compatible, as long as the source of the parts used
   ships with the combination. The *Modding Libraries* are SKSE and CommonLibSSE-NG.
 
-Third-party code keeps its own license: vendored sources carry theirs beside them (e.g.
-`src/engine/common/miniz.LICENSE`), and dependencies pulled through vcpkg / FetchContent ship under
-their upstream terms. The `schema/templates/` XML is derived from Skyrim's own behavior files, for use
-with the game.
+Third-party code keeps its own license: vendored sources carry theirs beside them, and dependencies
+pulled through vcpkg / FetchContent ship under their upstream terms. The `src/converter/templates/` XML is
+derived from Skyrim's own behavior files, for use with the game.
+
+### HKY-SDK
+
+The engine (the codecs, the class schema, the `.hky` unit, compile, decompile and merge, and the locomotion
+model) lives in HKY-SDK, a separate repository fetched at configure time. It is private for now, so building
+CB needs access to it, as with the CB SDK below.
 
 ### The CB SDK
 
@@ -41,14 +46,12 @@ library, so that anyone can build the plugin. That work is not finished and has 
 
 ```
 src/core/          the runtime SKSE plugin — discover → resolve → serve, plus bootstrap, debug, hooks
-src/engine/        the shared reflection engine (schema registry, codecs, compile/decompile, merge) —
-                   CommonLib-free, linked by the plugin, the converter, and the tools
 src/features/      self-registered compile-time graph features
 src/converter/     the offline GLFW+ImGui Behavior Converter (BehaviorConverter.exe)
 common/            what features build against: feature-sdk/ (IGraphFeature/FeatureRegistry), config/
-schema/            the Havok class schema, described once as data (+ the converter's templates/)
+                   (+ config/compat, the registry of mods CB does not coexist with)
 tools/             dev-only tools (hky-tool, cbdiff, x64dbg auto-attach, Blender control rig)
-cmake/             helpers (CommonLibSSE, Schema, SctSources, codegen, glad)
+cmake/             helpers (CommonLibSSE, SctSources, codegen, glad)
 ```
 
 ## Build

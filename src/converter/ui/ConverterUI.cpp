@@ -288,7 +288,7 @@ void ConverterUI::Draw() {
 /// @brief The compatibility findings of the plan: each mod that ships a DLL CB does not coexist with, how bad it is, and
 ///        what CB does about it (the registry's own sentences and the features it switches off).
 static void DrawCompatibility(const CB::converter::LoadOrderPlan& plan) {
-    namespace reg = CB::engine::compat;
+    namespace reg = CB::config::compat;
     if (!plan.ok || plan.compat.empty()) return;
     bool incompatible = false;
     for (const auto& c : plan.compat) incompatible = incompatible || c.finding.entry->severity == reg::Severity::Incompatible;

@@ -1,11 +1,6 @@
 # Default: normalize text to CRLF on this Windows-only project.
 * text=auto eol=crlf
 
-# The class schema is kept verbatim (no EOL normalization); its templates/ (Nemesis-ingest XML
-# oracles) normalize like ordinary text.
-schema/** -text
-schema/templates/** text=auto eol=crlf
-
 # Binary assets — never touch.
 *.hkx  binary
 *.hky  binary
@@ -25,6 +20,6 @@ schema/templates/** text=auto eol=crlf
 features/**/*.hkx filter=lfs diff=lfs merge=lfs -text
 features/**/*.hky filter=lfs diff=lfs merge=lfs -text
 
-src/engine/** -text
+
 tools/hky/** -text
 tools/cbdiff/** -text

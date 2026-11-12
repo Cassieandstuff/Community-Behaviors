@@ -1,9 +1,0 @@
-name:      CBPoseSearchChooser
-parent:    hkReferencedObject
-size:      48
-view:      { kind: chooser, rows: rows, fallback: fallback }
-# The chooser of a CBPoseSearchGenerator (Unreal's chooser table feeding a Motion Matching node): every row whose
-# `when` holds contributes its databases; when none does, the fallback set is searched. Evaluated by the generator.
-fields:
-  - { name: rows,     type: structarray, ref: CBPoseSearchChooserRow, roster: id }
-  - { name: fallback, type: stringarray, roster: value }

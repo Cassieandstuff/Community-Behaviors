@@ -8,7 +8,7 @@
 
 #include <PluginLogger.h>
 
-#include <codec/image/RuntimeImage.h>
+#include "platform/hooks/takeover/RuntimeImage.h"
 #include <text/Text.h>
 
 #include <set>
@@ -48,7 +48,7 @@ namespace CB::platform::hooks {
 
         std::uint64_t Hash(std::uintptr_t at, std::size_t n)
         {
-            return CB::engine::codec::image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(at), n);
+            return CB::platform::hooks::image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(at), n);
         }
 
         /// @return the module holding `a` and the offset into it ("OpenAnimationReplacer.dll+0x1234"), or the bare address.

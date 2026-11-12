@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Behavior Converter — standalone, MO2-launchable tool (BehaviorConverter.exe).
 # Converts a Nemesis/Pandora behavior load order into per-mod Community Behaviors
-# .hky bundles via the shared engine (CB::engine::decompile::ConvertModDelta).
+# .hky bundles via HKY-SDK (CB::engine::decompile::ConvertModDelta).
 # GLFW + Dear ImGui + OpenGL. An end-user + author tool that shares CB's whole
 # engine, so it lives in this repo rather than splitting into cross-repo coupling.
 #
@@ -33,9 +33,10 @@ target_include_directories(behavior-converter PRIVATE
                                                 # (last, so the converter's own headers still win on any name clash;
                                                 #  a dir on the include PATH compiles nothing unless #included)
 
-# imgui transitively supplies glfw + glad + opengl32 (PUBLIC). engine = the shared reflection engine
-# (decompile, per-mod delta, schema registry). ole32/shell32 back platform/'s folder picker + known folders.
-target_link_libraries(behavior-converter PRIVATE engine imgui ole32 shell32)
+# imgui transitively supplies glfw + glad + opengl32 (PUBLIC). hky::core = HKY-SDK, the engine (decompile, per-mod
+# delta, schema registry); config = the compatibility registry. ole32/shell32 back platform/'s folder picker + known
+# folders.
+target_link_libraries(behavior-converter PRIVATE hky::core hky::locomotion config imgui ole32 shell32)
 
 if(MSVC)
     target_compile_options(behavior-converter PRIVATE /W4 /wd4100 /wd4505 /MP)
@@ -46,18 +47,19 @@ if(MSVC)
 endif()
 
 # ── Ship schema/ next to the exe ─────────────────────────────────────────────────
-# The converter reads the class schema from <exe>/schema and its Nemesis-ingest templates from
-# <exe>/schema/templates (the <g>.xml tagfiles each Nemesis patch is converted against). Data only —
-# no sources ship. Staged with its generated stamp via cb_stage_schema (cmake/Schema.cmake).
-cb_stage_schema(TARGET behavior-converter
+# The converter reads the class schema (HKY-SDK's) from <exe>/schema and its Nemesis-ingest templates (templates/
+# here, the <g>.xml tagfiles each Nemesis patch is converted against) from <exe>/schema/templates. Data only — no
+# sources ship. Staged with its generated stamp via hky_stage_schema (HKY-SDK cmake/Schema.cmake).
+hky_stage_schema(TARGET behavior-converter
     DEST    "$<TARGET_FILE_DIR:behavior-converter>/schema"
+    EXTRA   templates "${CMAKE_CURRENT_SOURCE_DIR}/templates"
     COMMENT "Behavior Converter: staging schema/ beside the exe")
 
 # The "Behavior Converter" tool (MO2-launchable): BUILDER stages exe + pdb + schema/ (templates included, owned) and
 # deploys it to $SKYRIM_TOOLS_FOLDER/Behavior Converter. The schema beside the build-tree exe above stays: the regen
 # below runs that exe.
 builder_stage_app(behavior-converter APP "Behavior Converter")
-cb_builder_schema(APP "Behavior Converter" TO schema)
+hky_builder_schema(APP "Behavior Converter" TO schema EXTRA templates "${CMAKE_CURRENT_SOURCE_DIR}/templates")
 builder_package(APP "Behavior Converter" VERSION ${PROJECT_VERSION})
 
 # ── Derived-bundle regeneration (CB_REGEN_SOURCE) ───────────────────────────────
@@ -80,6 +82,6 @@ cb_regen_bundles(
     PACKED_DIR       "${CB_HKY_STAGE}/community_behaviors/plugins"
     UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}")
 
-# CB Havok-stack shared vocabulary (see src/engine/common/CorePrelude.h) — the converter includes engine
-# headers that reference CB::engine::common / CB::engine::codec unqualified; make them ambient in every TU.
-target_precompile_headers(behavior-converter PRIVATE "${CMAKE_SOURCE_DIR}/src/engine/common/CorePrelude.h")
+# The engine's shared vocabulary (HKY-SDK common/CorePrelude.h) — the converter includes engine headers that
+# reference CB::engine::common / CB::engine::codec unqualified; make them ambient in every TU.
+target_precompile_headers(behavior-converter PRIVATE "${hky-sdk_SOURCE_DIR}/src/hky/common/CorePrelude.h")

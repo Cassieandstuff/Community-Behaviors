@@ -7,7 +7,7 @@ add_executable(hky-tool hky_tool.cpp GraphHtml.cpp)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # HkyArchive (codec/serialization) + the BSA reader (VFS's vfs::bsa); nlohmann for assemble's inject configs
-target_link_libraries(hky-tool PRIVATE engine nlohmann_json::nlohmann_json)
+target_link_libraries(hky-tool PRIVATE hky::core hky::locomotion nlohmann_json::nlohmann_json)
 
 set_target_properties(hky-tool PROPERTIES
     CXX_STANDARD 23

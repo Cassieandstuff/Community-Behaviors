@@ -40,7 +40,7 @@ namespace CB {
         // build-time constant (retires Converter's kGatePerModAnimations).
         bool                     compileAnimations = false;
 
-        /// @brief The schema contract version (CB_SCHEMA_VERSION) + producer chain a bundle's producer may stamp.
+        /// @brief The schema contract version (HKY-SDK's HKY_SCHEMA_VERSION) + producer chain a bundle's producer may stamp.
         /// @note Read only: no producer writes these yet and nothing gates ingest on schemaVersion.
         std::string              schemaVersion;   // "schema_version": the schema/ contract this bundle
                                                   // was authored against (empty = legacy/unstamped)
