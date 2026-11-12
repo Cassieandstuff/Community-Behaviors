@@ -14,6 +14,8 @@
 //   hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]
 //                                                         the .hky load order via VFS + CB-API's document; merge units
 //   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
+//   hky-tool serve-dump  <schemaDir> --data <Data> -o <outDir>
+//                                                         every unit, the adsf and the asdsf a load order serves
 //   hky-tool graph-html  <schemaDir> -o <out.html> --mo2 <instance> | --plugins <dir> | --bundle <f.hky> ...
 //                                                         a load order's merged graphs as one reflective HTML page
 //
@@ -28,6 +30,13 @@
 #include <compile/MotionMatchingBundle.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
+#include <codec/serialization/MetaText.h>
+#include <codec/format/AnimDataYaml.h>
+#include <codec/format/AnimSetDataYaml.h>
+#include <codec/format/AnimationSetData.h>
+#include <codec/motion/RootMotion.h>
+#include <compile/AnimDataProjection.h>
+#include <compile/AnimDataFromBehavior.h>
 #include <decompile/BehaviorDecompile.h>
 #include <decompile/EmbeddedFile.h>
 #include <merge/HkyOverlay.h>
@@ -795,6 +804,171 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     return 0;
 }
 
+/// @brief `serve-dump`: what a Data folder's .hky load order serves, written to `outDir`: every behavior, character,
+///        project and skeleton unit as LoadOrderDocument::GraphBytes serializes it, at its winning bundle's spelling;
+///        the animationdatasinglefile.txt projected from the load order (ProjectAnimData, as AnimationDataServer feeds it);
+///        the animationsetdatasinglefile.txt composed from the winning setdata/ files (AssembleSetdata); and
+///        `_serve-dump.txt`, one sorted line per output. The golden-output harness (tools/golden) diffs two dumps.
+/// @note  The asdsf is the composed base only: the mod delta merge and its coverage guard live in the plugin
+///        (AnimationSetDataServer), not the engine. The adsf takes no OAR replacer copies (the plugin reads them from
+///        the Data folder's configs).
+int doServeDump(int argc, char** argv) {
+    std::string schemaDir, data, out;
+    for (int i = 0; i < argc; ++i) {
+        const std::string a    = argv[i];
+        const auto        next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
+        if (a == "--data") data = next();
+        else if (a == "-o") out = next();
+        else if (schemaDir.empty()) schemaDir = a;
+    }
+    if (schemaDir.empty() || data.empty() || out.empty()) {
+        std::printf("usage: hky-tool serve-dump <schemaDir> --data <DataFolder> -o <outDir>\n");
+        return 2;
+    }
+    namespace fs  = std::filesystem;
+    namespace ad  = CB::engine::animdata;
+    namespace asd = CB::engine::animsetdata;
+    using Kind    = CB::engine::codec::HkyArchive::UnitKind;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+
+    vfs::Options o;
+    o.dataFolder = data;
+    vfs::FileSystem fsys;
+    std::string     err;
+    if (!fsys.Open(o, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    CB::engine::merge::LoadOrderDocument doc;
+    if (!doc.Open(fsys, *reg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    for (const auto& b : doc.Bundles())
+        std::printf("  %3d %-28s%s%s\n", b.rank, b.stem.c_str(), b.dropped ? " DROPPED" : "",
+                    b.error.empty() ? "" : (" UNREADABLE: " + b.error).c_str());
+
+    std::vector<CB::engine::merge::LoadOrderDocument::Unit> units;
+    for (auto& u : doc.Units()) units.push_back(std::move(u));
+    std::vector<std::string> lines(units.size());
+    std::atomic<std::size_t> written{ 0 }, failed{ 0 };
+    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+        const auto&               u = units[i];
+        std::vector<std::uint8_t> bytes;
+        std::string               why;
+        std::string               layers;
+        for (const auto& l : u.layers) layers += (layers.empty() ? "" : ",") + l;
+        try {
+            if (doc.GraphBytes(u.key, bytes, &why) &&
+                CB::engine::disk::WriteFile(fs::path(out) / fs::path(u.path), bytes, {}, &why)) {
+                lines[i] = "unit " + u.path + " " + std::to_string(bytes.size()) + " " + layers;
+                ++written;
+                return;
+            }
+        } catch (const std::exception& e) {
+            why = e.what();
+        }
+        lines[i] = "FAIL unit " + u.path + " " + layers + ": " + why;
+        ++failed;
+    });
+
+    /// @note The adsf, fed as the plugin feeds it: merged rosters and clips, every animation from its winning bundle.
+    bool        adsfOk = false;
+    std::string adsfLine;
+    if (const auto index = doc.Text("meshes/animationdatasinglefile.txt/index.yaml")) {
+        const auto headers = ad::ParseAnimdataIndexYaml(*index, err);
+        std::unordered_map<std::string, std::optional<CB::engine::anim::AnimationDef>> anims;
+        const auto parse = [&](const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
+            const auto text = doc.Text(path);
+            if (!text) return std::nullopt;
+            try {
+                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, path);
+                if (def.motionTarget != CB::engine::anim::AnimationDef::MotionTarget::MotionMatching)
+                    def.motion = CB::engine::anim::ResolveRootMotion(def);
+                return def;
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        };
+        ad::ProjectionSource src;
+        src.roster = [&](const std::string& key) {
+            const auto cs = doc.Character(key);
+            return cs ? cs->animationNames : std::vector<std::string>{};
+        };
+        src.clips = [&](const std::string& key) {
+            CB::engine::decompile::ParsedHky g;
+            return doc.MergedGraph(key, g) ? CB::engine::compile::DeriveClipInputsFromGraph(g.root)
+                                           : std::vector<ad::DeriveClipInput>{};
+        };
+        src.behaviorUnits = [&] {
+            std::vector<std::string> keys;
+            for (const auto& u : units)
+                if (u.kind == Kind::Behavior) keys.push_back(u.key);
+            return keys;
+        };
+        src.prefetch = [&](const std::vector<std::string>& paths) {
+            std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
+            CB::engine::exec::ParallelFor(paths.size(), [&](std::size_t i) { parsed[i] = parse(paths[i]); });
+            for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
+        };
+        src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
+            auto it = anims.find(path);
+            if (it == anims.end()) it = anims.emplace(path, parse(path)).first;
+            return it->second ? &*it->second : nullptr;
+        };
+        ad::ProjectionStats st;
+        std::string         text;
+        const auto          root = headers.empty() ? nullptr : ad::ProjectAnimData(*reg, headers, src, &st, err);
+        if (root && CB::engine::codec::io::WriteMetaText(*root, text, err) &&
+            CB::engine::disk::WriteFile(fs::path(out) / "meshes" / "animationdatasinglefile.txt", text, {}, &err)) {
+            adsfOk   = true;
+            adsfLine = "adsf meshes/animationdatasinglefile.txt " + std::to_string(text.size()) + " projects " +
+                       std::to_string(st.projects) + " clips " + std::to_string(st.clips) + " motions " +
+                       std::to_string(st.motions) + " unresolved " + std::to_string(st.unresolved);
+        } else adsfLine = "FAIL adsf: " + err;
+    } else adsfLine = "FAIL adsf: no meshes/animationdatasinglefile.txt/index.yaml in the load order";
+
+    bool        asdsfOk = false;
+    std::string asdsfLine;
+    const std::string setDir = "meshes/animationsetdatasinglefile.txt";
+    if (const auto index = doc.Text(setDir + "/index.yaml")) {
+        std::string ierr;
+        const auto  headers = asd::ParseSetdataIndexYaml(*index, ierr);
+        std::map<std::string, asd::SingleFile> byStem;
+        for (const auto& path : doc.Files(setDir + "/setdata")) {
+            const auto y = doc.Text(path);
+            if (!y || !CB::engine::codec::resource::HasExt(path, ".yaml")) continue;
+            std::string    yerr;
+            asd::Project   proj = asd::ParseSetdataUnitYaml(*y, yerr);
+            if (!yerr.empty()) ierr += (ierr.empty() ? "" : "; ") + path + ": " + yerr;
+            if (proj.header.empty()) continue;
+            const std::string stem = asd::StemForHeader(proj.header);
+            asd::SingleFile   one;
+            one.projects.push_back(std::move(proj));
+            byStem[stem] = std::move(one);
+        }
+        const std::string text = asd::EmitSingleFile(asd::AssembleSetdata(headers, byStem, {}));
+        if (ierr.empty() && CB::engine::disk::WriteFile(fs::path(out) / "meshes" / "animationsetdatasinglefile.txt", text, {}, &ierr)) {
+            asdsfOk   = true;
+            asdsfLine = "asdsf meshes/animationsetdatasinglefile.txt " + std::to_string(text.size()) + " projects " +
+                        std::to_string(headers.size());
+        } else asdsfLine = "FAIL asdsf: " + ierr;
+    } else asdsfLine = "FAIL asdsf: no " + setDir + "/index.yaml in the load order";
+
+    std::sort(lines.begin(), lines.end());
+    std::string report;
+    for (const auto& b : doc.Bundles()) report += "bundle " + std::to_string(b.rank) + " " + b.stem + (b.dropped ? " DROPPED" : "") + "\n";
+    for (const auto& l : lines) report += l + "\n";
+    report += adsfLine + "\n" + asdsfLine + "\n";
+    if (std::string werr; !CB::engine::disk::WriteFile(fs::path(out) / "_serve-dump.txt", report, {}, &werr)) {
+        std::printf("FAIL: %s\n", werr.c_str());
+        return 1;
+    }
+    for (const auto& l : lines)
+        if (l.starts_with("FAIL")) std::printf("  %s\n", l.c_str());
+    std::printf("  %s\n  %s\n", adsfLine.c_str(), asdsfLine.c_str());
+    const bool ok = failed == 0 && adsfOk && asdsfOk;
+    std::printf("%s: serve-dump -> %s: %zu unit(s) written, %zu failed; adsf %s, asdsf %s.\n", ok ? "OK" : "FAIL", out.c_str(),
+                written.load(), failed.load(), adsfOk ? "written" : "FAILED", asdsfOk ? "written" : "FAILED");
+    return ok ? 0 : 1;
+}
+
 void usage() {
     std::printf("usage:\n"
                 "  hky-tool pack        <bundleDir> -o <out.hky>\n"
@@ -809,6 +983,7 @@ void usage() {
                 "  hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n"
                 "  hky-tool loadorder  <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
+                "  hky-tool serve-dump  <schemaDir> --data <DataFolder> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
                 "                       [--loadorder <file>] [--unit <path>]... [--all]\n");
 }
@@ -823,6 +998,7 @@ int main(int argc, char** argv) {
     const std::string verb = argv[1];
     if (verb == "graph-html") return doGraphHtml(argc - 2, argv + 2);
     if (verb == "loadorder") return doLoadOrder(argc - 2, argv + 2);
+    if (verb == "serve-dump") return doServeDump(argc - 2, argv + 2);
 
     std::string arg, arg2, arg3, out;
     for (int i = 2; i < argc; ++i) {
