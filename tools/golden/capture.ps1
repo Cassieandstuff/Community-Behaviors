@@ -9,8 +9,9 @@
     2. Every features\<Name>.hky\ folder: `hky-tool assemble`, then unpack -> features\<Name>\.
     3. All of those bundles as one Data folder's load order: `hky-tool serve-dump` -> served\ (every unit's served
        bytes, the projected adsf, the composed asdsf).
-    4. Vanilla meshes from Skyrim.hky's "Skyrim - Animations.bsa": `--hky-roundtrip --all-kinds` (the kept differing
+    4. The loose vanilla meshes under -VanillaData (read only): `--hky-roundtrip --all-kinds` (the kept differing
        trees -> hky-roundtrip\) and `--metatext-roundtrip` on its adsf / asdsf / speeddata.
+    Every input is only read; TMP/TEMP point into <Label>.work\ so the regen's scratch stays under -Root too.
     Tool logs land in logs\ (raw, with timings); gates\ holds each log with the run's own paths and timings masked, plus
     every step's exit code. compare.ps1 skips logs\ by default.
 
@@ -27,7 +28,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Label,
     [string]$BuildDir,
-    [string]$Root = 'D:\CB-tmp\hky-split-golden'
+    [string]$Root = 'D:\CB-tmp\hky-split-golden',
+    [string]$VanillaData = 'D:\Projects\Common\Skyrim Source\Data'
 )
 $ErrorActionPreference = 'Stop'
 
@@ -50,6 +52,10 @@ $logs    = Join-Path $out 'logs'
 $gates   = Join-Path $out 'gates'
 $plugins = Join-Path $work 'data\community_behaviors\plugins'
 New-Item -ItemType Directory -Force -Path $logs, $gates, $plugins | Out-Null
+# The regen's temp work and drift dumps go under the capture too: nothing is written outside $Root.
+$tmp = Join-Path $work 'tmp'
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$env:TMP = $tmp; $env:TEMP = $tmp
 $noInput = Join-Path $work 'stdin.empty'
 [System.IO.File]::WriteAllBytes($noInput, @())
 
@@ -101,8 +107,7 @@ foreach ($f in Get-ChildItem -LiteralPath (Join-Path $repo 'features') -Director
 Invoke-Step 'serve-dump' $hkyTool @('serve-dump', $schema, '--data', (Join-Path $work 'data'), '-o', (Join-Path $out 'served')) | Out-Null
 
 # 4. Vanilla round trips.
-$vanilla = Join-Path $work 'vanilla'
-Invoke-Step 'extract-vanilla' $hkyTool @('bsa-extract', (Join-Path $skyrimSrc 'Skyrim - Animations.bsa'), '-o', $vanilla, 'meshes') | Out-Null
+$vanilla = $VanillaData
 Invoke-Step 'hky-roundtrip' $converter @('--hky-roundtrip', (Join-Path $vanilla 'meshes'), (Join-Path $out 'hky-roundtrip'), $skyrimHky, '--all-kinds') | Out-Null
 Invoke-Step 'metatext-roundtrip' $converter @('--metatext-roundtrip',
     (Join-Path $vanilla 'meshes\animationdatasinglefile.txt'),
