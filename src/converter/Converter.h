@@ -58,7 +58,7 @@ struct PlanMod {
     std::vector<std::string> masters;
 };
 
-/// @brief A mod of the profile that ships a DLL the compatibility registry (engine/compat) knows: which mod, so the user
+/// @brief A mod of the profile that ships a DLL the compatibility registry (config/compat) knows: which mod, so the user
 ///        knows which one to disable.
 struct PlanCompat {
     std::string                  modName;

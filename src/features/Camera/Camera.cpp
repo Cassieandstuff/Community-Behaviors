@@ -74,7 +74,7 @@ namespace CB::feature::camera {
         }
 
         /// @note Whether a rival camera mod (True Directional Movement, SmoothCam) is loaded is the compatibility registry's
-        ///       call (engine/compat): it forces the `camera` flag off before the hooks attach, so none of this runs.
+        ///       call (config/compat): it forces the `camera` flag off before the hooks attach, so none of this runs.
         bool Enabled()
         {
             static const bool on = [] {
