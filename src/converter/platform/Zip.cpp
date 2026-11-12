@@ -1,7 +1,7 @@
 #include "platform/Platform.h"
 
-#include <common/miniz.h>
-#include <disk/Disk.h>
+#include <hky/common/miniz.h>
+#include <hky/disk/Disk.h>
 
 #include <cstring>
 #include <filesystem>
@@ -16,7 +16,7 @@ namespace {
 /// @brief `p` as miniz opens it: UTF-8 (miniz widens it for _wfopen on Windows), long-path prefixed when needed.
 std::string MzPath(const fs::path& p)
 {
-    const std::u8string u = CB::engine::disk::LongPath(p).u8string();
+    const std::u8string u = hky::disk::LongPath(p).u8string();
     return std::string(u.begin(), u.end());
 }
 
@@ -24,7 +24,7 @@ std::string MzPath(const fs::path& p)
 
 bool UnzipDir(const std::string& zipPath, const std::string& destDir, std::string& err)
 {
-    namespace disk = CB::engine::disk;
+    namespace disk = hky::disk;
     std::error_code ec;
     const fs::path  zipAbs = fs::absolute(zipPath, ec);
     if (!fs::exists(disk::LongPath(zipAbs), ec)) { err = "archive not found: " + zipPath; return false; }

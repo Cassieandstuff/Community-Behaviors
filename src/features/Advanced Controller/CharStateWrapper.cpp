@@ -83,7 +83,7 @@ namespace CB::feature {
         /// @brief Game units per Havok unit: bhkWorld::s_worldScaleInverse, which the plugin does not link.
         constexpr float kGameUnitsPerHavok = 69.99125f;
         /// @brief The pogo's spring (char_pogo), Box3D's dynamic mover numbers.
-        constexpr CB::engine::locomotion::Pogo kPogo{};
+        constexpr hky::locomotion::Pogo kPogo{};
         /// @brief G2: how long after walking off a jump request is still honoured (seconds).
         constexpr float kCoyoteTime = 0.1f;
         /// @brief G3/G4: rising faster than this off the ground (Havok units/s, about 35 game units/s), measured against
@@ -444,7 +444,7 @@ namespace CB::feature {
                 float floor = 0.0f;
                 vertical    = 0.0f;
                 if (ch::PogoFloor(c, fv, floor, &t.pogoRay)) {
-                    vertical      = CB::engine::locomotion::PogoStep(t.pogoRate, -floor, kPogo, true, dt);
+                    vertical      = hky::locomotion::PogoStep(t.pogoRate, -floor, kPogo, true, dt);
                     t.pogoHeld    = true;
                     t.pogoDz      = floor - vertical * dt;
                     t.pogoApplied = vertical;

@@ -4,7 +4,7 @@
 
 #include <core/debug/Settings.h>
 #include <features/Camera/Camera.h>
-#include <locomotion/Movement.h>
+#include <hky/locomotion/Movement.h>
 #include <platform/hooks/CallSite.h>
 
 #include <atomic>
@@ -23,7 +23,7 @@ namespace CB::feature::dodge {
     namespace {
 
         namespace hooks = CB::platform::hooks;
-        namespace loco  = CB::engine::locomotion;
+        namespace loco  = hky::locomotion;
         namespace dbg   = CB::core::debug;
 
         using Dispatch = hooks::CallSite<hooks::engine::PollInputDevices_DispatchCall, void(RE::BSInputDeviceManager*, RE::InputEvent* const*)>;

@@ -1,14 +1,14 @@
 #include "MeshSource.h"
 
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
 
 #include <algorithm>
 
 namespace CB::converter {
 
 namespace fs = std::filesystem;
-using CB::engine::codec::resource::PathKey;
+using hky::codec::resource::PathKey;
 
 std::optional<MeshSource> MeshSource::OpenRegenFolder(const fs::path& folder, std::string& err) {
     std::error_code ec;
@@ -87,7 +87,7 @@ std::optional<std::vector<std::uint8_t>> MeshSource::Read(const std::string& rel
     if (it == m_byKey.end()) { if (err) *err = "not in the source: " + rel; return std::nullopt; }
     const Origin& o = it->second;
     if (!o.loose.empty()) {
-        auto bytes = CB::engine::disk::ReadBytes(o.loose);
+        auto bytes = hky::disk::ReadBytes(o.loose);
         if (!bytes && err) *err = "cannot open for reading: " + o.loose.string();
         return bytes;
     }

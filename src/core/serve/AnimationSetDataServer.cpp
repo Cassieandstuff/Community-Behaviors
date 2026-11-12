@@ -7,14 +7,14 @@
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
-#include <interface/reflection/HavokSchema.h>
-#include <codec/format/LoadOrderText.h>     // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
-#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
-#include <codec/serialization/HkyArchive.h>
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
-#include <text/Text.h>
+#include <hky/codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/codec/format/LoadOrderText.h>     // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
+#include <hky/decompile/BehaviorDecompile.h>   // ReadCharacterStrings
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
+#include <hky/text/Text.h>
 
 #include <algorithm>
 #include <atomic>
@@ -37,12 +37,12 @@ namespace CB::core::serve {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
-        using CB::engine::codec::resource::PathKey;
-        using CB::engine::text::SplitLines;
-        using CB::engine::text::StripBom;
-        using CB::engine::text::Trim;
-        namespace disk = CB::engine::disk;
+        using hky::codec::resource::HasExt;
+        using hky::codec::resource::PathKey;
+        using hky::text::SplitLines;
+        using hky::text::StripBom;
+        using hky::text::Trim;
+        namespace disk = hky::disk;
 
         // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
         // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
@@ -135,7 +135,7 @@ namespace CB::core::serve {
         SetDataServeResult r;
 
         std::error_code ec;
-        const auto      order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
+        const auto      order = hky::codec::ReadLoadOrder(loadOrderIni).value_or(hky::codec::LoadOrder{});
 
         // Gather (priority, delta) from BR .hky bundles ONLY — the primary format, each
         // bundle carrying a mod's behaviors AND its set-data together so the two stay
@@ -196,9 +196,9 @@ namespace CB::core::serve {
                 ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
                 ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
                 ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
-                for (const std::string& unit : rd->units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
+                for (const std::string& unit : rd->units(hky::codec::HkyArchive::UnitKind::Character)) {
                     const auto src = rd->unitSource(unit);
-                    auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    auto cs = src ? hky::decompile::ReadCharacterStrings(*src) : std::nullopt;
                     if (!cs || cs->animationNames.empty()) continue;
                     const auto s1 = unit.find_last_of('/');
                     std::string charName = PathKey((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
@@ -257,7 +257,7 @@ namespace CB::core::serve {
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
         std::unordered_map<std::string, std::string> charActorRoot;  // charStem (path key) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
-            for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
+            for (std::string rel : rd.units(hky::codec::HkyArchive::UnitKind::Character)) {
                 rel = PathKey(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
@@ -373,8 +373,8 @@ namespace CB::core::serve {
                 return r;
             }
             try {
-                const auto* reg = CB::engine::schema::SharedRegistry();
-                if (!reg) throw std::runtime_error("schema registry not armed (" + CB::engine::schema::SharedRegistryError() + ")");
+                const auto* reg = hky::schema::SharedRegistry();
+                if (!reg) throw std::runtime_error("schema registry not armed (" + hky::schema::SharedRegistryError() + ")");
                 base = asd::ReadSingleFile(*reg, baseText);
             } catch (const std::exception& e) {
                 r.error = std::string("base parse failed: ") + e.what();

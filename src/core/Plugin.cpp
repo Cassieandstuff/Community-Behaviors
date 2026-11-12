@@ -11,7 +11,7 @@
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
 #include "core/debug/Settings.h"
-#include <exec/Parallel.h>
+#include <hky/exec/Parallel.h>
 #include "core/ui/UiHost.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
@@ -28,7 +28,7 @@
 #include <platform/profile/Profile.h>
 #include <platform/startup/Startup.h>
 
-#include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
+#include <hky/interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
 #include <atomic>
 #include <chrono>
@@ -68,12 +68,12 @@ namespace CB {
         if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
             dir = "Data/community_behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
 
-        CB::engine::schema::SetSharedSchemaDir(dir);
-        const bool ready = CB::engine::schema::SharedRegistry() != nullptr;
+        hky::schema::SetSharedSchemaDir(dir);
+        const bool ready = hky::schema::SharedRegistry() != nullptr;
         LOG_INFO("Community Behaviors: data-driven compiler ENABLED (schema registry {}).",
                  ready ? "loaded" : "FAILED TO LOAD → all graphs serve VANILLA");
         if (!ready) {
-            const std::string& why = CB::engine::schema::SharedRegistryError();
+            const std::string& why = hky::schema::SharedRegistryError();
             if (!why.empty()) LOG_ERROR("Community Behaviors: schema compiler off, ALL GRAPHS SERVE VANILLA — {}.", why);
         }
     }
@@ -107,8 +107,8 @@ namespace CB {
     {
         const std::string text = CB::core::debug::Value("Performance", "iMaxThreads");
         const long        n    = text.empty() ? 0 : std::strtol(text.c_str(), nullptr, 10);
-        if (n > 0) CB::engine::exec::SetMaxWorkers(static_cast<unsigned>(n));
-        LOG_INFO("Community Behaviors: warm-up uses at most {} thread(s) (settings.ini [Performance] iMaxThreads).", CB::engine::exec::MaxWorkers());
+        if (n > 0) hky::exec::SetMaxWorkers(static_cast<unsigned>(n));
+        LOG_INFO("Community Behaviors: warm-up uses at most {} thread(s) (settings.ini [Performance] iMaxThreads).", hky::exec::MaxWorkers());
     }
 
     // Holds the worker pool ALIVE for the duration of a parallel phase (the native-anim compile, the adsf
@@ -341,7 +341,7 @@ namespace CB {
     static void ArmLoadOrder()
     {
         CB::core::resolve::ArmLoadOrderReader({
-            [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
+            [](const std::string& key, hky::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
             [](std::string_view path) { return g_resolver.NativeAnimationText(path); },
             [] { return g_resolver.AddedBehaviorUnitKeys(); },
             [](const std::string& key) { return g_resolver.RigUnitsOf(key); } });
@@ -563,11 +563,11 @@ namespace CB {
             CB::core::debug::Install();         // DebugOverlay SMF HUD element + menu toggle
             CB::platform::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
             /// @note CB's own Havok classes, before any behavior loads (the first actor graph loads after the menu).
-            if (const auto* schema = CB::engine::schema::SharedRegistry())
+            if (const auto* schema = hky::schema::SharedRegistry())
                 CB::platform::classes::RegisterAll(*schema);
             else
                 LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
-                          CB::engine::schema::SharedRegistryError());
+                          hky::schema::SharedRegistryError());
             CB::platform::classes::ReportTypeRegistries();
             CB::platform::startup::RunDataLoaded();
         }

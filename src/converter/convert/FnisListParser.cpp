@@ -1,8 +1,8 @@
 #include "FnisListParser.h"
 
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
-#include <text/Text.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
+#include <hky/text/Text.h>
 
 #include <algorithm>
 #include <cctype>
@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 namespace CommunityBehaviors::fnis {
 namespace {
 
-namespace text = CB::engine::text;
+namespace text = hky::text;
 
 /// @brief A list-file KEYWORD token in its comparison form (type codes, option flags, `Version`, `AnimVar`).
 /// @note The FNIS list format's own rule: its keywords are case-insensitive. A codec-internal fold — event names,
@@ -242,7 +242,7 @@ ScanResult ScanForLists(const fs::path&           animationsDir,
             if (!fi->is_regular_file(fe)) continue;
 
             const std::string filename = fi->path().filename().string();
-            const std::string low      = CB::engine::codec::resource::PathKey(filename);
+            const std::string low      = hky::codec::resource::PathKey(filename);
 
             // Match FNIS_*_List.txt (case-insensitive)
             if (low.size() < 15) continue;  // "fnis_x_list.txt" = 15 chars minimum
@@ -254,7 +254,7 @@ ScanResult ScanForLists(const fs::path&           animationsDir,
             const std::string modName = filename.substr(5, filename.size() - 5 - 9);
             if (modName.empty()) continue;
 
-            const auto listText = CB::engine::disk::ReadFile(fi->path());
+            const auto listText = hky::disk::ReadFile(fi->path());
             if (!listText || listText->empty()) continue;
 
             ListFile lf = ParseListFile(*listText, modName, warnings);

@@ -2,7 +2,7 @@
 
 #include "BlendSpace2DGenerator.h"
 
-#include <locomotion/BlendSpace.h>
+#include <hky/locomotion/BlendSpace.h>
 #include <platform/classes/ClassRegistry.h>
 
 #include <Common/Base/Reflection/hkClass.h>
@@ -18,7 +18,7 @@ namespace CB::feature::blendspace {
 
     namespace {
 
-        namespace loco = CB::engine::locomotion;
+        namespace loco = hky::locomotion;
 
         constexpr const char* kClassName = "CBBlendSpace2DGenerator";
 

@@ -1,10 +1,10 @@
 #include "ui/LoadOrderUI.h"
 
 #include "platform/Platform.h"
-#include <codec/format/LoadOrderText.h>
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
-#include <disk/Disk.h>
+#include <hky/codec/format/LoadOrderText.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
+#include <hky/disk/Disk.h>
 
 #include <imgui.h>
 
@@ -18,14 +18,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using CB::engine::codec::resource::HasExt;
-using CB::engine::codec::resource::PathKey;
-using CB::engine::codec::LoadOrder;
-namespace disk = CB::engine::disk;
+using hky::codec::resource::HasExt;
+using hky::codec::resource::PathKey;
+using hky::codec::LoadOrder;
+namespace disk = hky::disk;
 
 /// @brief The load order at `path`; empty when it can't be read.
 LoadOrder ReadOrder(const std::string& path) {
-    return CB::engine::codec::ReadLoadOrder(path).value_or(LoadOrder{});
+    return hky::codec::ReadLoadOrder(path).value_or(LoadOrder{});
 }
 
 // Targeted reader for the flat manifest.json — NOT a general JSON parser. Finds "key",
@@ -128,7 +128,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
                 // disk, so it stays present (with stem-only defaults) rather than misreported
                 // missing — a damaged manifest entry included.
                 std::string herr;
-                if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr)) {
+                if (auto arc = hky::codec::HkyArchive::LoadFromFile(it->path().string(), herr)) {
                     try {
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
                     } catch (const std::exception&) {}
@@ -205,12 +205,12 @@ bool LoadOrderUI::Save(const std::string& loadOrderPath) {
     std::vector<std::string> lines;
     std::size_t              next = 0;
     for (std::string& line : current.lines) {
-        if (!CB::engine::codec::IsLoadOrderEntry(line)) lines.push_back(std::move(line));
+        if (!hky::codec::IsLoadOrderEntry(line)) lines.push_back(std::move(line));
         else if (next < m_bundles.size()) lines.push_back(m_bundles[next++].stem);
     }
     for (; next < m_bundles.size(); ++next) lines.push_back(m_bundles[next].stem);
     std::string err;
-    if (!CB::engine::codec::WriteLoadOrder(loadOrderPath, lines, &err)) { m_status = "Save FAILED: " + err; return false; }
+    if (!hky::codec::WriteLoadOrder(loadOrderPath, lines, &err)) { m_status = "Save FAILED: " + err; return false; }
     m_status = "Saved loadorder.txt (" + std::to_string(m_bundles.size()) + " entries).";
     return true;
 }

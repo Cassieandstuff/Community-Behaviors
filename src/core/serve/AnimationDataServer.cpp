@@ -3,19 +3,19 @@
 #include <platform/hooks/registry/Registry.h>
 
 #include "core/serve/AnimationDataServer.h"
-#include <exec/Parallel.h>
+#include <hky/exec/Parallel.h>
 #include "core/discover/BundleReader.h"
 #include "core/resolve/CacheKey.h"          // ReadCacheInput — OAR config.json is an input of the cached adsf
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <codec/format/AnimationYamlLoader.h>
-#include <codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
-#include <codec/resource/PathKey.h>
-#include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
-#include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
-#include <compile/AnimDataProjection.h>         // ProjectAnimData
-#include <interface/reflection/HavokSchema.h>
-#include <disk/Disk.h>
+#include <hky/codec/format/AnimationYamlLoader.h>
+#include <hky/codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
+#include <hky/codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
+#include <hky/compile/AnimDataProjection.h>         // ProjectAnimData
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/disk/Disk.h>
 
 #include <algorithm>
 #include <array>
@@ -38,9 +38,9 @@ namespace CB::core::serve {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
-        using CB::engine::codec::resource::PathKey;
-        namespace disk = CB::engine::disk;
+        using hky::codec::resource::HasExt;
+        using hky::codec::resource::PathKey;
+        namespace disk = hky::disk;
 
         /// @brief A DAR/OAR override copy of an animation: the file OAR plays in its base path's roster slot.
         struct OverrideCopy {
@@ -141,13 +141,13 @@ namespace CB::core::serve {
         ///         read or parsed does not.
         bool FitsSixteenBitLineCounts(const fs::path& path, std::string& err)
         {
-            const auto* reg = CB::engine::schema::SharedRegistry();
+            const auto* reg = hky::schema::SharedRegistry();
             if (!reg) { err = "schema registry not armed"; return false; }
             const auto text = disk::ReadFile(path);
             if (!text) { err = "cannot read " + path.string(); return false; }
-            const auto root = CB::engine::codec::io::ReadMetaText(*reg, "AnimationDataSingleFile", *text, err);
+            const auto root = hky::codec::io::ReadMetaText(*reg, "AnimationDataSingleFile", *text, err);
             std::string out;
-            return root && CB::engine::codec::io::WriteMetaText(*root, out, err);
+            return root && hky::codec::io::WriteMetaText(*root, out, err);
         }
 
     }  // namespace
@@ -159,7 +159,7 @@ namespace CB::core::serve {
         r.attempted = true;
         std::error_code ec;
         const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-        const auto     order       = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
+        const auto     order       = hky::codec::ReadLoadOrder(loadOrderIni).value_or(hky::codec::LoadOrder{});
 
         /// @note Every bundle, lowest priority first (the master, then mods by load order): an animation is read from
         ///       the HIGHEST bundle that carries it.
@@ -190,13 +190,13 @@ namespace CB::core::serve {
 
         /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
         ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
-        std::unordered_map<std::string, std::optional<CB::engine::anim::AnimationDef>> anims;
-        const auto parse = [](const std::string& text, const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
+        std::unordered_map<std::string, std::optional<hky::anim::AnimationDef>> anims;
+        const auto parse = [](const std::string& text, const std::string& path) -> std::optional<hky::anim::AnimationDef> {
             try {
-                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
+                auto def = hky::anim::AnimationYamlLoader::LoadFromString(text, path);
                 /// @note A motionMatching clip is never projected (AnimDataProjection), so its motion is not extracted.
-                if (def.motionTarget != CB::engine::anim::AnimationDef::MotionTarget::MotionMatching)
-                    def.motion = CB::engine::anim::ResolveRootMotion(def);
+                if (def.motionTarget != hky::anim::AnimationDef::MotionTarget::MotionMatching)
+                    def.motion = hky::anim::ResolveRootMotion(def);
                 return def;
             } catch (const std::exception& e) {
                 LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
@@ -233,12 +233,12 @@ namespace CB::core::serve {
         }
         std::atomic<std::size_t> fromOverride{ 0 }, severalCopies{ 0 };
 
-        const auto load = [&](const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
+        const auto load = [&](const std::string& path) -> std::optional<hky::anim::AnimationDef> {
             for (auto it = bundles.rbegin(); it != bundles.rend(); ++it)
                 if (const auto text = it->second.read(path)) return parse(*text, path);
             const auto o = overrides.find(path);
             if (o == overrides.end()) return std::nullopt;
-            std::optional<CB::engine::anim::AnimationDef> first;
+            std::optional<hky::anim::AnimationDef> first;
             for (const auto& c : o->second) {
                 const auto text = bundles[c.bundle].second.read(c.key);
                 if (!text) continue;
@@ -258,25 +258,25 @@ namespace CB::core::serve {
         src.clips         = adsf.clips;
         src.behaviorUnits = adsf.behaviorUnits;
         src.prefetch      = [&](const std::vector<std::string>& paths) {
-            std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
+            std::vector<std::optional<hky::anim::AnimationDef>> parsed(paths.size());
             std::atomic<std::size_t> next{ 0 };
             const auto drain = [&] { for (std::size_t i; (i = next.fetch_add(1)) < paths.size();) parsed[i] = load(paths[i]); };
             if (exec && paths.size() > 1) {
                 /// @note One draining task per worker, not one per path: thousands of paths would each pay a
                 ///       queue round-trip. Each result lands in its own slot, so the output matches a serial run.
-                const std::size_t nTasks = std::min<std::size_t>(paths.size(), CB::engine::exec::MaxWorkers());
+                const std::size_t nTasks = std::min<std::size_t>(paths.size(), hky::exec::MaxWorkers());
                 (*exec)(std::vector<std::function<void()>>(nTasks, drain));
             }
             drain();
             for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
         };
-        src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
+        src.animation = [&](const std::string& path) -> const hky::anim::AnimationDef* {
             auto it = anims.find(path);
             if (it == anims.end()) it = anims.emplace(path, load(path)).first;
             return it->second ? &*it->second : nullptr;
         };
 
-        const auto* reg = CB::engine::schema::SharedRegistry();
+        const auto* reg = hky::schema::SharedRegistry();
         if (!reg) { r.error = "schema registry not armed"; LOG_ERROR("AnimData: {}.", r.error); return r; }
         animdata::ProjectionStats st;
         const auto t0   = std::chrono::steady_clock::now();
@@ -288,7 +288,7 @@ namespace CB::core::serve {
         ///       counts through a 16-bit truncation) unless LiftAdsfLineCounts removed that truncation: a file the
         ///       engine would misread is refused and vanilla stays.
         std::string text;
-        if (!CB::engine::codec::io::WriteMetaText(*root, text, err,
+        if (!hky::codec::io::WriteMetaText(*root, text, err,
                                                   { .frameLimits = !s_adsfLineCountsWide.load(std::memory_order_acquire) })) {
             r.error = err;
             LOG_ERROR("AnimData: {} — NOT serving the projected animation data (vanilla stays).", r.error);

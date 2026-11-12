@@ -4,11 +4,11 @@
 #include "core/serve/SpeedDataServer.h"
 #include "core/discover/BundleReader.h"
 
-#include <codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/MetaText.h>       // ParseMetaYaml / WriteMetaText — the schema-driven speeddata codec
-#include <interface/reflection/HavokSchema.h>
-#include <disk/Disk.h>
+#include <hky/codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/MetaText.h>       // ParseMetaYaml / WriteMetaText — the schema-driven speeddata codec
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/disk/Disk.h>
 #include "conditions/RymlInclude.h"
 
 #include <algorithm>
@@ -26,10 +26,10 @@ namespace CB::core::serve {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
-        using CB::engine::codec::resource::PathKey;
-        using CB::engine::codec::io::SchemaObject;
-        namespace disk = CB::engine::disk;
+        using hky::codec::resource::HasExt;
+        using hky::codec::resource::PathKey;
+        using hky::codec::io::SchemaObject;
+        namespace disk = hky::disk;
 
         constexpr const char* kRoot = "meshes/speeddatasinglefile.txt/";
 
@@ -77,7 +77,7 @@ namespace CB::core::serve {
         try {
             std::error_code ec;
             const fs::path  pluginsRoot = dataDir / "community_behaviors" / "plugins";
-            const auto      order       = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
+            const auto      order       = hky::codec::ReadLoadOrder(loadOrderIni).value_or(hky::codec::LoadOrder{});
 
             std::vector<std::pair<int, BundleReader>> bundles;
             std::vector<std::string>                  names;
@@ -98,7 +98,7 @@ namespace CB::core::serve {
             const auto paths = index ? ReadIndex(*index) : std::vector<std::string>{};
             if (paths.empty()) { r.error = "master carries no speeddatasinglefile.txt/index.yaml"; return r; }
 
-            const auto* reg = CB::engine::schema::SharedRegistry();
+            const auto* reg = hky::schema::SharedRegistry();
             if (!reg) { r.error = "schema registry not armed"; return r; }
 
             /// @note Project identity is the engine's key (the path's stem) resolved as path identity — the loader
@@ -106,9 +106,9 @@ namespace CB::core::serve {
             std::vector<std::string>                                  orderKeys;
             std::map<std::string, std::pair<std::size_t, std::string>> winner;   // key -> (bundle, file)
             for (const auto& p : paths) {
-                const std::string key = PathKey(CB::engine::codec::io::SpeedDataProjectStem(p));
+                const std::string key = PathKey(hky::codec::io::SpeedDataProjectStem(p));
                 if (!winner.count(key)) orderKeys.push_back(key);
-                winner[key] = { 0, std::string(kRoot) + "speeddata/" + CB::engine::codec::io::SpeedDataProjectStem(p) + ".yaml" };
+                winner[key] = { 0, std::string(kRoot) + "speeddata/" + hky::codec::io::SpeedDataProjectStem(p) + ".yaml" };
             }
             for (std::size_t b = 0; b < bundles.size(); ++b)
                 for (const auto& f : bundles[b].second.filesUnderOrig(std::string(kRoot) + "speeddata/", ".yaml")) {
@@ -120,7 +120,7 @@ namespace CB::core::serve {
             /// @note Stale tables: a mod bundle touching a project's actor folder (its graphs or animations) without
             ///       shipping that project's speeddata leaves vanilla's curves under changed locomotion.
             std::map<std::string, std::string> projectFolder;   // key -> "meshes/actors/character/"
-            for (const auto& u : bundles.front().second.units(CB::engine::codec::HkyArchive::UnitKind::Project)) {
+            for (const auto& u : bundles.front().second.units(hky::codec::HkyArchive::UnitKind::Project)) {
                 const auto slash = u.find_last_of('/');
                 projectFolder[PathKey(fs::path(u).stem().string())] = slash == std::string::npos ? std::string() : u.substr(0, slash + 1);
             }
@@ -134,7 +134,7 @@ namespace CB::core::serve {
                 const auto  text      = bundles[b].second.read(file);
                 if (!text) { LOG_WARN("SpeedData: '{}' listed but absent — project skipped (lookups answer identity).", file); continue; }
                 std::string err;
-                auto        proj = CB::engine::codec::io::ParseMetaYaml(*reg, "SpeedDataProject", *text, err);
+                auto        proj = hky::codec::io::ParseMetaYaml(*reg, "SpeedDataProject", *text, err);
                 if (!proj) { LOG_WARN("SpeedData: '{}' unreadable ({}) — project skipped.", file, err); continue; }
                 if (SortStates(*proj)) LOG_INFO("SpeedData: '{}' lists its iStates out of order — sorted (the engine binary-searches them).", file);
                 if (b > 0) ++r.fromMods;
@@ -150,7 +150,7 @@ namespace CB::core::serve {
             }
 
             std::string out, err;
-            if (!CB::engine::codec::io::WriteMetaText(*root, out, err)) { r.error = err; return r; }
+            if (!hky::codec::io::WriteMetaText(*root, out, err)) { r.error = err; return r; }
             const fs::path cachePath = dataDir / "community_behaviors_cache" / "speeddatasinglefile.txt";
             if (std::string werr; !disk::WriteFile(cachePath, out, { .atomic = true }, &werr)) {
                 r.error = "failed to write the speed data cache: " + werr;

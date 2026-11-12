@@ -495,12 +495,12 @@ namespace CB::feature::controller {
         bool PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which)
         {
             const FloorTunables                                 t;
-            std::array<CB::engine::locomotion::PogoProbe, 9> probes{};
+            std::array<hky::locomotion::PogoProbe, 9> probes{};
             for (std::size_t i = 0; i < hits.size(); i++) {
                 const FloorHit& h = hits[i];
                 probes[i]         = { h.hit, h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ, h.dz, h.nz };
             }
-            return CB::engine::locomotion::PogoSelect(probes.data(), static_cast<int>(probes.size()), walkableZ, dz, &which);
+            return hky::locomotion::PogoSelect(probes.data(), static_cast<int>(probes.size()), walkableZ, dz, &which);
         }
 
     }  // namespace
@@ -660,7 +660,7 @@ namespace CB::feature::controller {
 
     float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY)
     {
-        static const CB::engine::locomotion::Tuning tuning{ (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f)),
+        static const hky::locomotion::Tuning tuning{ (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f)),
                                                            (std::max)(0.0f, SettingFloat("fSlopeSpeedUp", 0.5f)) };
         static const bool logged = [] {
             LOG_INFO("slope speed: downhill x(1 + {:.2f} sin) up to 1.5, uphill x(1 - {:.2f} sin) down to 0.7", tuning.slopeSpeedDown,
@@ -668,7 +668,7 @@ namespace CB::feature::controller {
             return true;
         }();
         (void)logged;
-        return CB::engine::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
+        return hky::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
     }
 
     bool PublishedVerdict(const ::bhkCharacterController& ctrl, FloorVerdict& out)

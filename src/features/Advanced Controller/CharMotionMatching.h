@@ -2,7 +2,7 @@
 
 #include "CharFacing.h"
 
-#include <locomotion/PoseSearch.h>
+#include <hky/locomotion/PoseSearch.h>
 
 #include <array>
 #include <string>
@@ -24,7 +24,7 @@ namespace CB::feature::controller::motion {
     ///        (engine::anim::features::kAhead, real seconds), and where they were and faced that long ago (kBack), in the
     ///        current root space (x right, y forward), game units.
     struct Query {
-        CB::engine::locomotion::QueryTrajectory samples{};
+        hky::locomotion::QueryTrajectory samples{};
         /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
         float desiredX = 0, desiredY = 0;
     };
@@ -47,8 +47,8 @@ namespace CB::feature::controller::motion {
 
     /// @return the database `spec` states, measured through `rig`, null until it is built; the first request queues its build
     /// @note  Thread-safe. Equal selectors over equal rigs share one database, whichever graphs and characters they come from.
-    const CB::engine::locomotion::Database* DatabaseFor(const CB::engine::locomotion::DatabaseSpec& spec,
-                                                        const CB::engine::anim::Rig& rig = {});
+    const hky::locomotion::Database* DatabaseFor(const hky::locomotion::DatabaseSpec& spec,
+                                                        const hky::anim::Rig& rig = {});
 
     /// @brief SetTimeToLand's value when the predicted path doesn't land within its horizon (GASP's open upper bound).
     inline constexpr float kNoLanding = 999.0f;
@@ -61,7 +61,7 @@ namespace CB::feature::controller::motion {
 
     /// @brief What distance matching reads of a character, as of its latest movement frame.
     /// @brief The movement model's distances distance matching plays by (the engine's).
-    using Distances = CB::engine::locomotion::Distances;
+    using Distances = hky::locomotion::Distances;
 
     /// @brief `actor`'s distances from the movement model (locomotion::PredictStopDistance, PredictPivotDistance).
     /// @return false when no movement frame has published them (CB does not drive the actor)
@@ -73,8 +73,8 @@ namespace CB::feature::controller::motion {
     ///        measured from its animation unit on first use and kept.
     /// @return null when CB ships no unit for it, or before the load order is read (asked again later)
     /// @note  Thread-safe. The first ask for a clip measures it on the asking thread (a few milliseconds).
-    std::shared_ptr<const CB::engine::locomotion::DistanceCurve> DistanceCurveOf(const std::string& animationName,
-                                                                                 CB::engine::locomotion::DistanceMarker marker);
+    std::shared_ptr<const hky::locomotion::DistanceCurve> DistanceCurveOf(const std::string& animationName,
+                                                                                 hky::locomotion::DistanceMarker marker);
 
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.

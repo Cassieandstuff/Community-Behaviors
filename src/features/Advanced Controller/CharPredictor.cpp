@@ -11,7 +11,7 @@
 #include "CharMovementModel.h"
 #include "CharSweep.h"
 
-#include <compile/MotionFeatures.h>
+#include <hky/compile/MotionFeatures.h>
 #include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
 #include <platform/profile/Profile.h>
@@ -42,12 +42,12 @@ namespace CB::feature {
         using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief The pogo's spring, the ground states' own (char_pogo).
-        constexpr CB::engine::locomotion::Pogo kPogo{};
+        constexpr hky::locomotion::Pogo kPogo{};
 
         constexpr int   kFutureSamples = 3;
         /// @brief Motion matching's samples each way (anim::features::kAhead and kBack).
-        constexpr int   kQuerySamples = static_cast<int>(CB::engine::anim::features::kAhead.size());
-        static_assert(CB::engine::anim::features::kBack.size() == kQuerySamples);
+        constexpr int   kQuerySamples = static_cast<int>(hky::anim::features::kAhead.size());
+        static_assert(hky::anim::features::kBack.size() == kQuerySamples);
         /// @brief How far apart the two history points a past sample's velocity is taken over are, seconds.
         constexpr float kPastVelocityStep = 1.0f / 30.0f;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
@@ -649,7 +649,7 @@ namespace CB::feature {
                     float feet = prevFz;
                     for (int k = 1; k <= kSubstepsPerPoint; k++) {
                         const float target = prevZ + (z - prevZ) * static_cast<float>(k) / kSubstepsPerPoint;
-                        feet += CB::engine::locomotion::PogoStep(pogoRate, feet - target, kPogo, true, kSubstep) * kSubstep;
+                        feet += hky::locomotion::PogoStep(pogoRate, feet - target, kPogo, true, kSubstep) * kSubstep;
                     }
                     fz = feet;
                 } else {
@@ -866,8 +866,8 @@ namespace CB::feature {
             std::array<float, kQuerySamples> queryTimes{}, pastTimes{};
             if (matches && ch::motion::On()) {
                 for (int k = 0; k < kQuerySamples; k++) {
-                    queryTimes[k] = static_cast<float>(CB::engine::anim::features::kAhead[k]);
-                    pastTimes[k]  = static_cast<float>(CB::engine::anim::features::kBack[k]);
+                    queryTimes[k] = static_cast<float>(hky::anim::features::kAhead[k]);
+                    pastTimes[k]  = static_cast<float>(hky::anim::features::kBack[k]);
                 }
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, pastTimes, world, path);

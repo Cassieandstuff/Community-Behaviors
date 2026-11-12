@@ -4,7 +4,7 @@
 #include <Behavior/Behavior/Node/hkbBindable.h>
 #include <Common/Base/Container/String/hkString.h>
 
-#include <compile/MotionFeatures.h>
+#include <hky/compile/MotionFeatures.h>
 
 #include <string>
 #include <vector>
@@ -19,7 +19,7 @@ struct hkbContext;
 
 namespace CB::feature::controller::motion {
 
-    namespace anim = CB::engine::anim;
+    namespace anim = hky::anim;
 
     /// @brief CBPoseSearchFeature, the abstract base: a bindable with a weight.
     class PoseSearchFeature : public ::hkbBindable {

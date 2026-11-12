@@ -8,22 +8,22 @@
 #include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 
-#include <interface/UnitSource.h>
-#include <codec/serialization/HkyArchive.h>
-#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph (ClipInputsOf)
-#include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <codec/format/LoadOrderText.h>
-#include <merge/LoadPlan.h>                    // CB::engine::merge::PlanLoadOrder (the shared load-order plan)
-#include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
-#include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
-#include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
-#include <compile/AnimDataDeriver.h>      // CB::engine::animdata::DeriveClipInput
-#include <codec/resource/PathKey.h>       // path identity (PathKey/HasExt) + ClipSlotKey (the LoadClips slot rule)
-#include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
+#include <hky/interface/UnitSource.h>
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph (ClipInputsOf)
+#include <hky/codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
+#include <hky/codec/format/LoadOrderText.h>
+#include <hky/merge/LoadPlan.h>                    // hky::merge::PlanLoadOrder (the shared load-order plan)
+#include <hky/compile/AnimationCompiler.h>         // hky::anim::CompileAnimation (native anim -> loose .hkx)
+#include <hky/codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
+#include <hky/interface/MasterTable.h>          // hky::codec::formid::BuildMasterTable (ordered master table)
+#include <hky/compile/AnimDataDeriver.h>      // hky::animdata::DeriveClipInput
+#include <hky/codec/resource/PathKey.h>       // path identity (PathKey/HasExt) + ClipSlotKey (the LoadClips slot rule)
+#include <hky/interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
-#include <common/Xml.h>
-#include <disk/Disk.h>
-#include <text/Text.h>
+#include <hky/common/Xml.h>
+#include <hky/disk/Disk.h>
+#include <hky/text/Text.h>
 
 #include <atomic>
 #include <map>
@@ -48,28 +48,28 @@ namespace CB {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
-        using CB::engine::codec::resource::PathKey;
+        using hky::codec::resource::HasExt;
+        using hky::codec::resource::PathKey;
 
         /// @brief A reflective unit's kind (its graph.yaml's root variant; a patch names its base's). A unit without
         ///        graph.yaml is a patch that leaves the root untouched — Behavior.
-        CB::engine::codec::HkyArchive::UnitKind KindOfUnit(const CB::engine::common::IUnitSource& src)
+        hky::codec::HkyArchive::UnitKind KindOfUnit(const hky::common::IUnitSource& src)
         {
             const auto g = src.read("graph.yaml");
-            return g ? CB::engine::codec::HkyArchive::KindOfGraphYaml(*g) : CB::engine::codec::HkyArchive::UnitKind::Behavior;
+            return g ? hky::codec::HkyArchive::KindOfGraphYaml(*g) : hky::codec::HkyArchive::UnitKind::Behavior;
         }
 
         /// @brief True when the unit is complete on its own (not a patch over a master's unit).
-        bool IsCompleteUnit(const CB::engine::common::IUnitSource& src)
+        bool IsCompleteUnit(const hky::common::IUnitSource& src)
         {
             const auto g = src.read("graph.yaml");
-            return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
+            return g && !hky::codec::HkyArchive::IsPatchGraphYaml(*g);
         }
 
-        using CB::engine::text::SplitLines;
-        using CB::engine::text::StripBom;
-        using CB::engine::text::Trim;
-        namespace disk = CB::engine::disk;
+        using hky::text::SplitLines;
+        using hky::text::StripBom;
+        using hky::text::Trim;
+        namespace disk = hky::disk;
 
         /// @brief Append an author roster drop (`animationnames\<char>.txt`) to `names`: one animation path per line,
         ///        blank and `#`/`;` lines skipped, a leading BOM ignored.
@@ -83,7 +83,7 @@ namespace CB {
         {
             for (const std::string_view line : SplitLines(StripBom(text))) {
                 const std::string_view t = Trim(line);
-                if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(CB::engine::common::xml::Unescape(t));
+                if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(hky::common::xml::Unescape(t));
             }
         }
 
@@ -110,12 +110,12 @@ namespace CB {
         ///        and every bundle implicitly masters Skyrim, so the vanilla corpus is the root however mods are ordered.
         ///        loadorder.txt only breaks ties among peers (MO2's domain). The relay tree falls out for free: it IS a
         ///        master DAG (engine_relay masters Community Behaviors; an ER mod masters engine_relay).
-        CB::engine::merge::LoadPlan PlanLoadOrder(const std::unordered_map<std::string, BundleManifest>& manifests,
-                                                  const CB::engine::codec::LoadOrder&                    order)
+        hky::merge::LoadPlan PlanLoadOrder(const std::unordered_map<std::string, BundleManifest>& manifests,
+                                                  const hky::codec::LoadOrder&                    order)
         {
             std::unordered_map<std::string, std::vector<std::string>> masters;
             for (const auto& [stem, mf] : manifests) masters[stem] = mf.masters;
-            auto plan = CB::engine::merge::PlanLoadOrder(masters, order);
+            auto plan = hky::merge::PlanLoadOrder(masters, order);
             for (const auto& w : plan.warnings) LOG_WARN("Resolver: load order — {}.", w);
             return plan;
         }
@@ -150,7 +150,7 @@ namespace CB {
                         const AnimExecutor* skelExec)
     {
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
-        const auto order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
+        const auto order = hky::codec::ReadLoadOrder(loadOrderIni).value_or(hky::codec::LoadOrder{});
 
         // 2) Scan the plugins tree. Each top-level *.hky is a MOD BUNDLE that mirrors the
         //    game data tree inside itself, so a unit's path WITHIN its bundle IS its serve
@@ -169,7 +169,7 @@ namespace CB {
         // archive-backed (ZipUnitSource, a packed .hky) — the merge doesn't care which.
         struct LayerBuild {
             std::string                                      stem;    // owning bundle — its master-DAG rank orders this layer
-            std::shared_ptr<const CB::engine::common::IUnitSource> source;
+            std::shared_ptr<const hky::common::IUnitSource> source;
             bool                                             isChar;
         };
         std::unordered_map<std::string, std::vector<LayerBuild>> layers;
@@ -312,15 +312,15 @@ namespace CB {
                     /// @note Skeletons compile through the skeleton path (path-local winners), and the project is
                     ///       synthesized by ProjectRedirect — neither is a merged graph layer. A project unit only
                     ///       contributes its original-case character ref.
-                    auto src = std::make_shared<CB::engine::common::DiskUnitSource>(unit);
+                    auto src = std::make_shared<hky::common::DiskUnitSource>(unit);
                     const auto kind = KindOfUnit(*src);
-                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
-                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
+                    if (kind == hky::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
+                    if (kind == hky::codec::HkyArchive::UnitKind::Project) {
                         nonGraphKeys.insert(key);
                         if (IsCompleteUnit(*src)) m_projectUnits[key] = std::move(src);
                         continue;
                     }
-                    layers[key].push_back({ plugName, std::move(src), kind == CB::engine::codec::HkyArchive::UnitKind::Character });
+                    layers[key].push_back({ plugName, std::move(src), kind == hky::codec::HkyArchive::UnitKind::Character });
                 }
 
                 // AUTHOR-FACING ROSTER DROP: a bundle adds animations to a character by
@@ -353,7 +353,7 @@ namespace CB {
                 // file on demand. The archive is held in m_archives for the process lifetime
                 // so those sources stay valid.
                 std::string err;
-                auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+                auto arc = hky::codec::HkyArchive::LoadFromFile(bundle.string(), err);
                 if (!arc) {
                     LOG_WARN("Resolver: cannot read packed .hky '{}': {} — skipped.", bundle.string(), err);
                 } else {
@@ -377,7 +377,7 @@ namespace CB {
                         // The project graph is not a merged layer — ProjectRedirect serves the complete
                         // project unit on demand (into the cache, vanilla identity, its ORIGINAL-CASE
                         // characterFilenames: a lowercased ref A-poses vanilla-only actors).
-                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
+                        if (u.kind == hky::codec::HkyArchive::UnitKind::Project) {
                             nonGraphKeys.insert(NormalizeKey(u.prefix));
                             if (auto src = arc->source(u.prefix))
                                 if (IsCompleteUnit(*src)) m_projectUnits[NormalizeKey(u.prefix)] = std::move(src);
@@ -388,11 +388,11 @@ namespace CB {
                         // ByteServe REDIRECTED every skeleton load into community_behaviors_cache, but no graph compile
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
-                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
+                        if (u.kind == hky::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
                         const std::string key = NormalizeKey(u.prefix);   // already a path key
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
-                                                u.kind == CB::engine::codec::HkyArchive::UnitKind::Character });
+                                                u.kind == hky::codec::HkyArchive::UnitKind::Character });
                     }
 
                     // Author roster drops inside a packed bundle live at "animationnames/
@@ -465,21 +465,21 @@ namespace CB {
                     if (f.size() <= 15 || f.compare(f.size() - 15, 15, ".hkx/graph.yaml") != 0) continue;
                     const std::string unit = f.substr(0, f.size() - 11);
                     const std::string text = bundles[bi].reader.read(f).value_or("");
-                    if (CB::engine::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
-                    switch (CB::engine::codec::HkyArchive::KindOfGraphYaml(text)) {
-                        case CB::engine::codec::HkyArchive::UnitKind::Skeleton:  skelWinner[unit] = bi; break;
-                        case CB::engine::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
-                        case CB::engine::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
+                    if (hky::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
+                    switch (hky::codec::HkyArchive::KindOfGraphYaml(text)) {
+                        case hky::codec::HkyArchive::UnitKind::Skeleton:  skelWinner[unit] = bi; break;
+                        case hky::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
+                        case hky::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
                         default: break;
                     }
                 }
 
             /// @return A skeleton's layers: the winner `bi`, then every later bundle holding files of that unit (its patches).
             const auto skelLayers = [&](const std::string& unit, std::size_t bi) {
-                std::vector<CB::engine::common::LayerSource> out;
+                std::vector<hky::common::LayerSource> out;
                 for (std::size_t j = bi; j < bundles.size(); ++j) {
                     if (j != bi && bundles[j].reader.filesUnder(unit + "/", ".yaml").empty()) continue;
-                    CB::engine::common::LayerSource l;
+                    hky::common::LayerSource l;
                     l.source = bundles[j].reader.unitSource(unit);
                     l.stem   = bundles[j].stem;
                     if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end()) l.masterTable = mit->second;
@@ -490,7 +490,7 @@ namespace CB {
 
             /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
             ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
-            auto* schemaReg = CB::engine::schema::SharedRegistry();
+            auto* schemaReg = hky::schema::SharedRegistry();
 
             // SERVE: every unit a non-master bundle wins. Each task writes only its own m_skeletonServe key
             // (under serveMu), so fanning across units is byte-identical to serial.
@@ -512,11 +512,11 @@ namespace CB {
                     }
                 }
                 /// @note The unit is the whole skeleton.hkx, so serving it is a merge and a serialize: nothing is derived.
-                CB::engine::decompile::ParsedHky graph;
+                hky::decompile::ParsedHky graph;
                 std::vector<std::uint8_t> bytes;
                 std::string err = "no schema";
-                if (!schemaReg || !CB::engine::decompile::MergeLayersSkippingBroken(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
-                    !CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
+                if (!schemaReg || !hky::decompile::MergeLayersSkippingBroken(skelLayers(unit, bi), *schemaReg, nullptr, graph, err, nullptr, unit) ||
+                    !hky::decompile::SerializeGraph(graph, bytes, err)) {
                     LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem, err);
                     return;
                 }
@@ -541,14 +541,14 @@ namespace CB {
             for (const auto& [projUnit, pbi] : projWinner) {
                 const auto psrc = bundles[pbi].reader.unitSource(projUnit);
                 if (!psrc || !schemaReg) continue;
-                m_rigIndex.AddProject(projUnit, CB::engine::decompile::ReadProjectCharacters(*psrc, *schemaReg),
-                    [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
+                m_rigIndex.AddProject(projUnit, hky::decompile::ReadProjectCharacters(*psrc, *schemaReg),
+                    [&](const std::string& charUnit) -> std::optional<hky::skeleton::CharacterRig> {
                         const auto cit = charWinner.find(charUnit);
                         if (cit == charWinner.end()) return std::nullopt;
                         const auto src = bundles[cit->second].reader.unitSource(charUnit);
-                        const auto cs  = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                        const auto cs  = src ? hky::decompile::ReadCharacterStrings(*src) : std::nullopt;
                         if (!cs) return std::nullopt;
-                        return CB::engine::skeleton::CharacterRig{ cs->rigName, cs->behaviorFilename };
+                        return hky::skeleton::CharacterRig{ cs->rigName, cs->behaviorFilename };
                     },
                     [&](const std::string& rig) { return skelWinner.count(rig) != 0; },
                     [](const std::string& m) { LOG_WARN("Resolver: {}.", m); });
@@ -566,13 +566,13 @@ namespace CB {
                 const std::size_t  bi = skelWinner.at(rig);
                 boneTasks.push_back([&, r, bi] {
                     std::string err;
-                    auto names = schemaReg ? CB::engine::decompile::ReadLayeredSkeletonBones(skelLayers(*r, bi), *schemaReg, *r, "animation", &err)
+                    auto names = schemaReg ? hky::decompile::ReadLayeredSkeletonBones(skelLayers(*r, bi), *schemaReg, *r, "animation", &err)
                                            : std::nullopt;
                     if (!names) {
                         LOG_WARN("Resolver: rig '{}' ({}) has no animation skeleton bones{}", *r, bundles[bi].stem, err.empty() ? "" : ": " + err);
                         return;
                     }
-                    CB::engine::common::BoneNameTable tbl;
+                    hky::common::BoneNameTable tbl;
                     tbl.names = std::move(*names);
                     const std::size_t nBones = tbl.names.size();
                     { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[*r] = std::move(tbl); }
@@ -606,7 +606,7 @@ namespace CB {
             gs.layers.reserve(ls.size());
             for (auto& l : ls) {
                 // Carry each layer's load-order identity so the merge keys node identity by scope.
-                CB::engine::common::LayerSource lsrc;
+                hky::common::LayerSource lsrc;
                 lsrc.source = l.source;
                 lsrc.stem   = l.stem;
                 if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end())
@@ -727,7 +727,7 @@ namespace CB {
 
     namespace {
         /// @brief Everything the adsf projection takes from one behavior's clip generators, folded into one value.
-        std::uint64_t ClipHash(const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+        std::uint64_t ClipHash(const std::vector<hky::animdata::DeriveClipInput>& clips)
         {
             std::string s;
             const auto num = [&s](double v) { s.append(reinterpret_cast<const char*>(&v), sizeof v); };
@@ -752,7 +752,7 @@ namespace CB {
         }
     }  // namespace
 
-    void Resolver::TraceClips(const std::string& key, const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+    void Resolver::TraceClips(const std::string& key, const std::vector<hky::animdata::DeriveClipInput>& clips)
     {
         const std::uint64_t h = ClipHash(clips);
         std::lock_guard<std::mutex> lk(m_clipTraceMutex);
@@ -934,7 +934,7 @@ namespace CB {
         // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
         // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
         // the call that warms it there. Do it regardless of exec so both paths are covered.
-        (void)CB::engine::schema::SharedRegistry();
+        (void)hky::schema::SharedRegistry();
 
         /// @note The ledger (community_behaviors_cache\animations.ledger) records every animation CB wrote into
         ///       the real meshes\ tree. An entry whose source (its file's stamp in the bundle index, and the rig bones
@@ -991,11 +991,11 @@ namespace CB {
                     LOG_ERROR("Community Behaviors: native animation '{}' could not be read.", outKey);
                     return;
                 }
-                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*yamlText, outKey);
+                auto def = hky::anim::AnimationYamlLoader::LoadFromString(*yamlText, outKey);
                 /// @note Called for its side effect: a folded root has its actor motion extracted and STRIPPED, so the
                 ///       binary compiled below serves without the travel the adsf moves the actor by. The motion
                 ///       itself reaches the adsf through the projection (AnimationDataServer), not from here.
-                (void)CB::engine::anim::ResolveRootMotion(def);
+                (void)hky::anim::ResolveRootMotion(def);
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the rig of the
                 // characters that play it (BonesFor — the same lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
@@ -1006,7 +1006,7 @@ namespace CB {
                         LOG_WARN("Resolver: animation '{}' binds rigs that disagree on bone order — tracks resolve "
                                  "against '{}'.", outKey, rb.rig);
                 }
-                const auto r   = CB::engine::anim::CompileAnimation(def, 30, CB::engine::codec::HKXHeader::SkyrimSE(), boneNames);
+                const auto r   = hky::anim::CompileAnimation(def, 30, hky::codec::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
@@ -1371,19 +1371,19 @@ namespace CB {
                  dataRoot.string());
     }
 
-    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::ClipInputsOf(
-        const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const
+    std::vector<hky::animdata::DeriveClipInput> Resolver::ClipInputsOf(
+        const std::string& key, const std::vector<hky::common::LayerSource>& layers) const
     {
-        auto* reg = CB::engine::schema::SharedRegistry();
+        auto* reg = hky::schema::SharedRegistry();
         if (!reg) return {};
         const RigBones rb = BonesFor(key);
-        CB::engine::decompile::ParsedHky graph;
+        hky::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersSkippingBroken(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!hky::decompile::MergeLayersSkippingBroken(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: clip read of '{}' failed: {}", key, err);
             return {};
         }
-        return CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
+        return hky::compile::DeriveClipInputsFromGraph(graph.root);
     }
 
     std::size_t Resolver::FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const
@@ -1395,11 +1395,11 @@ namespace CB {
         ///       (codec::resource::ClipSlotKey), so an authored name sharing a slot key with an existing entry would
         ///       overwrite that slot and pad the roster — passed through as written, but warned about.
         std::unordered_set<std::string> slots;
-        for (const auto& n : names) slots.insert(CB::engine::codec::resource::ClipSlotKey(n));
+        for (const auto& n : names) slots.insert(hky::codec::resource::ClipSlotKey(n));
         std::size_t folded = 0;
         for (const auto& a : ci->second) {
             if (!have.insert(a).second) continue;
-            if (!slots.insert(CB::engine::codec::resource::ClipSlotKey(a)).second)
+            if (!slots.insert(hky::codec::resource::ClipSlotKey(a)).second)
                 LOG_WARN("Resolver: author roster entry '{}' for '{}' shares an animation slot (same file name) with an "
                          "existing entry — the engine binds only the later one.", a, characterStem);
             names.push_back(a);
@@ -1408,29 +1408,29 @@ namespace CB {
         return folded;
     }
 
-    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
+    std::vector<hky::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
     {
         const auto it = m_sources.find(NormalizeKey(key));
-        return it == m_sources.end() ? std::vector<CB::engine::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
+        return it == m_sources.end() ? std::vector<hky::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
     }
 
-    bool Resolver::MergedGraph(const std::string& key, CB::engine::decompile::ParsedHky& out) const
+    bool Resolver::MergedGraph(const std::string& key, hky::decompile::ParsedHky& out) const
     {
-        auto*      reg = CB::engine::schema::SharedRegistry();
+        auto*      reg = hky::schema::SharedRegistry();
         const auto it  = m_sources.find(NormalizeKey(key));
         if (!reg) return false;
         std::string err;
         if (it == m_sources.end()) {
             const auto sk = m_skeletonSources.find(NormalizeKey(key));
             if (sk == m_skeletonSources.end()) return false;
-            if (!CB::engine::decompile::MergeLayersSkippingBroken(sk->second.second, *reg, nullptr, out, err, nullptr, sk->second.first)) {
+            if (!hky::decompile::MergeLayersSkippingBroken(sk->second.second, *reg, nullptr, out, err, nullptr, sk->second.first)) {
                 LOG_WARN("Resolver: merged read of skeleton '{}' failed: {}", key, err);
                 return false;
             }
             return true;
         }
         const RigBones rb = BonesFor(it->first);
-        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
+        if (!hky::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
             LOG_WARN("Resolver: merged read of '{}' failed: {}", key, err);
             return false;
         }
@@ -1454,20 +1454,20 @@ namespace CB {
 
     std::vector<std::string> Resolver::ServedRoster(const std::string& characterKey) const
     {
-        auto* reg = CB::engine::schema::SharedRegistry();
+        auto* reg = hky::schema::SharedRegistry();
         const auto it = m_sources.find(NormalizeKey(characterKey));
         if (!reg || it == m_sources.end()) return {};
         const RigBones rb = BonesFor(it->first);
-        CB::engine::decompile::ParsedHky graph;
+        hky::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::engine::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!hky::decompile::MergeLayersSkippingBroken(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
             return {};
         }
-        CB::engine::decompile::GraphEdit edit(graph, *reg);
+        hky::decompile::GraphEdit edit(graph, *reg);
         std::vector<std::string> names;
         bool found = false;
-        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
+        edit.ForEach("hkbCharacterStringData", [&](hky::codec::io::SchemaObject& so) {
             if (!found) { names = so.FieldRef("animationNames").strs; found = true; }
         });
         FoldAuthorRoster(PathKey(fs::path(it->first).stem().string()), names);
@@ -1493,7 +1493,7 @@ namespace CB {
             const auto it = m_sources.find(key);
             if (it == m_sources.end() || it->second.layers.empty()) continue;
             /// @note By the base layer's own bundle: a master table starts with the bundle itself, so it tells nothing here.
-            if (it->second.layers.front().stem != CB::engine::codec::formid::BASE_GAME_STEM) out.push_back(key);
+            if (it->second.layers.front().stem != hky::codec::formid::BASE_GAME_STEM) out.push_back(key);
         }
         return out;
     }
@@ -1591,10 +1591,10 @@ namespace CB {
                     std::vector<std::uint8_t> bytes;
                     std::string err;
                     if (const auto pu = m_projectUnits.find(projKey); pu != m_projectUnits.end()) {
-                        CB::engine::decompile::ParsedHky project;
-                        auto* reg = CB::engine::schema::SharedRegistry();
-                        if (!reg || !CB::engine::decompile::ParseHkyReflective(*pu->second, *reg, project, err) ||
-                            !CB::engine::decompile::SerializeGraph(project, bytes, err))
+                        hky::decompile::ParsedHky project;
+                        auto* reg = hky::schema::SharedRegistry();
+                        if (!reg || !hky::decompile::ParseHkyReflective(*pu->second, *reg, project, err) ||
+                            !hky::decompile::SerializeGraph(project, bytes, err))
                             bytes.clear();
                     }
                     if (bytes.empty()) {
@@ -1673,10 +1673,10 @@ namespace CB {
         return std::filesystem::exists(m_dataRoot / std::filesystem::path(CacheDiskRel(key)), ec);
     }
 
-    void Resolver::ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit)
+    void Resolver::ResolveCharacter(const std::string& key, hky::decompile::GraphEdit& edit)
     {
-        CB::engine::codec::io::SchemaObject* sd = nullptr;
-        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
+        hky::codec::io::SchemaObject* sd = nullptr;
+        edit.ForEach("hkbCharacterStringData", [&](hky::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
         if (!sd) { LOG_WARN("Resolver: character '{}' has no string data — served as merged.", key); return; }
         const std::string cstem = PathKey(fs::path(key).stem().string());
 
@@ -1717,7 +1717,7 @@ namespace CB {
         std::shared_ptr<const std::vector<std::uint8_t>> result;
         try {
             const auto t0 = std::chrono::steady_clock::now();
-            auto* reg = CB::engine::schema::SharedRegistry();
+            auto* reg = hky::schema::SharedRegistry();
             if (!reg) throw std::runtime_error("schema registry unavailable");
 
             /// @note Bone names (weight maps, bone refs, bone-keyed rosters) resolve against the rig of the
@@ -1728,10 +1728,10 @@ namespace CB {
                 LOG_WARN("Resolver: '{}' is shared by characters whose rigs disagree on bone order — "
                          "bone names resolve against '{}'.", key, rb.rig);
 
-            CB::engine::decompile::ParsedHky graph;
+            hky::decompile::ParsedHky graph;
             std::string err;
             std::vector<std::pair<std::string, std::size_t>> nullMarkers;
-            if (!CB::engine::decompile::MergeLayersSkippingBroken(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
+            if (!hky::decompile::MergeLayersSkippingBroken(gs.layers, *reg, bones, graph, err, &nullMarkers)) {
                 LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
                           key, err);
                 m_cache.emplace(key, nullptr);
@@ -1740,7 +1740,7 @@ namespace CB {
             for (const auto& [stem, n] : nullMarkers) m_nullMarkers[stem] += n;   // m_mutex is held
             for (const auto& skipped : graph.skippedLayers)
                 LOG_ERROR("Community Behaviors: skipping mod '{}' for '{}', the others still merge: {}", skipped.stem, key, skipped.why);
-            CB::engine::decompile::GraphEdit edit(graph, *reg);
+            hky::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {
                 ResolveCharacter(key, edit);
@@ -1760,7 +1760,7 @@ namespace CB {
                 /// @note Cache-qualify every child behavior reference CB owns, so the recursive above-OAR load pulls
                 ///       CB's compiled sub-behaviors while unowned children resolve to their vanilla files.
                 std::size_t qualified = 0;
-                edit.ForEach("hkbBehaviorReferenceGenerator", [&](CB::engine::codec::io::SchemaObject& so) {
+                edit.ForEach("hkbBehaviorReferenceGenerator", [&](hky::codec::io::SchemaObject& so) {
                     std::string& name = so.Str("behaviorName");
                     if (const std::string q = QualifyChildRef(key, name); q != name) { name = q; ++qualified; }
                 });
@@ -1787,7 +1787,7 @@ namespace CB {
 
             std::vector<std::uint8_t> bytes;
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            if (CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
+            if (hky::decompile::SerializeGraph(graph, bytes, err)) {
                 result = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
                 LOG_INFO("Resolver: compiled '{}' — {} layer(s) merged, {} bytes in {:.1f} ms.",
                          key, gs.layers.size(), result->size(), ms);

@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Behavior Converter — standalone, MO2-launchable tool (BehaviorConverter.exe).
 # Converts a Nemesis/Pandora behavior load order into per-mod Community Behaviors
-# .hky bundles via HKY-SDK (CB::engine::decompile::ConvertModDelta).
+# .hky bundles via HKY-SDK (hky::decompile::ConvertModDelta).
 # GLFW + Dear ImGui + OpenGL. An end-user + author tool that shares CB's whole
 # engine, so it lives in this repo rather than splitting into cross-repo coupling.
 #
@@ -82,6 +82,6 @@ cb_regen_bundles(
     PACKED_DIR       "${CB_HKY_STAGE}/community_behaviors/plugins"
     UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}")
 
-# The engine's shared vocabulary (HKY-SDK common/CorePrelude.h) — the converter includes engine headers that
-# reference CB::engine::common / CB::engine::codec unqualified; make them ambient in every TU.
-target_precompile_headers(behavior-converter PRIVATE "${hky-sdk_SOURCE_DIR}/src/hky/common/CorePrelude.h")
+# HKY-SDK's prelude (src/hky/Prelude.h) — the converter includes engine headers that
+# reference hky::common / hky::codec unqualified; make them ambient in every TU.
+target_precompile_headers(behavior-converter PRIVATE "${hky-sdk_SOURCE_DIR}/src/hky/Prelude.h")

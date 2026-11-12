@@ -8,7 +8,7 @@
 
 #include "CharPoseSearchSchema.h"
 
-#include <locomotion/PoseSearch.h>
+#include <hky/locomotion/PoseSearch.h>
 
 #include <cstddef>
 #include <optional>
@@ -82,7 +82,7 @@ namespace CB::feature::controller::motion {
 
     /// @brief What a node loaded, for its database and its query.
     struct NodeDescription {
-        CB::engine::locomotion::DatabaseSpec  spec;
+        hky::locomotion::DatabaseSpec  spec;
         anim::Rig                             rig;        ///< the character's animation skeleton, as its graph runs
         std::vector<std::vector<BoundInput>>  bound;      ///< per spec.schemas entry: the query values its features bind
         bool                                  speedBound = false;   ///< m_speed is bound: the node trims its own rate

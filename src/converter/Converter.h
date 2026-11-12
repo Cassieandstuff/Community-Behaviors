@@ -2,7 +2,7 @@
 /// @file
 /// @brief The converter core: turns a Nemesis/Pandora behavior load order into per-mod Community Behaviors .hky
 ///        bundles plus a loadorder.txt, each graph patch derived against the shipped Skyrim.hky base
-///        (CB::engine::decompile::ConvertModDelta); also the derived-bundle regen and the offline gates.
+///        (hky::decompile::ConvertModDelta); also the derived-bundle regen and the offline gates.
 #include <config/compat/Registry.h>
 
 #include <atomic>
@@ -13,7 +13,7 @@
 #include <memory>
 #include <vector>
 
-namespace CB::engine::rules { struct RunResult; }
+namespace hky::rules { struct RunResult; }
 
 namespace CB::converter {
 
@@ -129,7 +129,7 @@ struct BaseBuildResult {
     int animOk = 0, animFail = 0, animSkip = 0;
     /// @brief The regen rules applied after the emit, with their records: RegenerateMaster's gate reverses them in
     ///        memory. Null when no rule runs at the regen.
-    std::shared_ptr<CB::engine::rules::RunResult> rules;
+    std::shared_ptr<hky::rules::RunResult> rules;
     int rulesTouched = 0;   ///< units the rules changed (re-emitted)
     /// @brief `charprop` members of running graphs left holding bone data inline after the rules (CharPropViolations).
     std::vector<std::string> charPropViolations;
@@ -210,7 +210,7 @@ struct RegenResult {
 //   2. GATE: parses every behavior / character / project / skeleton unit back through the runtime's reader (rig-bound
 //      bones) and serializes it, byte-comparing against its source binary's canonical re-serialization —
 //      exactly what the runtime serves for an untouched graph — collecting any drift; the regen rules the build
-//      applied are reversed in memory first (CB::engine::rules::InverseRules), so the source is compared to what
+//      applied are reversed in memory first (hky::rules::InverseRules), so the source is compared to what
 //      their inverse makes of the bundle, then
 //   3. promotes TEMP -> outHky. In `strict` mode any drift is fatal and outHky is left untouched;
 //      otherwise it writes and returns the drift list. BLOCKING — run on a worker thread.

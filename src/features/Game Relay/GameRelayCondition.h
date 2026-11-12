@@ -7,7 +7,7 @@
 #include <atomic>
 #include <cstddef>
 
-namespace CB::engine::relay { class CompiledExpr; }
+namespace hky::relay { class CompiledExpr; }
 
 /// @file
 /// @brief CBGameRelayCondition, CB's own Havok condition: true when its Animation Relay expression holds for the
@@ -23,7 +23,7 @@ namespace CB::feature::relay {
         ::hkStringPtr m_expression;   ///< +0x10, Relay text, byte-exact
         /// @brief +0x18, runtime: the expression compiled, null until the first isTrue.
         /// @invariant Once set it never changes: it points into a process-wide cache keyed by the exact text.
-        std::atomic<const CB::engine::relay::CompiledExpr*> m_compiled;
+        std::atomic<const hky::relay::CompiledExpr*> m_compiled;
 
         /// @brief The finish constructor: the vtable on loaded bytes; `m_expression` stays as loaded.
         explicit GameRelayCondition(::hkFinishLoadedObjectFlag flag);

@@ -4,7 +4,7 @@
 
 #include "core/debug/Settings.h"
 
-#include <compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
+#include <hky/compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
 
 #include <atomic>
 #include <chrono>
@@ -65,7 +65,7 @@ namespace CB::core::debug {
         if (!FlagOn("runtime_trace")) return;
 
         std::string warn;
-        const auto entries = CB::engine::compile::trace::LoadRuntimeWatch(
+        const auto entries = hky::compile::trace::LoadRuntimeWatch(
             "Data/community_behaviors/schema", &warn);
         if (!warn.empty()) LOG_WARN("Community Behaviors: runtime-trace watch load: {}", warn);
         if (entries.empty()) {

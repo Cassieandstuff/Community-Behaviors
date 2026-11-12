@@ -2,7 +2,7 @@
 
 #include <features/Advanced Input/Input.h>
 
-#include <locomotion/Dodge.h>
+#include <hky/locomotion/Dodge.h>
 
 #include <string>
 
@@ -19,14 +19,14 @@
 namespace CB::feature::dodge {
 
     struct Settings {
-        CB::engine::locomotion::DodgeTrigger trigger         = CB::engine::locomotion::DodgeTrigger::SprintTap;
+        hky::locomotion::DodgeTrigger trigger         = hky::locomotion::DodgeTrigger::SprintTap;
         float                                tapMaxHold      = 0.25f;   ///< fTapMaxHold: seconds a Sprint press may last and still dodge
         float                                doubleTapWindow = 0.25f;   ///< fDoubleTapWindow: seconds between the two pushes
         /// @brief iKeyboardKey: DirectInput scan code (keyboard) or 256 + button (mouse); 0 = none.
         input::Key                           keyboardKey{ input::Device::Keyboard, 0 };
         /// @brief iGamepadKey: XInput button mask; 0 = none.
         input::Key                           gamepadKey{ input::Device::Gamepad, 0 };
-        CB::engine::locomotion::DodgeStamina stamina;
+        hky::locomotion::DodgeStamina stamina;
     };
 
     /// @brief The settings in use: settings.ini [Dodge] as read at first use, then as Set. Thread-safe.

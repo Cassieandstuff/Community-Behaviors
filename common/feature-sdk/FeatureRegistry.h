@@ -38,7 +38,7 @@ namespace CB::feature {
         // visible). Returns {id, result} per feature that ran, in run order.
         std::vector<std::pair<std::string, FeatureResult>>
         Run(const std::vector<std::string>& orderedIds,
-            CB::engine::decompile::GraphEdit& graph,
+            hky::decompile::GraphEdit& graph,
             const FeatureContext& ctx) const;
 
         FeatureRegistry(const FeatureRegistry&)            = delete;

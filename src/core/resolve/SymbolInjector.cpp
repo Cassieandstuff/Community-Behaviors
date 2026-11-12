@@ -2,7 +2,7 @@
 #include "core/resolve/SymbolInjector.h"
 
 #include <config/Config.h>
-#include <codec/resource/PathKey.h>
+#include <hky/codec/resource/PathKey.h>
 
 #include <bit>
 #include <unordered_set>
@@ -11,7 +11,7 @@ namespace CB {
 
     namespace {
 
-        using CB::engine::codec::resource::PathKey;
+        using hky::codec::resource::PathKey;
 
         // The project a served graph belongs to:
         //   "meshes/actors/character/behaviors/1hm_behavior.hkx" -> "actors/character"

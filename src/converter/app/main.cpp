@@ -1,8 +1,8 @@
 #include "app/App.h"
 #include "Converter.h"
 
-#include <interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
-#include <codec/serialization/HkyArchive.h>
+#include <hky/interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
+#include <hky/codec/serialization/HkyArchive.h>
 #include "platform/Platform.h"
 
 #include <atomic>
@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     /// @note Arm the process-wide schema registry for EVERY mode (GUI, --cli, the gates, the base build): every
     ///       decompile / derive / gate reads it. SetSharedSchemaDir only records the dir; SharedRegistry() lazily
     ///       loads once on first use, so the per-verb re-arms below are harmless.
-    CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());
+    hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         CB::converter::Options opt;
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
 
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
-        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
+        const bool ok = hky::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("zipped -> " + std::string(argv[3])).c_str() : ("zip FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     // compress step (CMake/converter); `unpack` is the author's decompress-to-edit.
     if (argc >= 4 && std::string(argv[1]) == "--pack") {    // --pack <dir> <out.hky>
         std::string err;
-        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
+        const bool ok = hky::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("packed -> " + std::string(argv[3])).c_str() : ("pack FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
     if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <sourceDir> <out.hky>
         if (argc > 4) { std::printf("usage: --build-base <sourceDir: meshes/ and/or *.bsa> <out.hky>\n"); return EXIT_FAILURE; }
         std::atomic<bool> cancel{ false };
-        CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
+        hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel);
         if (!res.ok) { std::printf("build-base FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
             std::printf("usage: --regen-master <sourceDir: meshes/ and/or *.bsa> <outHky> [--strict] [--keep-unpacked <dir>]\n");
             return EXIT_FAILURE;
         }
-        CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
+        hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::RegenerateMaster(pos[0], pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }

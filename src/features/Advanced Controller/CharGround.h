@@ -3,9 +3,9 @@
 #include <Common/Base/hkBase.h>
 #include <BSHavok/bhkCharProxyController.h>
 
-#include <locomotion/Movement.h>
-#include <locomotion/Pogo.h>
-#include <locomotion/Slope.h>
+#include <hky/locomotion/Movement.h>
+#include <hky/locomotion/Pogo.h>
+#include <hky/locomotion/Slope.h>
 
 #include <array>
 #include <cmath>
@@ -201,7 +201,7 @@ namespace CB::feature::controller {
     float Support(const ::bhkCharacterController& ctrl, float groundNz);
 
     /// @brief The ground of `v` as the engine's slope helpers read it.
-    inline CB::engine::locomotion::Surface SurfaceOf(const FloorVerdict& v)
+    inline hky::locomotion::Surface SurfaceOf(const FloorVerdict& v)
     {
         return { v.ground == Ground::Grounded, v.support, v.groundNx, v.groundNy, v.groundNz };
     }
@@ -209,13 +209,13 @@ namespace CB::feature::controller {
     /// @brief locomotion::SlideStep on the ground of `v`.
     inline void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt)
     {
-        CB::engine::locomotion::SlideStep(SurfaceOf(v), gx, gy, gz, sx, sy, dt);
+        hky::locomotion::SlideStep(SurfaceOf(v), gx, gy, gz, sx, sy, dt);
     }
 
     /// @brief locomotion::SlopeRise on the ground of `v`.
-    inline float SlopeRise(const FloorVerdict& v, float dx, float dy) { return CB::engine::locomotion::SlopeRise(SurfaceOf(v), dx, dy); }
+    inline float SlopeRise(const FloorVerdict& v, float dx, float dy) { return hky::locomotion::SlopeRise(SurfaceOf(v), dx, dy); }
 
-    using CB::engine::locomotion::kSlopeSpeedHalflife;
+    using hky::locomotion::kSlopeSpeedHalflife;
 
     /// @brief locomotion::SlopeSpeedScale on the ground of `g`, with settings.ini [Character] fSlopeSpeedDown and
     ///        fSlopeSpeedUp (defaults 1.0 and 0.5), read once.
@@ -228,11 +228,11 @@ namespace CB::feature::controller {
     /// @brief locomotion::JumpLaunch from the ground of `g`.
     inline void JumpLaunch(const FloorVerdict& g, float hx, float hy, float speed, float& ox, float& oy, float& oz)
     {
-        CB::engine::locomotion::JumpLaunch(SurfaceOf(g), hx, hy, speed, ox, oy, oz);
+        hky::locomotion::JumpLaunch(SurfaceOf(g), hx, hy, speed, ox, oy, oz);
     }
 
     /// @brief locomotion::ClipUphill on the ground of `v`.
-    inline void ClipUphill(const FloorVerdict& v, float& dx, float& dy) { CB::engine::locomotion::ClipUphill(SurfaceOf(v), dx, dy); }
+    inline void ClipUphill(const FloorVerdict& v, float& dx, float& dy) { hky::locomotion::ClipUphill(SurfaceOf(v), dx, dy); }
 
     /// @brief What the ground states hand the predictor each step.
     struct GroundNote {
@@ -266,8 +266,8 @@ namespace CB::feature::controller {
     /// @brief The game's INI setting `name` (e.g. "fInAirFallingCharGravityMult:HAVOK") as a float, `def` when absent.
     float IniFloat(const char* name, float def);
 
-    using CB::engine::locomotion::SpringDamperExact;
-    using CB::engine::locomotion::GroundVelocityStep;
+    using hky::locomotion::SpringDamperExact;
+    using hky::locomotion::GroundVelocityStep;
 
     /// @brief Whether the pogo runs (char_pogo, under char_ground_states): the managed controller's shape floats Lift
     ///        above its feet and a spring holds the feet on the floor, in place of the step query and stick-to-floor.

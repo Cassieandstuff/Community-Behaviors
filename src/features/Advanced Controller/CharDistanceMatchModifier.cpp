@@ -3,7 +3,7 @@
 #include "CharDistanceMatchModifier.h"
 #include "CharMotionMatching.h"
 
-#include <locomotion/DistanceMatch.h>
+#include <hky/locomotion/DistanceMatch.h>
 #include <platform/classes/ClassRegistry.h>
 #include <platform/game/Character.h>
 
@@ -16,7 +16,7 @@ namespace CB::feature::controller {
 
     namespace {
 
-        namespace loco = CB::engine::locomotion;
+        namespace loco = hky::locomotion;
 
         constexpr const char* kClassName = "CBDistanceMatchModifier";
         constexpr double      kDefaultMinRate = 0.6, kDefaultMaxRate = 5.0;   ///< Lyra's start and pivot clamps

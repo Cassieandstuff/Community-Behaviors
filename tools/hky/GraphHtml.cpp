@@ -1,13 +1,13 @@
-#include <codec/format/LoadOrderText.h>
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/HavokIo.h>
-#include <codec/serialization/HkyArchive.h>
-#include <decompile/BehaviorDecompile.h>
-#include <disk/Disk.h>
-#include <interface/HavokEnums.h>
-#include <interface/UnitSource.h>
-#include <interface/reflection/HavokSchema.h>
-#include <merge/LoadPlan.h>
+#include <hky/codec/format/LoadOrderText.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/HavokIo.h>
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/decompile/BehaviorDecompile.h>
+#include <hky/disk/Disk.h>
+#include <hky/interface/HavokEnums.h>
+#include <hky/interface/UnitSource.h>
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/merge/LoadPlan.h>
 
 #include <nlohmann/json.hpp>
 
@@ -40,12 +40,12 @@
 namespace {
 
     namespace fs   = std::filesystem;
-    using Archive  = CB::engine::codec::HkyArchive;
-    using Object   = CB::engine::codec::io::SchemaObject;
-    using Field    = CB::engine::schema::Field;
-    using Kind     = CB::engine::schema::FieldKind;
-    using Scalar   = CB::engine::schema::Scalar;
-    using CB::engine::codec::resource::PathKey;
+    using Archive  = hky::codec::HkyArchive;
+    using Object   = hky::codec::io::SchemaObject;
+    using Field    = hky::schema::Field;
+    using Kind     = hky::schema::FieldKind;
+    using Scalar   = hky::schema::Scalar;
+    using hky::codec::resource::PathKey;
 
     /// @brief One .hky the load order serves: the file that won its name, and the ones MO2 (or a later folder) hid.
     struct Bundle {
@@ -62,7 +62,7 @@ namespace {
 
     struct Layer {
         std::string                                       stem;
-        std::shared_ptr<const CB::engine::common::IUnitSource> source;
+        std::shared_ptr<const hky::common::IUnitSource> source;
         bool                                              complete = false;
     };
 
@@ -167,17 +167,17 @@ namespace {
     /// @brief The humanoid rig's bone names from Skyrim.hky, so `boneref` fields parse by name (as hky-tool merge-check).
     std::vector<std::string> HumanoidBones(const Archive& skyrim) {
         const std::string humanoid = "meshes/actors/character/character assets/skeleton.hkx";
-        const auto*       reg      = CB::engine::schema::SharedRegistry();
+        const auto*       reg      = hky::schema::SharedRegistry();
         const auto        src      = reg ? skyrim.source(humanoid) : nullptr;
         if (!src) return {};
-        return CB::engine::decompile::ReadSkeletonBones(*src, *reg, humanoid).value_or(std::vector<std::string>{});
+        return hky::decompile::ReadSkeletonBones(*src, *reg, humanoid).value_or(std::vector<std::string>{});
     }
 
     /// @brief A merged graph rendered as cards. Object numbering, back references and orphan detection are all
     ///        derived by walking the schema's pointer fields from the root.
     class GraphPage {
     public:
-        GraphPage(const CB::engine::decompile::ParsedHky& g, std::string anchor, std::string baseStem)
+        GraphPage(const hky::decompile::ParsedHky& g, std::string anchor, std::string baseStem)
             : m_graph(g), m_anchor(std::move(anchor)), m_baseStem(std::move(baseStem)) {
             FindStringData();
             if (g.root) Number(g.root.get());
@@ -241,7 +241,7 @@ namespace {
                 const Field& f = *fields[i];
                 const auto&  v = values[i];
                 const auto   edge = [&](const auto& p) {
-                    const auto t = CB::engine::codec::io::AsSchema(p);
+                    const auto t = hky::codec::io::AsSchema(p);
                     if (!t) return;
                     if (f.kind == Kind::Struct || f.kind == Kind::StructArray) { m_seen.insert(t.get()); Visit(card, t.get()); return; }
                     m_back[t.get()].push_back({ card, f.name });
@@ -320,7 +320,7 @@ namespace {
             }
         }
 
-        std::string Value(const Object* o, const Field& f, const CB::engine::codec::io::FieldValue& v) const {
+        std::string Value(const Object* o, const Field& f, const hky::codec::io::FieldValue& v) const {
             switch (f.kind) {
             case Kind::Scalar: return ScalarValue(o, f);
             case Kind::String:
@@ -329,16 +329,16 @@ namespace {
             case Kind::StringArray: return List(v.strs.size(), [&](std::size_t k) { return "<span class=str>'" + Esc(v.strs[k]) + "'</span>"; });
             case Kind::ScalarArray: return ScalarArray(o, f);
             case Kind::Ptr: {
-                const auto t = CB::engine::codec::io::AsSchema(v.obj);
+                const auto t = hky::codec::io::AsSchema(v.obj);
                 return t ? Link(t.get()) : "<span class=null>null</span>";
             }
             case Kind::PtrArray:
                 return List(v.objs.size(), [&](std::size_t k) {
-                    const auto t = CB::engine::codec::io::AsSchema(v.objs[k]);
+                    const auto t = hky::codec::io::AsSchema(v.objs[k]);
                     return t ? Link(t.get()) : std::string("<span class=null>null</span>");
                 });
             case Kind::Struct: {
-                const auto t = CB::engine::codec::io::AsSchema(v.obj);
+                const auto t = hky::codec::io::AsSchema(v.obj);
                 if (!t) return "<span class=null>null</span>";
                 std::string inner;
                 Fields(inner, t.get());
@@ -347,7 +347,7 @@ namespace {
             case Kind::StructArray: {
                 std::string inner = "<ol class=structs start=0>";
                 for (const auto& e : v.objs)
-                    if (const auto t = CB::engine::codec::io::AsSchema(e)) {
+                    if (const auto t = hky::codec::io::AsSchema(e)) {
                         inner += "<li>";
                         Fields(inner, t.get());
                         inner += "</li>";
@@ -413,7 +413,7 @@ namespace {
 
         static std::string EnumName(const Field& f, long long v) {
             if (f.enumName.empty()) return {};
-            const auto& table = CB::engine::common::enums::EnumTable(f.enumName);
+            const auto& table = hky::common::enums::EnumTable(f.enumName);
             if (!f.isFlags) {
                 for (const auto& [name, value] : table)
                     if (value == v) return name;
@@ -492,7 +492,7 @@ namespace {
             return "half[]";
         }
 
-        const CB::engine::decompile::ParsedHky&                                m_graph;
+        const hky::decompile::ParsedHky&                                m_graph;
         std::string                                                            m_anchor;
         std::string                                                            m_baseStem;
         const Object*                                                          m_strings = nullptr;
@@ -577,9 +577,9 @@ int doGraphHtml(int argc, char** argv) {
     }
     if (schemaDir.empty() || out.empty() || sources.empty()) { PrintUsage(); return 2; }
 
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
     BundleSet set;
     if (loadOrder) set.SetLoadOrder(*loadOrder);
@@ -611,10 +611,10 @@ int doGraphHtml(int argc, char** argv) {
     }
     /// @note The Resolver plans EVERY bundle: a defaulted manifest (no masters) first, a real one overwriting it.
     for (const auto& [stem, b] : bundles) masters[stem] = b.masters;
-    CB::engine::codec::LoadOrder order;
+    hky::codec::LoadOrder order;
     if (set.LoadOrderFile())
-        if (auto lo = CB::engine::codec::ReadLoadOrder(*set.LoadOrderFile())) order = std::move(*lo);
-    const auto plan = CB::engine::merge::PlanLoadOrder(masters, order);
+        if (auto lo = hky::codec::ReadLoadOrder(*set.LoadOrderFile())) order = std::move(*lo);
+    const auto plan = hky::merge::PlanLoadOrder(masters, order);
 
     /// @note The Resolver's layer rules: a project or skeleton unit in any bundle takes its key out of the merged graphs.
     std::map<std::string, std::vector<Layer>> layers;
@@ -679,21 +679,21 @@ int doGraphHtml(int argc, char** argv) {
     for (const auto& key : shown) {
         const auto& ls     = layers.at(key);
         const std::string anchor = "u" + std::to_string(index++);
-        std::vector<CB::engine::common::LayerSource> merge;
+        std::vector<hky::common::LayerSource> merge;
         std::string layerText;
         for (const auto& l : ls) {
             const auto mt = plan.masterTable.find(l.stem);
             merge.push_back({ l.source, l.stem, mt == plan.masterTable.end() ? std::vector<std::string>{} : mt->second });
             layerText += (layerText.empty() ? "" : " → ") + Esc(l.stem) + (l.complete ? " <b>(complete)</b>" : " (patch)");
         }
-        CB::engine::decompile::ParsedHky graph;
+        hky::decompile::ParsedHky graph;
         std::string                      mergeErr;
         bool merged = !bones.empty() && key.starts_with("meshes/actors/character/") &&
-                      CB::engine::decompile::MergeLayersReflective(merge, *reg, &bones, graph, mergeErr);
+                      hky::decompile::MergeLayersReflective(merge, *reg, &bones, graph, mergeErr);
         if (!merged) {
             graph = {};
             std::string plainErr;
-            merged = CB::engine::decompile::MergeLayersReflective(merge, *reg, nullptr, graph, plainErr);
+            merged = hky::decompile::MergeLayersReflective(merge, *reg, nullptr, graph, plainErr);
             if (!merged) mergeErr = mergeErr.empty() ? plainErr : mergeErr + " / without a rig: " + plainErr;
         }
 
@@ -777,7 +777,7 @@ int doGraphHtml(int argc, char** argv) {
          ")</h2><table class=sum><tr><th>unit</th><th>layers, base first</th><th>merged</th></tr>" + rows + "</table>";
     h += "<h2>Graphs</h2>" + units_html + "</main><script>" + kScript + "</script></body></html>";
 
-    if (!CB::engine::disk::WriteFile(out, h, {}, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    if (!hky::disk::WriteFile(out, h, {}, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     std::printf("OK: graph-html -> %s: %zu bundle(s), %zu unit(s) shown of %zu, %zu problem(s).\n", out.c_str(), bundles.size(),
                 shown.size(), layers.size(), problems.size());
     return 0;

@@ -2,7 +2,7 @@
 
 // Pure serve-key helpers (header-only, std + engine codec only — no SKSE/PCH).
 
-#include <codec/resource/PathKey.h>
+#include <hky/codec/resource/PathKey.h>
 
 #include <algorithm>
 #include <string>
@@ -15,7 +15,7 @@ namespace CB::core::discover {
     ///        reach the same form, e.g. "meshes/actors/character/behaviors/0_master.hkx".
     inline std::string NormalizeKey(std::string_view in)
     {
-        std::string s = CB::engine::codec::resource::PathKey(in);
+        std::string s = hky::codec::resource::PathKey(in);
         // Collapse repeated slashes ("a//b" -> "a/b"). The game opens character files with a
         // trailing-'\' folderRoot ("Actors\Character\") plus a subfoldered file
         // ("Characters\DefaultMale.hkx"), which our "root/file" join turns into a '//'. Both

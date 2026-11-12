@@ -1,24 +1,24 @@
 #include "NemesisSetDataConvert.h"
 
-#include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
+#include <hky/codec/format/AnimationSetData.h>   // the setdata model (hky::animsetdata)
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
 
 #include <map>
 #include <string>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
-using namespace CB::engine::animsetdata;   // model types (SingleFile/SetFile/…)
+using namespace hky::animsetdata;   // model types (SingleFile/SetFile/…)
 
 namespace CommunityBehaviors::asd {
 namespace {
 
-using CB::engine::codec::resource::HasExt;
-using CB::engine::codec::resource::PathKey;
+using hky::codec::resource::HasExt;
+using hky::codec::resource::PathKey;
 using LogFn = std::function<void(const std::string&)>;
 
-namespace disk = CB::engine::disk;
+namespace disk = hky::disk;
 
 void Say(const LogFn& log, const std::string& s) { if (log) log(s); }
 

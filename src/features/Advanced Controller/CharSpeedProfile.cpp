@@ -15,7 +15,7 @@ namespace CB::feature::controller::speed {
 
     namespace {
 
-        namespace loco = CB::engine::locomotion;
+        namespace loco = hky::locomotion;
         using Dir      = RE::Movement::SPEED_DIRECTIONS;
 
         struct Entry {
