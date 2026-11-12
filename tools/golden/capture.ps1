@@ -22,6 +22,9 @@
     The capture's name (e.g. before, after).
 .PARAMETER BuildDir
     The build tree holding bin\RelWithDebInfo\{hky-tool,BehaviorConverter}.exe (default: <repo>\build\release).
+.PARAMETER Schema
+    The schema tree (default: <repo>\schema, else HKY-SDK's at <BuildDir>\_deps\hky-sdk-src\schema). Logs spell it
+    <REPO>\schema either way, so captures from before and after the split compare.
 .PARAMETER Root
     Where captures go (default D:\CB-tmp\hky-split-golden).
 #>
@@ -29,7 +32,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Label,
     [string]$BuildDir,
     [string]$Root = 'D:\CB-tmp\hky-split-golden',
-    [string]$VanillaData = 'D:\Projects\Common\Skyrim Source\Data'
+    [string]$VanillaData = 'D:\Projects\Common\Skyrim Source\Data',
+    [string]$Schema
 )
 $ErrorActionPreference = 'Stop'
 
@@ -38,7 +42,12 @@ if (-not $BuildDir) { $BuildDir = Join-Path $repo 'build\release' }
 $bin       = Join-Path $BuildDir 'bin\RelWithDebInfo'
 $hkyTool   = Join-Path $bin 'hky-tool.exe'
 $converter = Join-Path $bin 'BehaviorConverter.exe'
-$schema    = Join-Path $repo 'schema'
+if (-not $Schema) {
+    # CB's own schema\ before the HKY-SDK split; HKY-SDK's, as FetchContent unpacked it, after.
+    $Schema = Join-Path $repo 'schema'
+    if (-not (Test-Path -LiteralPath $Schema)) { $Schema = Join-Path $BuildDir '_deps\hky-sdk-src\schema' }
+}
+$schema    = (Resolve-Path -LiteralPath $Schema).Path
 $table     = Join-Path $schema 'metadata\injectables.json'
 foreach ($p in @($hkyTool, $converter, $schema, $table)) { if (-not (Test-Path -LiteralPath $p)) { throw "missing: $p" } }
 if (-not $env:CB_REGEN_SOURCE -or -not (Test-Path -LiteralPath $env:CB_REGEN_SOURCE)) { throw 'CB_REGEN_SOURCE is not set or missing' }
@@ -72,7 +81,7 @@ function Invoke-Step([string]$Name, [string]$Exe, [string[]]$ToolArgs) {
     $err  = [System.IO.File]::ReadAllText("$log.err")
     if ($err) { $text += "`n--- stderr ---`n" + $err }
     Remove-Item -LiteralPath "$log.err"
-    $masked = $text.Replace($work, '<WORK>').Replace($out, '<OUT>').Replace($repo, '<REPO>').Replace($env:CB_REGEN_SOURCE, '<REGEN>')
+    $masked = $text.Replace($schema, '<REPO>\schema').Replace($work, '<WORK>').Replace($out, '<OUT>').Replace($repo, '<REPO>').Replace($env:CB_REGEN_SOURCE, '<REGEN>')
     $masked = $masked.Replace([System.IO.Path]::GetTempPath().TrimEnd('\'), '<TEMP>')
     $masked = [regex]::Replace($masked, '_\d+(?=[\\/])', '_<PID>')                               # cb_regen_<Name>_<pid>
     $masked = [regex]::Replace($masked, '\d+(\.\d+)?\s*(ms|s|sec|seconds)\b', '<T>')
