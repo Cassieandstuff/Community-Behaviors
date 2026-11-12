@@ -2,7 +2,7 @@
 
 #include "CharFacing.h"
 
-#include <locomotion/Movement.h>
+#include <hky/locomotion/Movement.h>
 
 /// @file
 /// @brief The player's movement model: the engine's pure step (locomotion/Movement.h), shared by the frame (CharFacing:
@@ -11,15 +11,15 @@
 
 namespace CB::feature::controller::move {
 
-    using CB::engine::locomotion::Mode;
-    using CB::engine::locomotion::Profile;
-    using CB::engine::locomotion::kPlayer;
-    using CB::engine::locomotion::Caps;
-    using CB::engine::locomotion::Input;
-    using CB::engine::locomotion::State;
-    using CB::engine::locomotion::MaxSpeed;
-    using CB::engine::locomotion::Step;
-    using CB::engine::locomotion::SprintDirectionAllowed;
+    using hky::locomotion::Mode;
+    using hky::locomotion::Profile;
+    using hky::locomotion::kPlayer;
+    using hky::locomotion::Caps;
+    using hky::locomotion::Input;
+    using hky::locomotion::State;
+    using hky::locomotion::MaxSpeed;
+    using hky::locomotion::Step;
+    using hky::locomotion::SprintDirectionAllowed;
 
     /// @brief The latest frame's model: the state after its step, and what it stepped with.
     struct Snapshot {

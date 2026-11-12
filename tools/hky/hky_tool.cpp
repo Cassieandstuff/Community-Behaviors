@@ -24,29 +24,29 @@
 
 #include <cstring>
 #include <vfs/Bsa.h>
-#include <codec/format/AnimationYamlLoader.h>
-#include <compile/MotionFeatures.h>
-#include <compile/BundleAssembly.h>
-#include <compile/MotionMatchingBundle.h>
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/HkyArchive.h>
-#include <codec/serialization/MetaText.h>
-#include <codec/format/AnimDataYaml.h>
-#include <codec/format/AnimSetDataYaml.h>
-#include <codec/format/AnimationSetData.h>
-#include <codec/motion/RootMotion.h>
-#include <compile/AnimDataProjection.h>
-#include <compile/AnimDataFromBehavior.h>
-#include <decompile/BehaviorDecompile.h>
-#include <decompile/EmbeddedFile.h>
-#include <merge/HkyOverlay.h>
-#include <merge/LoadOrderDocument.h>
+#include <hky/codec/format/AnimationYamlLoader.h>
+#include <hky/compile/MotionFeatures.h>
+#include <hky/compile/BundleAssembly.h>
+#include <hky/compile/MotionMatchingBundle.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/codec/serialization/MetaText.h>
+#include <hky/codec/format/AnimDataYaml.h>
+#include <hky/codec/format/AnimSetDataYaml.h>
+#include <hky/codec/format/AnimationSetData.h>
+#include <hky/codec/motion/RootMotion.h>
+#include <hky/compile/AnimDataProjection.h>
+#include <hky/compile/AnimDataFromBehavior.h>
+#include <hky/decompile/BehaviorDecompile.h>
+#include <hky/decompile/EmbeddedFile.h>
+#include <hky/merge/HkyOverlay.h>
+#include <hky/merge/LoadOrderDocument.h>
 #include <vfs/Vfs.h>
-#include <disk/Disk.h>
-#include <interface/MasterTable.h>
-#include <interface/reflection/HavokSchema.h>
-#include <exec/Parallel.h>
-#include <text/Text.h>
+#include <hky/disk/Disk.h>
+#include <hky/interface/MasterTable.h>
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/exec/Parallel.h>
+#include <hky/text/Text.h>
 
 #include <nlohmann/json.hpp>
 
@@ -76,8 +76,8 @@ namespace {
 int doHkyPack(const std::string& dir, const std::string& out) {
     if (out.empty()) { std::printf("usage: hky-tool pack <bundleDir> -o <out.hky>\n"); return 2; }
     std::string err;
-    if (!CB::engine::codec::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    auto arc = CB::engine::codec::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
+    if (!hky::codec::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    auto arc = hky::codec::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
     if (!arc) { std::printf("FAIL: packed but unreadable: %s\n", err.c_str()); return 1; }
     std::printf("OK: hky pack '%s' -> %s (%zu unit(s)).\n", dir.c_str(), out.c_str(), arc->units().size());
     return 0;
@@ -88,7 +88,7 @@ int doHkyPack(const std::string& dir, const std::string& out) {
 int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     if (outDir.empty()) { std::printf("usage: hky-tool unpack <in.hky> -o <outDir>\n"); return 2; }
     std::string err;
-    auto arc = CB::engine::codec::HkyArchive::LoadFromFile(hkyPath, err);
+    auto arc = hky::codec::HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
     // Same ordered range, two views: normalized keys drive file() lookup; original-case paths give the
@@ -99,11 +99,11 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     std::atomic<std::size_t> written{ 0 };
     try {
         /// @note Each file is read + inflated on the worker that writes it (HkyArchive reads are thread-safe).
-        CB::engine::exec::ParallelFor(keys.size(), [&](std::size_t i) {
+        hky::exec::ParallelFor(keys.size(), [&](std::size_t i) {
             const auto content = arc->file(keys[i]);
             if (!content) return;   // keys come from the same map — should always resolve
             const fs::path dst = fs::path(outDir) / fs::path(paths[i]);
-            if (std::string werr; !CB::engine::disk::WriteFile(dst, *content, {}, &werr)) throw std::runtime_error(werr);
+            if (std::string werr; !hky::disk::WriteFile(dst, *content, {}, &werr)) throw std::runtime_error(werr);
             ++written;
         });
     } catch (const std::exception& e) {
@@ -117,7 +117,7 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
 
 /// @note Path identity (PathKey) on both sides, so "Meshes/Actors" matches the archive's "meshes\actors\…".
 bool BsaPrefixMatch(const std::string& path, const std::string& prefix) {
-    using CB::engine::codec::resource::PathKey;
+    using hky::codec::resource::PathKey;
     return PathKey(path).rfind(PathKey(prefix), 0) == 0;
 }
 
@@ -149,7 +149,7 @@ int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const st
         std::string rel = e.path;
         std::replace(rel.begin(), rel.end(), '\\', '/');
         const fs::path dst = fs::path(outDir) / fs::path(rel);
-        if (std::string werr; !CB::engine::disk::WriteFile(dst, bytes, {}, &werr)) { std::printf("  FAIL %s\n", werr.c_str()); ++failed; continue; }
+        if (std::string werr; !hky::disk::WriteFile(dst, bytes, {}, &werr)) { std::printf("  FAIL %s\n", werr.c_str()); ++failed; continue; }
         ++written;
     }
     std::printf("%s: bsa extract '%s' -> %s (%zu written, %zu failed).\n", failed ? "FAIL" : "OK",
@@ -167,34 +167,34 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
         return 2;
     }
     namespace fs = std::filesystem;
-    using CB::engine::codec::HkyArchive;
-    using CB::engine::codec::resource::HasExt;
+    using hky::codec::HkyArchive;
+    using hky::codec::resource::HasExt;
 
-    const auto table = CB::engine::disk::ReadFile(tablePath, { .stripBom = true });
+    const auto table = hky::disk::ReadFile(tablePath, { .stripBom = true });
     if (!table) { std::printf("FAIL: cannot read %s\n", tablePath.c_str()); return 1; }
-    const CB::engine::schema::SchemaRegistry* reg = nullptr;
+    const hky::schema::SchemaRegistry* reg = nullptr;
     if (!schemaDir.empty()) {
-        CB::engine::schema::SetSharedSchemaDir(schemaDir);
-        reg = CB::engine::schema::SharedRegistry();
-        if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+        hky::schema::SetSharedSchemaDir(schemaDir);
+        reg = hky::schema::SharedRegistry();
+        if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     }
 
-    CB::engine::compile::BundleInput in;
+    hky::compile::BundleInput in;
     const fs::path root = fs::absolute(fs::path(dir));
     std::error_code ec;
     std::vector<fs::directory_entry> top;
-    for (fs::directory_iterator it(CB::engine::disk::LongPath(root), ec), end; !ec && it != end; it.increment(ec)) top.push_back(*it);
+    for (fs::directory_iterator it(hky::disk::LongPath(root), ec), end; !ec && it != end; it.increment(ec)) top.push_back(*it);
     if (ec) { std::printf("FAIL: cannot list '%s': %s\n", dir.c_str(), ec.message().c_str()); return 1; }
     std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.path().filename() < b.path().filename(); });
     const auto configsUnder = [&](const fs::path& folder, std::vector<std::pair<std::string, std::string>>& found) {
         std::vector<fs::path> files;
-        for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(folder), ec), end; !ec && it != end; it.increment(ec))
+        for (fs::recursive_directory_iterator it(hky::disk::LongPath(folder), ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file() && HasExt(it->path().generic_string(), ".json"))
-                files.push_back(folder / it->path().lexically_relative(CB::engine::disk::LongPath(folder)));
+                files.push_back(folder / it->path().lexically_relative(hky::disk::LongPath(folder)));
         if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", folder.string().c_str(), ec.message().c_str()); return false; }
         std::sort(files.begin(), files.end());
         for (const auto& f : files) {
-            const auto text = CB::engine::disk::ReadFile(f, { .stripBom = true });
+            const auto text = hky::disk::ReadFile(f, { .stripBom = true });
             if (!text) { std::printf("FAIL: cannot read %s\n", f.string().c_str()); return false; }
             found.emplace_back(f.lexically_relative(folder).generic_string(), *text);
         }
@@ -213,18 +213,18 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
             continue;
         }
         const auto addLoose = [&](const fs::path& p) {
-            in.loose.push_back({ p.lexically_relative(root).generic_string(), [p] { return CB::engine::disk::ReadFile(p); } });
+            in.loose.push_back({ p.lexically_relative(root).generic_string(), [p] { return hky::disk::ReadFile(p); } });
         };
         if (e.is_regular_file()) { addLoose(child); continue; }
         if (e.is_directory())
-            for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(child), ec), end; !ec && it != end; it.increment(ec))
-                if (it->is_regular_file()) addLoose(child / it->path().lexically_relative(CB::engine::disk::LongPath(child)));
+            for (fs::recursive_directory_iterator it(hky::disk::LongPath(child), ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file()) addLoose(child / it->path().lexically_relative(hky::disk::LongPath(child)));
         if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", child.string().c_str(), ec.message().c_str()); return 1; }
     }
 
-    CB::engine::compile::AssembleReport r;
+    hky::compile::AssembleReport r;
     const std::size_t nGenerators = in.generators.size(), nInjections = in.injections.size(), nPartitions = in.partitions.size();
-    if (!CB::engine::compile::AssembleBundle(in, *table, reg, out, r)) {
+    if (!hky::compile::AssembleBundle(in, *table, reg, out, r)) {
         for (const auto& e : r.errors) std::printf("  FAIL %s\n", e.c_str());
         std::printf("FAIL: assemble '%s': %zu error(s), nothing packed.\n", dir.c_str(), r.errors.size());
         return 1;
@@ -245,13 +245,13 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
         std::printf("usage: hky-tool shuffle-check <in.hky> <schemaDir> -o <workDir> [unit]\n");
         return 2;
     }
-    namespace dc = CB::engine::decompile;
+    namespace dc = hky::decompile;
     namespace fs = std::filesystem;
-    using CB::engine::codec::HkyArchive;
-    using CB::engine::codec::resource::PathKey;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    using hky::codec::HkyArchive;
+    using hky::codec::resource::PathKey;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
     const auto  arc = HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
@@ -261,7 +261,7 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
         if (const auto src = arc->source(rig))
             if (auto names = dc::ReadSkeletonBones(*src, *reg, rig)) humanoid = std::move(*names);
     }
-    const auto bytesOf = [&](const CB::engine::common::IUnitSource& src, const std::string& unit, const std::vector<std::string>* bones,
+    const auto bytesOf = [&](const hky::common::IUnitSource& src, const std::string& unit, const std::vector<std::string>* bones,
                              std::vector<std::uint8_t>& out, std::string& why) {
         dc::ParsedHky graph;
         return dc::ParseHkyReflective(src, *reg, graph, why, bones, unit) && dc::SerializeGraph(graph, out, why);
@@ -273,7 +273,7 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
     std::mutex               failMutex;
     std::vector<std::string> failures;
     const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
-    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+    hky::exec::ParallelFor(units.size(), [&](std::size_t i) {
         try {
             const std::string& unit = units[i].prefix;
             const auto src = arc->source(unit);
@@ -304,7 +304,7 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
             static const char* const kFolders[] = { "Combat", "combat2", "A", "Group With Spaces", "x.y", "Deep", "0000x0003", "bones", "states" };
             const fs::path dir = fs::path(workDir) / std::to_string(i);
             std::error_code ec;
-            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+            fs::remove_all(hky::disk::LongPath(dir), ec);
             std::vector<HkyArchive::PackEntry> entries;
             int n = 0;
             for (const std::string& rel : src->listYaml("", true)) {
@@ -316,12 +316,12 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
                     for (int d = static_cast<int>(rng() % 7); d > 0; --d) path += std::string(kFolders[rng() % std::size(kFolders)]) + "/";
                     path += "f" + std::to_string(n++) + ".yaml";
                 }
-                if (!CB::engine::disk::WriteFile(dir / "u" / path, *text, {}, &why)) return fail(unit + ": " + why);
+                if (!hky::disk::WriteFile(dir / "u" / path, *text, {}, &why)) return fail(unit + ": " + why);
                 entries.push_back({ "meshes/u.hkx/" + path, [body = std::move(*text)]() -> std::optional<std::string> { return body; } });
             }
             nodeFiles += entries.size();
             std::vector<std::uint8_t> got;
-            if (!bytesOf(CB::engine::common::DiskUnitSource(dir / "u"), unit, bones, got, why)) return fail(unit + ": disk: " + why);
+            if (!bytesOf(hky::common::DiskUnitSource(dir / "u"), unit, bones, got, why)) return fail(unit + ": disk: " + why);
             if (got != canon) return fail(unit + ": shuffled on disk, the bytes differ");
             const std::string hky = (dir / "u.hky").string();
             if (!HkyArchive::PackEntries(std::move(entries), hky, why)) return fail(unit + ": pack: " + why);
@@ -332,7 +332,7 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
             if (!bytesOf(*zipped, unit, bones, got, why)) return fail(unit + ": zip: " + why);
             if (got != canon) return fail(unit + ": shuffled in a zip, the bytes differ");
             ++same;
-            fs::remove_all(CB::engine::disk::LongPath(dir), ec);
+            fs::remove_all(hky::disk::LongPath(dir), ec);
         } catch (const std::exception& e) {
             fail(units[i].prefix + ": " + e.what());
         }
@@ -351,18 +351,18 @@ int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, con
         std::printf("usage: hky-tool origins-check <in.hky> <schemaDir> [unit]\n");
         return 2;
     }
-    namespace dc = CB::engine::decompile;
-    using CB::engine::codec::HkyArchive;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    namespace dc = hky::decompile;
+    using hky::codec::HkyArchive;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
     const auto  arc = HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     int units = 0, failures = 0;
     std::size_t objects = 0, withFormId = 0;
     for (const auto& u : arc->units()) {
-        if (!onlyUnit.empty() && CB::engine::codec::resource::PathKey(u.prefix) != CB::engine::codec::resource::PathKey(onlyUnit)) continue;
+        if (!onlyUnit.empty() && hky::codec::resource::PathKey(u.prefix) != hky::codec::resource::PathKey(onlyUnit)) continue;
         const auto src = arc->source(u.prefix);
         if (!src) continue;
         dc::ParsedHky graph;
@@ -372,10 +372,10 @@ int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, con
             continue;
         }
         std::vector<std::uint8_t>                     bytes;
-        std::vector<CB::engine::trace::ObjectOrigin> origins;
+        std::vector<hky::trace::ObjectOrigin> origins;
         if (!dc::SerializeGraph(graph, bytes, origins, err)) { std::printf("FAIL %s: %s\n", u.prefix.c_str(), err.c_str()); ++failures; continue; }
-        CB::engine::codec::PackFileDeserializer des;
-        CB::engine::codec::BinaryReaderEx       br(false, true, bytes);
+        hky::codec::PackFileDeserializer des;
+        hky::codec::BinaryReaderEx       br(false, true, bytes);
         des.DeserializePartially(br);
         const auto listed = des.ListObjects();   // (data-section offset, class) per virtual fixup, ascending
         auto sorted = origins;
@@ -413,13 +413,13 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
         std::printf("usage: hky-tool embedded-roundtrip <in.hky> <schemaDir>\n");
         return 2;
     }
-    namespace dc = CB::engine::decompile;
-    namespace ea = CB::engine::anim;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    namespace dc = hky::decompile;
+    namespace ea = hky::anim;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
-    const auto  arc = CB::engine::codec::HkyArchive::LoadFromFile(hkyPath, err);
+    const auto  arc = hky::codec::HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
     const auto keys = arc->filesUnder(""), orig = arc->filesUnderOrig("");
@@ -427,7 +427,7 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
     std::mutex               failMutex;
     std::vector<std::string> failures;
     const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
-    CB::engine::exec::ParallelFor(keys.size(), [&](std::size_t i) {
+    hky::exec::ParallelFor(keys.size(), [&](std::size_t i) {
         try {
             const auto text = arc->file(keys[i]);
             if (!text) return fail(orig[i] + ": unreadable");
@@ -449,7 +449,7 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
             const auto& objs = obj->FieldRef("curves").objs;
             if (objs.size() != def.curves.size()) return fail(orig[i] + ": curve count differs");
             for (std::size_t c = 0; c < objs.size(); ++c) {
-                const auto* so = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(objs[c].get());
+                const auto* so = dynamic_cast<const hky::codec::io::SchemaObject*>(objs[c].get());
                 const auto& typed = def.curves[c];
                 ++curves;
                 for (std::size_t k = 0; k < typed.keys.size(); ++k) {
@@ -495,9 +495,9 @@ int doLoadOrder(int argc, char** argv) {
         std::printf("usage: hky-tool loadorder <schemaDir> (--mo2 <instance> [--profile <p>] | --data <DataFolder>) [--unit <key>]... [--all] [--ls <prefix>]\n");
         return 2;
     }
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
     vfs::Options o;
     if (!mo2.empty()) o.kind = vfs::Options::Kind::Mo2, o.mo2Instance = mo2, o.mo2Profile = profile;
@@ -505,7 +505,7 @@ int doLoadOrder(int argc, char** argv) {
     vfs::FileSystem fsys;
     std::string     err;
     if (!fsys.Open(o, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    const auto docPtr = std::make_shared<CB::engine::merge::LoadOrderDocument>();
+    const auto docPtr = std::make_shared<hky::merge::LoadOrderDocument>();
     auto&      doc    = *docPtr;
     if (!doc.Open(fsys, *reg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
@@ -516,17 +516,17 @@ int doLoadOrder(int argc, char** argv) {
     const auto every = doc.Units();
     std::size_t graphs = 0, rigged = 0, projects = 0, skeletons = 0;
     for (const auto& u : every) {
-        projects  += u.kind == CB::engine::codec::HkyArchive::UnitKind::Project;
-        skeletons += u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton;
+        projects  += u.kind == hky::codec::HkyArchive::UnitKind::Project;
+        skeletons += u.kind == hky::codec::HkyArchive::UnitKind::Skeleton;
         if (std::find(units.begin(), units.end(), u.key) == units.end()) continue;
         std::string layers;
         for (const auto& l : u.layers) layers += (layers.empty() ? "" : " -> ") + l;
         std::printf("  %s: kind %d, layers %s\n", u.key.c_str(), static_cast<int>(u.kind), layers.c_str());
-        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project)
+        if (u.kind == hky::codec::HkyArchive::UnitKind::Project)
             for (const auto& c : doc.ProjectCharacters(u.key)) std::printf("    character %s\n", c.c_str());
     }
     for (const auto& u : every) {
-        using K = CB::engine::codec::HkyArchive::UnitKind;
+        using K = hky::codec::HkyArchive::UnitKind;
         if (u.kind != K::Behavior && u.kind != K::Character) continue;
         ++graphs;
         if (doc.RigBones(u.key)) ++rigged;
@@ -544,7 +544,7 @@ int doLoadOrder(int argc, char** argv) {
     /// @note `--ls`: the load order streamed over the Data folder (HkyOverlay); every file below the prefix with its
     ///       winner, and each overlaid file read back through VFS.
     if (listing) {
-        using Overlay = CB::engine::merge::HkyOverlay;
+        using Overlay = hky::merge::HkyOverlay;
         fsys.SetOverlay(".hky load order", std::make_shared<Overlay>(docPtr, Overlay::Scope::LoadOrder));
         std::size_t shown = 0, overlaid = 0, read = 0;
         std::vector<std::string> bad;
@@ -569,8 +569,8 @@ int doLoadOrder(int argc, char** argv) {
     std::mutex               failMutex;
     std::vector<std::string> failures;
     const auto               t0 = std::chrono::steady_clock::now();
-    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
-        CB::engine::decompile::ParsedHky g;
+    hky::exec::ParallelFor(units.size(), [&](std::size_t i) {
+        hky::decompile::ParsedHky g;
         std::string                      why;
         if (doc.MergedGraph(units[i], g, &why)) { ++merged; return; }
         const std::lock_guard lock(failMutex);
@@ -595,11 +595,11 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
         return 2;
     }
     namespace fs = std::filesystem;
-    using CB::engine::codec::HkyArchive;
-    using CB::engine::codec::resource::PathKey;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    using hky::codec::HkyArchive;
+    using hky::codec::resource::PathKey;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
     std::string err;
     const auto base = HkyArchive::LoadFromFile(basePath, err);
@@ -611,7 +611,7 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
     {
         const std::string humanoid = "meshes/actors/character/character assets/skeleton.hkx";
         if (const auto src = base->source(humanoid))
-            if (auto names = CB::engine::decompile::ReadSkeletonBones(*src, *reg, humanoid)) bones = std::move(*names);
+            if (auto names = hky::decompile::ReadSkeletonBones(*src, *reg, humanoid)) bones = std::move(*names);
     }
     if (bones.empty()) { std::printf("FAIL: no humanoid skeleton bone list in the base\n"); return 1; }
 
@@ -623,19 +623,19 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
 
     std::size_t ok = 0, failed = 0;
     for (const auto& u : bundle->units()) {
-        std::vector<CB::engine::common::LayerSource> layers;
+        std::vector<hky::common::LayerSource> layers;
         const bool patch = std::binary_search(baseUnits.begin(), baseUnits.end(), u.prefix);
-        if (patch) layers.push_back({ base->source(u.prefix), std::string(CB::engine::codec::formid::BASE_GAME_STEM),
-                                      CB::engine::codec::formid::BuildMasterTable(CB::engine::codec::formid::BASE_GAME_STEM, {}, true) });
-        layers.push_back({ bundle->source(u.prefix), stem, CB::engine::codec::formid::BuildMasterTable(stem, {}, true) });
+        if (patch) layers.push_back({ base->source(u.prefix), std::string(hky::codec::formid::BASE_GAME_STEM),
+                                      hky::codec::formid::BuildMasterTable(hky::codec::formid::BASE_GAME_STEM, {}, true) });
+        layers.push_back({ bundle->source(u.prefix), stem, hky::codec::formid::BuildMasterTable(stem, {}, true) });
 
-        CB::engine::decompile::ParsedHky graph;
+        hky::decompile::ParsedHky graph;
         std::vector<std::uint8_t>        bytes;
         const fs::path                   dst = fs::path(outDir) / u.prefix;
-        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, &bones, graph, err) ||
-            !CB::engine::decompile::SerializeGraph(graph, bytes, err) ||
-            !CB::engine::disk::WriteFile(dst, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), {}, &err) ||
-            !CB::engine::decompile::DecompileBehaviorReflective(bytes, *reg, dst.string() + ".merged", err, &bones)) {
+        if (!hky::decompile::MergeLayersReflective(layers, *reg, &bones, graph, err) ||
+            !hky::decompile::SerializeGraph(graph, bytes, err) ||
+            !hky::disk::WriteFile(dst, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), {}, &err) ||
+            !hky::decompile::DecompileBehaviorReflective(bytes, *reg, dst.string() + ".merged", err, &bones)) {
             std::printf("  FAIL %s (%s): %s\n", u.prefix.c_str(), patch ? "patch" : "own unit", err.c_str());
             ++failed;
             continue;
@@ -650,7 +650,7 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
 }
 
 /// @return the first field where `a` and `b` differ ("" when every field the unit carries is equal)
-std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engine::anim::AnimationDef& b) {
+std::string AnimDefDiff(const hky::anim::AnimationDef& a, const hky::anim::AnimationDef& b) {
     /// @note Bitwise, not `==`: vanilla clips carry NaN keys (`nan_7fffffff`), which must survive with their payload.
     const auto same = [](float x, float y) { return std::memcmp(&x, &y, sizeof x) == 0; };
     const auto vec  = [&](const auto& x, const auto& y, int n) {
@@ -713,28 +713,28 @@ std::string AnimDefDiff(const CB::engine::anim::AnimationDef& a, const CB::engin
 /// @note  How a partition holding units written before CBAnimation moves over: unpack, reformat, pack.
 int doAnimReformat(const std::string& dir, const std::string& schemaDir) {
     namespace fs = std::filesystem;
-    namespace ea = CB::engine::anim;
+    namespace ea = hky::anim;
     if (dir.empty() || schemaDir.empty()) {
         std::printf("usage: hky-tool anim-reformat <unpackedDir> <schemaDir>\n");
         return 2;
     }
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::vector<fs::path> files;
     std::error_code       ec;
-    for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(dir), ec), end; !ec && it != end; it.increment(ec))
+    for (fs::recursive_directory_iterator it(hky::disk::LongPath(dir), ec), end; !ec && it != end; it.increment(ec))
         if (it->is_regular_file()) files.push_back(it->path());
     std::atomic<std::size_t> units{ 0 }, rewritten{ 0 };
     std::mutex               failMutex;
     std::vector<std::string> failures;
     const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
-    CB::engine::exec::ParallelFor(files.size(), [&](std::size_t i) {
+    hky::exec::ParallelFor(files.size(), [&](std::size_t i) {
         const std::string name = files[i].generic_string();
         try {
-            const auto text = CB::engine::disk::ReadFile(files[i]);
+            const auto text = hky::disk::ReadFile(files[i]);
             if (!text) return fail(name + ": unreadable");
-            const auto* kind = CB::engine::decompile::EmbeddedKindOf(*reg, *text);
+            const auto* kind = hky::decompile::EmbeddedKindOf(*reg, *text);
             if (!kind || kind->cls != "CBAnimation") return;
             ++units;
             const auto        before = ea::AnimationYamlLoader::LoadFromString(*text, name);
@@ -749,7 +749,7 @@ int doAnimReformat(const std::string& dir, const std::string& schemaDir) {
             }
             if (y == *text) return;
             std::string werr;
-            if (!CB::engine::disk::WriteFile(files[i], y, { .atomic = true }, &werr)) return fail(name + ": " + werr);
+            if (!hky::disk::WriteFile(files[i], y, { .atomic = true }, &werr)) return fail(name + ": " + werr);
             ++rewritten;
         } catch (const std::exception& e) {
             fail(name + ": " + e.what());
@@ -770,10 +770,10 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
         std::printf("usage: hky-tool mm-sample <schemaDir> -o <outDir>\n");
         return 2;
     }
-    namespace mm = CB::engine::compile;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    namespace mm = hky::compile;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
     const std::string dir = "meshes/actors/character/animations/MotionMatching/";
     mm::MmBundleSpec  spec;
@@ -795,7 +795,7 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     std::string err;
     if (!mm::BuildMotionMatchingBundle(spec, *reg, files, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     for (const auto& [path, text] : files)
-        if (!CB::engine::disk::WriteFile(std::filesystem::path(outDir) / path, text, {}, &err)) {
+        if (!hky::disk::WriteFile(std::filesystem::path(outDir) / path, text, {}, &err)) {
             std::printf("FAIL: %s\n", err.c_str());
             return 1;
         }
@@ -826,29 +826,29 @@ int doServeDump(int argc, char** argv) {
         return 2;
     }
     namespace fs  = std::filesystem;
-    namespace ad  = CB::engine::animdata;
-    namespace asd = CB::engine::animsetdata;
-    using Kind    = CB::engine::codec::HkyArchive::UnitKind;
-    CB::engine::schema::SetSharedSchemaDir(schemaDir);
-    const auto* reg = CB::engine::schema::SharedRegistry();
-    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    namespace ad  = hky::animdata;
+    namespace asd = hky::animsetdata;
+    using Kind    = hky::codec::HkyArchive::UnitKind;
+    hky::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = hky::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
     vfs::Options o;
     o.dataFolder = data;
     vfs::FileSystem fsys;
     std::string     err;
     if (!fsys.Open(o, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    CB::engine::merge::LoadOrderDocument doc;
+    hky::merge::LoadOrderDocument doc;
     if (!doc.Open(fsys, *reg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     for (const auto& b : doc.Bundles())
         std::printf("  %3d %-28s%s%s\n", b.rank, b.stem.c_str(), b.dropped ? " DROPPED" : "",
                     b.error.empty() ? "" : (" UNREADABLE: " + b.error).c_str());
 
-    std::vector<CB::engine::merge::LoadOrderDocument::Unit> units;
+    std::vector<hky::merge::LoadOrderDocument::Unit> units;
     for (auto& u : doc.Units()) units.push_back(std::move(u));
     std::vector<std::string> lines(units.size());
     std::atomic<std::size_t> written{ 0 }, failed{ 0 };
-    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+    hky::exec::ParallelFor(units.size(), [&](std::size_t i) {
         const auto&               u = units[i];
         std::vector<std::uint8_t> bytes;
         std::string               why;
@@ -856,7 +856,7 @@ int doServeDump(int argc, char** argv) {
         for (const auto& l : u.layers) layers += (layers.empty() ? "" : ",") + l;
         try {
             if (doc.GraphBytes(u.key, bytes, &why) &&
-                CB::engine::disk::WriteFile(fs::path(out) / fs::path(u.path), bytes, {}, &why)) {
+                hky::disk::WriteFile(fs::path(out) / fs::path(u.path), bytes, {}, &why)) {
                 lines[i] = "unit " + u.path + " " + std::to_string(bytes.size()) + " " + layers;
                 ++written;
                 return;
@@ -873,14 +873,14 @@ int doServeDump(int argc, char** argv) {
     std::string adsfLine;
     if (const auto index = doc.Text("meshes/animationdatasinglefile.txt/index.yaml")) {
         const auto headers = ad::ParseAnimdataIndexYaml(*index, err);
-        std::unordered_map<std::string, std::optional<CB::engine::anim::AnimationDef>> anims;
-        const auto parse = [&](const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
+        std::unordered_map<std::string, std::optional<hky::anim::AnimationDef>> anims;
+        const auto parse = [&](const std::string& path) -> std::optional<hky::anim::AnimationDef> {
             const auto text = doc.Text(path);
             if (!text) return std::nullopt;
             try {
-                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, path);
-                if (def.motionTarget != CB::engine::anim::AnimationDef::MotionTarget::MotionMatching)
-                    def.motion = CB::engine::anim::ResolveRootMotion(def);
+                auto def = hky::anim::AnimationYamlLoader::LoadFromString(*text, path);
+                if (def.motionTarget != hky::anim::AnimationDef::MotionTarget::MotionMatching)
+                    def.motion = hky::anim::ResolveRootMotion(def);
                 return def;
             } catch (const std::exception&) {
                 return std::nullopt;
@@ -892,8 +892,8 @@ int doServeDump(int argc, char** argv) {
             return cs ? cs->animationNames : std::vector<std::string>{};
         };
         src.clips = [&](const std::string& key) {
-            CB::engine::decompile::ParsedHky g;
-            return doc.MergedGraph(key, g) ? CB::engine::compile::DeriveClipInputsFromGraph(g.root)
+            hky::decompile::ParsedHky g;
+            return doc.MergedGraph(key, g) ? hky::compile::DeriveClipInputsFromGraph(g.root)
                                            : std::vector<ad::DeriveClipInput>{};
         };
         src.behaviorUnits = [&] {
@@ -903,11 +903,11 @@ int doServeDump(int argc, char** argv) {
             return keys;
         };
         src.prefetch = [&](const std::vector<std::string>& paths) {
-            std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
-            CB::engine::exec::ParallelFor(paths.size(), [&](std::size_t i) { parsed[i] = parse(paths[i]); });
+            std::vector<std::optional<hky::anim::AnimationDef>> parsed(paths.size());
+            hky::exec::ParallelFor(paths.size(), [&](std::size_t i) { parsed[i] = parse(paths[i]); });
             for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
         };
-        src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
+        src.animation = [&](const std::string& path) -> const hky::anim::AnimationDef* {
             auto it = anims.find(path);
             if (it == anims.end()) it = anims.emplace(path, parse(path)).first;
             return it->second ? &*it->second : nullptr;
@@ -915,8 +915,8 @@ int doServeDump(int argc, char** argv) {
         ad::ProjectionStats st;
         std::string         text;
         const auto          root = headers.empty() ? nullptr : ad::ProjectAnimData(*reg, headers, src, &st, err);
-        if (root && CB::engine::codec::io::WriteMetaText(*root, text, err) &&
-            CB::engine::disk::WriteFile(fs::path(out) / "meshes" / "animationdatasinglefile.txt", text, {}, &err)) {
+        if (root && hky::codec::io::WriteMetaText(*root, text, err) &&
+            hky::disk::WriteFile(fs::path(out) / "meshes" / "animationdatasinglefile.txt", text, {}, &err)) {
             adsfOk   = true;
             adsfLine = "adsf meshes/animationdatasinglefile.txt " + std::to_string(text.size()) + " projects " +
                        std::to_string(st.projects) + " clips " + std::to_string(st.clips) + " motions " +
@@ -933,7 +933,7 @@ int doServeDump(int argc, char** argv) {
         std::map<std::string, asd::SingleFile> byStem;
         for (const auto& path : doc.Files(setDir + "/setdata")) {
             const auto y = doc.Text(path);
-            if (!y || !CB::engine::codec::resource::HasExt(path, ".yaml")) continue;
+            if (!y || !hky::codec::resource::HasExt(path, ".yaml")) continue;
             std::string    yerr;
             asd::Project   proj = asd::ParseSetdataUnitYaml(*y, yerr);
             if (!yerr.empty()) ierr += (ierr.empty() ? "" : "; ") + path + ": " + yerr;
@@ -944,7 +944,7 @@ int doServeDump(int argc, char** argv) {
             byStem[stem] = std::move(one);
         }
         const std::string text = asd::EmitSingleFile(asd::AssembleSetdata(headers, byStem, {}));
-        if (ierr.empty() && CB::engine::disk::WriteFile(fs::path(out) / "meshes" / "animationsetdatasinglefile.txt", text, {}, &ierr)) {
+        if (ierr.empty() && hky::disk::WriteFile(fs::path(out) / "meshes" / "animationsetdatasinglefile.txt", text, {}, &ierr)) {
             asdsfOk   = true;
             asdsfLine = "asdsf meshes/animationsetdatasinglefile.txt " + std::to_string(text.size()) + " projects " +
                         std::to_string(headers.size());
@@ -956,7 +956,7 @@ int doServeDump(int argc, char** argv) {
     for (const auto& b : doc.Bundles()) report += "bundle " + std::to_string(b.rank) + " " + b.stem + (b.dropped ? " DROPPED" : "") + "\n";
     for (const auto& l : lines) report += l + "\n";
     report += adsfLine + "\n" + asdsfLine + "\n";
-    if (std::string werr; !CB::engine::disk::WriteFile(fs::path(out) / "_serve-dump.txt", report, {}, &werr)) {
+    if (std::string werr; !hky::disk::WriteFile(fs::path(out) / "_serve-dump.txt", report, {}, &werr)) {
         std::printf("FAIL: %s\n", werr.c_str());
         return 1;
     }

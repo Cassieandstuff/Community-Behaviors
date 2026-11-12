@@ -1,6 +1,6 @@
 #pragma once
 
-#include <decompile/BehaviorDecompile.h>
+#include <hky/decompile/BehaviorDecompile.h>
 
 #include <functional>
 #include <optional>
@@ -18,7 +18,7 @@ namespace CB::core::resolve {
     /// @brief What a feature can read of the resolved load order.
     struct LoadOrderReader {
         /// @brief A served graph merged across the load order (Resolver::MergedGraph); false when not served.
-        std::function<bool(const std::string& key, CB::engine::decompile::ParsedHky& out)> mergedGraph;
+        std::function<bool(const std::string& key, hky::decompile::ParsedHky& out)> mergedGraph;
         /// @brief A bundle-authored animation's YAML by meshes-relative path (Resolver::NativeAnimationText).
         std::function<std::optional<std::string>(std::string_view path)> nativeAnimation;
         /// @brief The behavior graphs mods add outright (Resolver::AddedBehaviorUnitKeys).

@@ -2,7 +2,7 @@
 
 #include "CharMovementModel.h"
 
-#include <locomotion/SpeedProfile.h>
+#include <hky/locomotion/SpeedProfile.h>
 
 #include <optional>
 #include <string>
@@ -36,10 +36,10 @@ namespace CB::feature::controller::speed {
     /// @brief What the config page shows of one movement type.
     struct TypeView {
         std::string                                    name;      ///< the MNAM, byte-exact
-        std::optional<CB::engine::locomotion::SpeedProfile> profile;   ///< live: what the controller uses now
+        std::optional<hky::locomotion::SpeedProfile> profile;   ///< live: what the controller uses now
         bool                                           builtIn = false;   ///< CB has defaults for it
         bool                                           record  = false;   ///< a movement type record of that name exists
-        CB::engine::locomotion::SpeedProfile           stated;    ///< the record's own speeds (forward/left/back), when `record`
+        hky::locomotion::SpeedProfile           stated;    ///< the record's own speeds (forward/left/back), when `record`
     };
 
     /// @brief Every type with built-ins, then every other type an actor CB drives has been in. Thread-safe.
@@ -49,7 +49,7 @@ namespace CB::feature::controller::speed {
     std::string CurrentType(RE::Actor* actor);
 
     /// @brief Use `profile` for `type` from the next frame on, without saving it.
-    void Set(const std::string& type, const CB::engine::locomotion::SpeedProfile& profile);
+    void Set(const std::string& type, const hky::locomotion::SpeedProfile& profile);
 
     /// @brief Write `type`'s live speeds to settings.ini's `[Speed.<type>]`; false when the file could not be written.
     bool Save(const std::string& type);

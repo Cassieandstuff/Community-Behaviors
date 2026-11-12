@@ -14,7 +14,7 @@ namespace CB::feature::controller::tuning {
 
     namespace {
 
-        using Profile = CB::engine::locomotion::Profile;
+        using Profile = hky::locomotion::Profile;
 
         constexpr float kDeg = 57.2957795f;
 
@@ -86,7 +86,7 @@ namespace CB::feature::controller::tuning {
     bool Save()
     {
         const Profile now      = Current();
-        const Profile defaults = CB::engine::locomotion::kPlayer;
+        const Profile defaults = hky::locomotion::kPlayer;
         bool          ok       = true;
         for (const Field& f : kFields) {
             if (now.*f.member == defaults.*f.member) ok = core::debug::RemoveValue(kSection, f.key) && ok;
@@ -96,6 +96,6 @@ namespace CB::feature::controller::tuning {
         return ok;
     }
 
-    void Reset() { Set(CB::engine::locomotion::kPlayer); }
+    void Reset() { Set(hky::locomotion::kPlayer); }
 
 }  // namespace CB::feature::controller::tuning

@@ -7,9 +7,9 @@
 
 #include "platform/Platform.h"
 
-#include <codec/serialization/HkyArchive.h>
-#include <disk/Disk.h>
-#include <text/Text.h>
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/disk/Disk.h>
+#include <hky/text/Text.h>
 
 #include <imgui.h>
 
@@ -24,8 +24,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-namespace disk = CB::engine::disk;
-namespace text = CB::engine::text;
+namespace disk = hky::disk;
+namespace text = hky::text;
 
 std::string ExeDir() {
     wchar_t buf[MAX_PATH];
@@ -239,7 +239,7 @@ void ConverterUI::StartConvert() {
             else {
                 const std::string zip = (fs::path(outDir) / zipName).string();
                 std::string err;
-                const bool ok = CB::engine::codec::HkyArchive::PackDirectory(convOut, zip, err);
+                const bool ok = hky::codec::HkyArchive::PackDirectory(convOut, zip, err);
                 SetZipMsg(ok ? ("Packaged -> " + zip) : ("Package failed: " + err));
                 AppendLog(ok ? ("Packaged -> " + zip) : ("Package FAILED: " + err));
             }

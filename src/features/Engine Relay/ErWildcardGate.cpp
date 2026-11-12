@@ -26,7 +26,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace io = CB::engine::codec::io;
+        namespace io = hky::codec::io;
 
         constexpr std::int64_t kLocalWildcard    = 2048;   ///< FLAG_IS_LOCAL_WILDCARD — spared
         constexpr std::int64_t kDisableCondition = 256;    ///< FLAG_DISABLE_CONDITION
@@ -38,7 +38,7 @@ namespace CB::feature {
         ///        (disabled) condition is dropped, not resurrected. The condition is always a NEW object: vanilla
         ///        shares condition objects between transitions, and editing one in place would gate (or double-wrap)
         ///        every sharer.
-        std::size_t GateWildcards(CB::engine::decompile::GraphEdit& graph, const std::string& gateVar,
+        std::size_t GateWildcards(hky::decompile::GraphEdit& graph, const std::string& gateVar,
                                   std::string_view graphKey, IFeatureLog& log, std::vector<std::string>& touched)
         {
             const std::string gate = "!" + gateVar;
@@ -83,13 +83,13 @@ namespace CB::feature {
 
             bool AppliesTo(const FeatureContext&) const override { return true; }
 
-            FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext& ctx) override
+            FeatureResult Apply(hky::decompile::GraphEdit& graph, const FeatureContext& ctx) override
             {
                 if (!graph.GraphData()) return {};
 
                 std::string err;
                 if (graph.AddVariable(CB::feature::ergate::kGateVar, "VARIABLE_TYPE_BOOL", 0, err) ==
-                    CB::engine::decompile::GraphEdit::Add::Failed) {
+                    hky::decompile::GraphEdit::Add::Failed) {
                     ctx.log.Warn(std::format("ER gate: {}: {}", ctx.graphKey, err));
                     return {};
                 }

@@ -9,7 +9,7 @@
 #include <PluginLogger.h>
 
 #include "platform/hooks/takeover/RuntimeImage.h"
-#include <text/Text.h>
+#include <hky/text/Text.h>
 
 #include <set>
 
@@ -105,7 +105,7 @@ namespace CB::platform::hooks {
             std::set<std::string, std::less<>> out;
             while (!s.empty()) {
                 const auto comma = s.find(',');
-                const auto item  = CB::engine::text::Trim(s.substr(0, comma));
+                const auto item  = hky::text::Trim(s.substr(0, comma));
                 if (!item.empty()) out.emplace(item);
                 s = comma == std::string_view::npos ? std::string_view() : s.substr(comma + 1);
             }

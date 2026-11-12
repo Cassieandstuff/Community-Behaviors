@@ -2,9 +2,9 @@
 
 #include "core/discover/BundleReader.h"
 
-#include <interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
+#include <hky/interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
 
 #include <set>
 #include <system_error>
@@ -15,8 +15,8 @@ namespace CB {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
-        using CB::engine::codec::resource::PathKey;
+        using hky::codec::resource::HasExt;
+        using hky::codec::resource::PathKey;
 
         // Normalize a directory prefix to HkyArchive's key space with EXACTLY one
         // trailing slash. Callers pass prefixes with OR without a trailing '/'
@@ -44,7 +44,7 @@ namespace CB {
         }
         // A regular .hky file -> packed archive (its index; files inflate as they're read).
         std::string err;
-        auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+        auto arc = hky::codec::HkyArchive::LoadFromFile(bundle.string(), err);
         if (!arc) return std::nullopt;
         BundleReader r;
         r.m_arc = std::move(arc);
@@ -57,7 +57,7 @@ namespace CB {
         const fs::path p = m_dir / fs::path(rel);
         std::error_code ec;
         if (!fs::is_regular_file(p, ec)) return std::nullopt;
-        return CB::engine::disk::ReadFile(p).value_or(std::string());
+        return hky::disk::ReadFile(p).value_or(std::string());
     }
 
     std::vector<std::string> BundleReader::subdirs(const std::string& dirPrefix) const
@@ -158,7 +158,7 @@ namespace CB {
         return out;
     }
 
-    std::vector<std::string> BundleReader::units(CB::engine::codec::HkyArchive::UnitKind kind) const
+    std::vector<std::string> BundleReader::units(hky::codec::HkyArchive::UnitKind kind) const
     {
         std::vector<std::string> out;
         if (m_arc) {
@@ -172,18 +172,18 @@ namespace CB {
             if (!it->is_directory(de)) continue;
             if (!HasExt(it->path().filename().string(), ".hkx")) continue;
             it.disable_recursion_pending();
-            const std::string text = CB::engine::disk::ReadFile(it->path() / "graph.yaml").value_or(std::string());
-            const auto k = CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
+            const std::string text = hky::disk::ReadFile(it->path() / "graph.yaml").value_or(std::string());
+            const auto k = hky::codec::HkyArchive::KindOfGraphYaml(text);
             if (k == kind)
                 out.push_back(it->path().lexically_relative(m_dir).generic_string());
         }
         return out;
     }
 
-    std::shared_ptr<const CB::engine::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
+    std::shared_ptr<const hky::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
     {
         if (m_arc) return m_arc->source(PathKey(prefix));
-        return std::make_shared<CB::engine::common::DiskUnitSource>(m_dir / fs::path(prefix));
+        return std::make_shared<hky::common::DiskUnitSource>(m_dir / fs::path(prefix));
     }
 
 }  // namespace CB

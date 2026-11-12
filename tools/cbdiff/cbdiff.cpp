@@ -9,10 +9,10 @@
 //   cbdiff asd  <ref.txt> <cb.txt>                        animationsetdatasinglefile.txt — per-set diff
 //   cbdiff asdcrc <ref.txt> <cb.txt> <proj> <set>         dump a set's CB-only CRCs
 
-#include <interface/AnimationData.h>
-#include <codec/format/AnimationSetData.h>
-#include <interface/reflection/HavokSchema.h>
-#include <disk/Disk.h>
+#include <hky/interface/AnimationData.h>
+#include <hky/codec/format/AnimationSetData.h>
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/disk/Disk.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -30,14 +30,14 @@ namespace {
 int g_diffs = 0;
 
 std::string readFile(const std::string& p) {
-    auto text = CB::engine::disk::ReadFile(p);
+    auto text = hky::disk::ReadFile(p);
     if (!text) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
     return std::move(*text);
 }
 /// @brief The schema registry the caches are read through: $SCT_HAVOK_SCHEMA_DIR, else schema/ beside the exe.
-const CB::engine::schema::SchemaRegistry& reg() {
-    const auto* r = CB::engine::schema::SharedRegistry();
-    if (!r) { std::fprintf(stderr, "cbdiff: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); std::exit(2); }
+const hky::schema::SchemaRegistry& reg() {
+    const auto* r = hky::schema::SharedRegistry();
+    if (!r) { std::fprintf(stderr, "cbdiff: schema: %s\n", hky::schema::SharedRegistryError().c_str()); std::exit(2); }
     return *r;
 }
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
@@ -46,16 +46,16 @@ std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
 
 // ── animationdatasinglefile.txt ──────────────────────────────────────────────────────────────────
 int diffAdsf(const std::string& refPath, const std::string& cbPath) {
-    const auto refSF = CB::engine::animdata::ReadSingleFile(reg(), readFile(refPath));
-    const auto cbSF  = CB::engine::animdata::ReadSingleFile(reg(), readFile(cbPath));
+    const auto refSF = hky::animdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = hky::animdata::ReadSingleFile(reg(), readFile(cbPath));
     std::printf("== adsf: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
-    std::unordered_map<std::string, const CB::engine::animdata::Project*> cbByName;
+    std::unordered_map<std::string, const hky::animdata::Project*> cbByName;
     for (const auto& p : cbSF.projects) cbByName[p.name] = &p;
     for (const auto& rp : refSF.projects) {
         auto it = cbByName.find(rp.name);
         if (it == cbByName.end()) { std::printf("PROJECT only-in-ref: %s\n", rp.name.c_str()); ++g_diffs; continue; }
         const auto& cp = *it->second;
-        std::unordered_map<std::string, const CB::engine::animdata::ClipGenerator*> cbClips, refClips;
+        std::unordered_map<std::string, const hky::animdata::ClipGenerator*> cbClips, refClips;
         for (const auto& c : cp.clips) cbClips[c.name] = &c;
         for (const auto& c : rp.clips) refClips[c.name] = &c;
         int pd = 0; auto note = [&](const std::string& s){ if(!pd) std::printf("-- %s --\n", rp.name.c_str()); ++pd; ++g_diffs; std::printf("   %s\n", s.c_str()); };
@@ -73,16 +73,16 @@ int diffAdsf(const std::string& refPath, const std::string& cbPath) {
 
 // ── animationsetdatasinglefile.txt ───────────────────────────────────────────────────────────────
 int diffAsd(const std::string& refPath, const std::string& cbPath) {
-    const auto refSF = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(refPath));
-    const auto cbSF  = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
+    const auto refSF = hky::animsetdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = hky::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
     std::printf("== asd: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
-    std::unordered_map<std::string, const CB::engine::animsetdata::Project*> cbByHdr;
+    std::unordered_map<std::string, const hky::animsetdata::Project*> cbByHdr;
     for (const auto& p : cbSF.projects) cbByHdr[p.header] = &p;
     for (const auto& rp : refSF.projects) {
         auto it = cbByHdr.find(rp.header);
         if (it == cbByHdr.end()) { std::printf("PROJECT only-in-ref: %s\n", rp.header.c_str()); ++g_diffs; continue; }
         const auto& cp = *it->second;
-        std::unordered_map<std::string, const CB::engine::animsetdata::SetFile*> cbSets;
+        std::unordered_map<std::string, const hky::animsetdata::SetFile*> cbSets;
         for (const auto& s : cp.sets) cbSets[s.name] = &s;
         int pd = 0; auto note = [&](const std::string& s){ if(!pd) std::printf("-- %s --\n", rp.header.c_str()); ++pd; ++g_diffs; std::printf("   %s\n", s.c_str()); };
         for (const auto& rs : rp.sets) {
@@ -91,7 +91,7 @@ int diffAsd(const std::string& refPath, const std::string& cbPath) {
             const auto& cs = *si->second;
             if (rs.equipEvents != cs.equipEvents) note("set '" + rs.name + "' equipEvents: ref [" + join(rs.equipEvents) + "] cb [" + join(cs.equipEvents) + "]");
             if (rs.crcs.size() != cs.crcs.size()) note("set '" + rs.name + "' crc COUNT: ref " + std::to_string(rs.crcs.size()) + " cb " + std::to_string(cs.crcs.size()));
-            std::unordered_map<std::string, const CB::engine::animsetdata::Attack*> cbAtk;
+            std::unordered_map<std::string, const hky::animsetdata::Attack*> cbAtk;
             for (const auto& a : cs.attacks) cbAtk[a.event] = &a;
             for (const auto& ra : rs.attacks) {
                 auto ai = cbAtk.find(ra.event);
@@ -104,15 +104,15 @@ int diffAsd(const std::string& refPath, const std::string& cbPath) {
 }
 
 int dumpAsdCrc(const std::string& refPath, const std::string& cbPath, const std::string& proj, const std::string& set) {
-    const auto refSF = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(refPath));
-    const auto cbSF  = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
-    auto findSet = [&](const CB::engine::animsetdata::SingleFile& sf) -> const CB::engine::animsetdata::SetFile* {
+    const auto refSF = hky::animsetdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = hky::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
+    auto findSet = [&](const hky::animsetdata::SingleFile& sf) -> const hky::animsetdata::SetFile* {
         for (const auto& p : sf.projects) if (p.header.find(proj) != std::string::npos)
             for (const auto& s : p.sets) if (s.name.find(set) != std::string::npos) return &s;
         return nullptr; };
     const auto* rs = findSet(refSF); const auto* cs = findSet(cbSF);
     if (!rs || !cs) { std::printf("set not found\n"); return 1; }
-    auto key = [](const CB::engine::animsetdata::CrcTriple& t){ return std::to_string(t.folder)+"/"+std::to_string(t.file)+"/"+std::to_string(t.ext); };
+    auto key = [](const hky::animsetdata::CrcTriple& t){ return std::to_string(t.folder)+"/"+std::to_string(t.file)+"/"+std::to_string(t.ext); };
     std::printf("== %s / %s : ref %zu / cb %zu crcs ==\n", proj.c_str(), set.c_str(), rs->crcs.size(), cs->crcs.size());
     std::unordered_map<std::string,int> refHave; for (const auto& t : rs->crcs) refHave[key(t)]++;
     for (std::size_t i = 0; i < cs->crcs.size(); ++i) { const auto k = key(cs->crcs[i]); if (!refHave.count(k)) std::printf("   CB-only [%zu] %s\n", i, k.c_str()); }
@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string mode = argv[1];
-    if (CB::engine::schema::SharedSchemaDir().empty())
-        CB::engine::schema::SetSharedSchemaDir((fs::path(argv[0]).parent_path() / "schema").string());
+    if (hky::schema::SharedSchemaDir().empty())
+        hky::schema::SetSharedSchemaDir((fs::path(argv[0]).parent_path() / "schema").string());
     try {
         if      (mode == "adsf"   && argc >= 4) diffAdsf(argv[2], argv[3]);
         else if (mode == "asd"    && argc >= 4) diffAsd(argv[2], argv[3]);

@@ -6,7 +6,7 @@
 #include "CharMotionMatching.h"
 #include "CharSkeletonWatch.h"
 
-#include <locomotion/DeadBlend.h>
+#include <hky/locomotion/DeadBlend.h>
 #include <platform/classes/ClassRegistry.h>
 #include <platform/profile/Profile.h>
 
@@ -44,7 +44,7 @@ namespace CB::feature::controller::motion {
 
     namespace detail {
 
-        namespace loco = CB::engine::locomotion;
+        namespace loco = hky::locomotion;
         static_assert(sizeof(loco::Bone) == sizeof(::hkQsTransform), "Bone mirrors hkQsTransform");
 
         /// @brief The blend's tuning, read once from settings.ini [Character].

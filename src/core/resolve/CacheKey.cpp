@@ -3,11 +3,11 @@
 #include "core/resolve/CacheKey.h"
 #include "core/debug/Settings.h"
 
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/HkyArchive.h>
-#include <disk/Disk.h>
-#include <interface/reflection/HavokSchema.h>
-#include <text/Text.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/HkyArchive.h>
+#include <hky/disk/Disk.h>
+#include <hky/interface/reflection/HavokSchema.h>
+#include <hky/text/Text.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -22,7 +22,7 @@ namespace CB::core::resolve {
 
     namespace {
 
-        using CB::engine::codec::resource::HasExt;
+        using hky::codec::resource::HasExt;
 
         constexpr std::string_view kHeader = "cb-cache-key 1";
         /// @brief The value of an input that can't be read: never equal to anything, so it always misses.
@@ -46,7 +46,7 @@ namespace CB::core::resolve {
         {
             std::error_code ec;
             if (!fs::exists(p, ec)) return std::string(kAbsent);
-            const auto bytes = CB::engine::disk::ReadFile(p);
+            const auto bytes = hky::disk::ReadFile(p);
             return bytes ? Hex(Fnv64(*bytes)) : std::string(kUnreadable);
         }
 
@@ -60,7 +60,7 @@ namespace CB::core::resolve {
                 if (e.is_regular_file(fe)) out.emplace_back(e.path().lexically_relative(dir).generic_string(), e.path());
             };
             if (recursive)
-                for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(dir), ec), end; !ec && it != end; it.increment(ec)) add(*it);
+                for (fs::recursive_directory_iterator it(hky::disk::LongPath(dir), ec), end; !ec && it != end; it.increment(ec)) add(*it);
             else
                 for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) add(*it);
             std::sort(out.begin(), out.end());
@@ -74,7 +74,7 @@ namespace CB::core::resolve {
             if (!fs::is_directory(dir, ec)) return std::string(kAbsent);
             std::uint64_t h = Fnv64("");
             for (const auto& [rel, abs] : FilesUnder(dir, recursive)) {
-                const auto bytes = CB::engine::disk::ReadFile(abs);
+                const auto bytes = hky::disk::ReadFile(abs);
                 if (!bytes) return std::string(kUnreadable);
                 h = Fnv64(rel, h);
                 h = Mix(h, Fnv64(*bytes));
@@ -91,8 +91,8 @@ namespace CB::core::resolve {
             if (fs::is_directory(bundle, ec)) {
                 for (const auto& [rel, abs] : FilesUnder(bundle, true)) {
                     std::error_code fe;
-                    const auto size  = fs::file_size(CB::engine::disk::LongPath(abs), fe);
-                    const auto mtime = fs::last_write_time(CB::engine::disk::LongPath(abs), fe);
+                    const auto size  = fs::file_size(hky::disk::LongPath(abs), fe);
+                    const auto mtime = fs::last_write_time(hky::disk::LongPath(abs), fe);
                     if (fe) return std::string(kUnreadable);
                     h = Fnv64(rel, h);
                     h = Mix(h, size);
@@ -101,7 +101,7 @@ namespace CB::core::resolve {
                 return Hex(h);
             }
             std::string err;
-            const auto  index = CB::engine::codec::HkyArchive::ReadIndex(bundle.string(), err);
+            const auto  index = hky::codec::HkyArchive::ReadIndex(bundle.string(), err);
             if (!index) {
                 LOG_WARN("Community Behaviors: cache key — cannot index '{}': {}", bundle.string(), err);
                 return std::string(kUnreadable);
@@ -141,7 +141,7 @@ namespace CB::core::resolve {
                 const auto t0 = std::chrono::steady_clock::now();
                 const auto [dllName, dllValue] = CompilerLine();
                 lines.push_back({ "compiler", dllName, dllValue });
-                const std::string schemaDir = CB::engine::schema::SharedSchemaDir();
+                const std::string schemaDir = hky::schema::SharedSchemaDir();
                 lines.push_back({ "schema", schemaDir, schemaDir.empty() ? std::string(kAbsent) : TreeContentValue(schemaDir, true) });
                 /// @note Only the settings that change compiled output belong here.
                 lines.push_back({ "setting", "ERGate.bEnable", CB::core::debug::FlagOn("er_gate") ? "1" : "0" });
@@ -169,7 +169,7 @@ namespace CB::core::resolve {
         /// @brief One sentinel row "kind\tname\tvalue"; nullopt for anything else.
         std::optional<Line> ParseRow(std::string_view raw)
         {
-            const std::string_view row = CB::engine::text::Trim(raw);
+            const std::string_view row = hky::text::Trim(raw);
             const auto t1 = row.find('\t');
             const auto t2 = t1 == std::string_view::npos ? t1 : row.rfind('\t');
             if (t2 == std::string_view::npos || t2 == t1) return std::nullopt;
@@ -212,7 +212,7 @@ namespace CB::core::resolve {
     {
         std::error_code ec;
         std::optional<std::string> bytes;
-        if (fs::exists(p, ec)) bytes = CB::engine::disk::ReadFile(p);
+        if (fs::exists(p, ec)) bytes = hky::disk::ReadFile(p);
         const std::string value = bytes ? Hex(Fnv64(*bytes)) : fs::exists(p, ec) ? std::string(kUnreadable) : std::string(kAbsent);
         std::lock_guard<std::mutex> lk(g_readsMutex);
         g_reads[p.generic_string()] = value;
@@ -246,7 +246,7 @@ namespace CB::core::resolve {
 
     std::uint64_t BundleFilesInput(const fs::path& dataDir, const std::function<bool(const std::string& unitKey)>& skipUnit)
     {
-        using CB::engine::codec::resource::PathKey;
+        using hky::codec::resource::PathKey;
         std::uint64_t h = SharedGraphInputs(dataDir);
         h = Fnv64(FileValue(dataDir / "community_behaviors" / "loadorder.txt"), h);
         const auto skipped = [&](const std::string& rel) {
@@ -267,14 +267,14 @@ namespace CB::core::resolve {
                 for (const auto& [rel, abs] : FilesUnder(b, true)) {
                     if (skipped(rel)) continue;
                     std::error_code fe;
-                    const auto size  = fs::file_size(CB::engine::disk::LongPath(abs), fe);
-                    const auto mtime = fs::last_write_time(CB::engine::disk::LongPath(abs), fe);
+                    const auto size  = fs::file_size(hky::disk::LongPath(abs), fe);
+                    const auto mtime = fs::last_write_time(hky::disk::LongPath(abs), fe);
                     h = Mix(Mix(Fnv64(rel, h), size), static_cast<std::uint64_t>(mtime.time_since_epoch().count()));
                 }
                 continue;
             }
             std::string err;
-            const auto  index = CB::engine::codec::HkyArchive::ReadIndex(b.string(), err);
+            const auto  index = hky::codec::HkyArchive::ReadIndex(b.string(), err);
             if (!index) { h = Mix(h, LaunchNonce()); continue; }
             for (const auto& e : *index)
                 if (!skipped(e.path)) h = Mix(Mix(Fnv64(e.path, h), e.size), e.crc);
@@ -284,7 +284,7 @@ namespace CB::core::resolve {
 
     void CarryReads(std::string_view stored)
     {
-        for (const auto row : CB::engine::text::SplitLines(stored))
+        for (const auto row : hky::text::SplitLines(stored))
             if (const auto r = ParseRow(row); r && r->kind == "read") {
                 const std::string value = FileValue(r->name);
                 std::lock_guard<std::mutex> lk(g_readsMutex);
@@ -295,8 +295,8 @@ namespace CB::core::resolve {
     std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind)
     {
         std::unordered_map<std::string, std::string> out;
-        const auto rows = CB::engine::text::SplitLines(stored);
-        if (rows.empty() || CB::engine::text::Trim(rows[0]) != kHeader) return out;
+        const auto rows = hky::text::SplitLines(stored);
+        if (rows.empty() || hky::text::Trim(rows[0]) != kHeader) return out;
         for (std::size_t i = 1; i < rows.size(); ++i)
             if (const auto r = ParseRow(rows[i]); r && r->kind == kind) out[r->name] = r->value;
         return out;
@@ -304,8 +304,8 @@ namespace CB::core::resolve {
 
     std::string CacheKeyMismatch(std::string_view stored, const fs::path& dataDir)
     {
-        const auto rows = CB::engine::text::SplitLines(stored);
-        if (rows.empty() || CB::engine::text::Trim(rows[0]) != kHeader) return "no cache key (written by an older build)";
+        const auto rows = hky::text::SplitLines(stored);
+        if (rows.empty() || hky::text::Trim(rows[0]) != kHeader) return "no cache key (written by an older build)";
 
         std::map<std::string, std::string> now;
         for (const auto& l : StaticLines(dataDir)) now[l.Id()] = l.value;

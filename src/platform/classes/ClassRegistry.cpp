@@ -4,7 +4,7 @@
 #include <platform/game/Reflection.h>
 #include <platform/hooks/Live.h>
 
-#include <interface/reflection/HavokSchema.h>
+#include <hky/interface/reflection/HavokSchema.h>
 
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Generator/hkbGenerator.h>
@@ -27,7 +27,7 @@ namespace CB::platform::classes {
 
     namespace {
 
-        namespace sc = CB::engine::schema;
+        namespace sc = hky::schema;
 
         using ClassAccess  = ::hkExtensionAccess<::hkClass>;
         using MemberAccess = ::hkExtensionAccess<::hkClassMember>;

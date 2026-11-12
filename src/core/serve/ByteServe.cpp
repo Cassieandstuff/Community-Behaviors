@@ -7,7 +7,7 @@
 
 #include <platform/game/Resource.h>
 #include <platform/hooks/Override.h>
-#include <codec/resource/PathKey.h>
+#include <hky/codec/resource/PathKey.h>
 
 #include <atomic>
 #include <chrono>
@@ -78,7 +78,7 @@ namespace CB::core::serve {
                 char raw[1024];
                 if (SehCopy(a_path, raw, sizeof raw)) {
                     const std::size_t rn = std::char_traits<char>::length(raw);
-                    if (CB::engine::codec::resource::HasExt(std::string_view(raw, rn), ".hkx")) {
+                    if (hky::codec::resource::HasExt(std::string_view(raw, rn), ".hkx")) {
                         // Serve key is meshes-prefixed; the resolver path is Meshes-relative.
                         const std::string serveKey = "meshes/" + CB::core::discover::NormalizeKey(raw);
 

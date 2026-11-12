@@ -5,7 +5,7 @@
 #include "core/debug/Settings.h"
 #include <platform/hooks/registry/Registry.h>
 
-#include <text/Text.h>
+#include <hky/text/Text.h>
 
 #include <PluginLogger.h>
 
@@ -447,7 +447,7 @@ namespace CB::platform::classes {
             std::string_view  rest = list;
             while (!rest.empty()) {
                 const auto       comma = rest.find(',');
-                const auto       name  = CB::engine::text::Trim(rest.substr(0, comma));
+                const auto       name  = hky::text::Trim(rest.substr(0, comma));
                 rest                   = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
                 if (name.empty()) continue;
                 if (st.ownedCount == kMaxOwned) {

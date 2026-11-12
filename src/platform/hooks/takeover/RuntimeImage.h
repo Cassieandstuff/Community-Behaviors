@@ -1,6 +1,6 @@
 #pragma once
 
-#include <codec/Fnv1a.h>
+#include <hky/codec/Fnv1a.h>
 
 #include <cstdint>
 #include <optional>
@@ -60,7 +60,7 @@ namespace CB::platform::hooks::image {
         std::vector<Function>    functions;
     };
 
-    using CB::engine::codec::Fnv1a64;   ///< the SDK's FNV-1a 64 (<codec/Fnv1a.h>)
+    using hky::codec::Fnv1a64;   ///< the SDK's FNV-1a 64 (<codec/Fnv1a.h>)
 
     /// @brief Writes `f`'s code to `out` with every reference filled in for code that runs at `at` beside an exe loaded at
     ///        `exeBase`. Returns why not (a reference out of rel32 reach), or empty.

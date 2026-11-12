@@ -11,7 +11,7 @@
 // detail. The feature's SOURCE keeps its logical dependency to the core + this header, so it stays unit-testable
 // without a plugin and offline-reproducible.)
 
-#include <decompile/BehaviorDecompile.h>
+#include <hky/decompile/BehaviorDecompile.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -84,7 +84,7 @@ namespace CB::feature {
         virtual bool AppliesTo(const FeatureContext&) const = 0;
 
         // Edit the merged graph. Pure: touches only `graph`, core types, and ctx.
-        virtual FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext&) = 0;
+        virtual FeatureResult Apply(hky::decompile::GraphEdit& graph, const FeatureContext&) = 0;
 
         // Relative run-order constraints (RETURNED BY VALUE-STABLE SPAN over storage the feature
         // owns — return a static array or empty). The host topo-sorts the enabled set from these, so a

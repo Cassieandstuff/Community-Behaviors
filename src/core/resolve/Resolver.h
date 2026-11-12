@@ -3,12 +3,12 @@
 #include "core/discover/BundleManifest.h"
 #include "core/resolve/SymbolInjector.h"
 
-#include <compile/AnimDataDeriver.h>   // CB::engine::animdata::DeriveClipInput
+#include <hky/compile/AnimDataDeriver.h>   // hky::animdata::DeriveClipInput
 
-#include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
-#include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
-#include <interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
-#include <decompile/BehaviorDecompile.h>   // GraphEdit — the merged graph the compile stages edit
+#include <hky/interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
+#include <hky/codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
+#include <hky/interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
+#include <hky/decompile/BehaviorDecompile.h>   // GraphEdit — the merged graph the compile stages edit
 
 #include <atomic>
 #include <condition_variable>
@@ -24,8 +24,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::engine::common { struct IUnitSource; struct CharacterData; }
-namespace CB::engine::codec     { class HkyArchive; }
+namespace hky::common { struct IUnitSource; struct CharacterData; }
+namespace hky::codec     { class HkyArchive; }
 
 namespace CB {
 
@@ -124,7 +124,7 @@ namespace CB {
         /// @pre   PlanIncremental. @return true when both files may be served as they are (the caller arms them).
         bool AnimDataReusable(const std::filesystem::path& dataRoot);
         /// @brief Record one behavior's clip inputs as the adsf projection read them (its trace for the next launch).
-        void TraceClips(const std::string& key, const std::vector<CB::engine::animdata::DeriveClipInput>& clips);
+        void TraceClips(const std::string& key, const std::vector<hky::animdata::DeriveClipInput>& clips);
         /// @brief Whether this launch's adsf / asdsf are complete — kept, or rebuilt without error. Only then does the
         ///        sentinel record their key; otherwise the next recompile rebuilds them.
         void SetAnimDataComplete(bool ok) { m_animDataComplete = ok; }
@@ -248,11 +248,11 @@ namespace CB {
         /// @brief The clip generators of `layers` (base first) merged the way Resolve merges them, bone names bound
         ///        through the rig of the characters that run `key`. Empty when the merge fails (logged).
         /// @pre   Init() done (the rig tables are built there).
-        std::vector<CB::engine::animdata::DeriveClipInput> ClipInputsOf(
-            const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const;
+        std::vector<hky::animdata::DeriveClipInput> ClipInputsOf(
+            const std::string& key, const std::vector<hky::common::LayerSource>& layers) const;
 
         /// @brief The clip generators of the served graph `key`, merged across EVERY layer of the load order.
-        std::vector<CB::engine::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
+        std::vector<hky::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
         /// @brief The character's SERVED roster: its merged animationNames with the author roster drops folded in —
         ///        exactly the positions the served character file carries (ResolveCharacter applies the same fold).
         std::vector<std::string> ServedRoster(const std::string& characterKey) const;
@@ -271,7 +271,7 @@ namespace CB {
         /// @return false when `key` is not served or the merge fails (logged).
         /// @pre   Init() done.
         /// @note  Independent of the compile: a warm launch that reuses the cache still reads the load order's graph.
-        bool MergedGraph(const std::string& key, CB::engine::decompile::ParsedHky& out) const;
+        bool MergedGraph(const std::string& key, hky::decompile::ParsedHky& out) const;
         /// @brief A bundle-authored animation's YAML by its meshes-relative path (path identity), read from the last
         ///        bundle in scan order that ships it; nullopt when none does or the read fails.
         /// @pre   Init() done.
@@ -285,7 +285,7 @@ namespace CB {
 
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
         struct RigBones {
-            const CB::engine::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
+            const hky::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
             std::string                            rig;               ///< the rig unit `table` came from
             bool ambiguous = false;   ///< the binding characters' rigs disagree on bone order
         };
@@ -304,7 +304,7 @@ namespace CB {
 
         /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames and
         ///        cache-qualify its behavior reference.
-        void ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit);
+        void ResolveCharacter(const std::string& key, hky::decompile::GraphEdit& edit);
         /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
         /// @return how many were added.
         std::size_t FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const;
@@ -338,7 +338,7 @@ namespace CB {
         struct GraphSources {
             // Each layer carries its load-order identity ({stem, masterTable}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
-            std::vector<CB::engine::common::LayerSource> layers;
+            std::vector<hky::common::LayerSource> layers;
             bool isCharacter = false;
         };
         // normalized serve path -> its merge layers.
@@ -346,7 +346,7 @@ namespace CB {
         // Packed .hky archives held for the process lifetime — each vends ZipUnitSources
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
-        std::vector<std::shared_ptr<CB::engine::codec::HkyArchive>> m_archives;
+        std::vector<std::shared_ptr<hky::codec::HkyArchive>> m_archives;
         // character-file stem (lowercase, e.g. "defaultmale") -> animationNames additions,
         // ingested from bundles' animationnames\<stem>.txt. The AUTHOR-FACING roster drop:
         // folded into the character's compiled animationNames at Resolve() (deduped). The
@@ -356,13 +356,13 @@ namespace CB {
         /// @brief Bone-name tables keyed by RIG unit (normalized serve path, e.g.
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
-        std::unordered_map<std::string, CB::engine::common::BoneNameTable> m_skeletons;
+        std::unordered_map<std::string, hky::common::BoneNameTable> m_skeletons;
         /// @brief Every skeleton unit's layers (its winner, then the later bundles patching it), keyed by normalized path:
         ///        MergedGraph reads a rig through them, since skeletons are not graph sources. Immutable after Init().
-        std::unordered_map<std::string, std::pair<std::string, std::vector<CB::engine::common::LayerSource>>> m_skeletonSources;
+        std::unordered_map<std::string, std::pair<std::string, std::vector<hky::common::LayerSource>>> m_skeletonSources;
         /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
         ///        BonesFor. Immutable after Init().
-        CB::engine::skeleton::RigIndex m_rigIndex;
+        hky::skeleton::RigIndex m_rigIndex;
         /// @brief Compiled skeleton.hkx bytes BR serves, keyed by the unit's normalized serve path. A skeleton
         ///        unit is path-local in every bundle; one is served only when a bundle OTHER than Skyrim.hky
         ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled
@@ -374,7 +374,7 @@ namespace CB {
         /// @note  Only WHERE the YAML is and its stamp are kept — the text is read when it compiles, never held.
         struct NativeAnim {
             std::string                                           outKey;   ///< original-case meshes-relative path
-            std::shared_ptr<const CB::engine::codec::HkyArchive> arc;      ///< packed source; null = `file` on disk
+            std::shared_ptr<const hky::codec::HkyArchive> arc;      ///< packed source; null = `file` on disk
             std::filesystem::path                                 file;
             std::uint64_t                                         size  = 0;
             std::uint64_t                                         stamp = 0;   ///< packed: CRC-32; on disk: mtime
@@ -404,7 +404,7 @@ namespace CB {
         /// @note  Its characterFilenames keep the ORIGINAL case ("Characters\DefaultMale.hkx") — the engine binds the
         ///        character to its setdata / animdata by that string case-sensitively (a lowercased ref A-poses
         ///        vanilla-only actors) — and it never needs the BSA-packed, unreadable-as-loose vanilla project.
-        std::unordered_map<std::string, std::shared_ptr<const CB::engine::common::IUnitSource>> m_projectUnits;
+        std::unordered_map<std::string, std::shared_ptr<const hky::common::IUnitSource>> m_projectUnits;
         std::atomic<bool>                                                  m_redirectReady{ false };
         // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
         // hooks acquire it before touching any Init-built state. Init runs off the main thread.

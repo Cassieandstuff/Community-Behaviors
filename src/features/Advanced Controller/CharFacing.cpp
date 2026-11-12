@@ -9,7 +9,7 @@
 #include "CharSpeedProfile.h"
 
 #include <features/Camera/Camera.h>
-#include <locomotion/Horse.h>
+#include <hky/locomotion/Horse.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 
@@ -45,7 +45,7 @@ namespace CB::feature::controller {
         namespace game  = platform::game;
         using Frame     = hooks::Override<&game::MovementControllerNPC_ComputeFrameMovement>;
 
-        using CB::engine::locomotion::kStickDeadzone;
+        using hky::locomotion::kStickDeadzone;
         /// @brief How far ahead of the player the camera-facing target sits: far enough that its bearing is the
         ///        camera's yaw from anywhere the player moves within a frame.
         constexpr float kFaceCameraReach = 100000.0f;
@@ -127,18 +127,18 @@ namespace CB::feature::controller {
 
         double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-        using CB::engine::locomotion::kNoDirection;
+        using hky::locomotion::kNoDirection;
 
         /// @brief locomotion::Face onto the frame's turn[2] and angles[2].
         void Face(game::MovementFrame* out, float heading, float yaw, float worldDir, float dt)
         {
-            CB::engine::locomotion::Face(out->turn[2], out->angles[2], heading, yaw, worldDir, dt);
+            hky::locomotion::Face(out->turn[2], out->angles[2], heading, yaw, worldDir, dt);
         }
 
         /// @brief locomotion::StickHeadingOf for the game's stick vector.
         bool StickHeadingOf(RE::NiPoint2 stick, float cameraYaw, float& heading)
         {
-            return CB::engine::locomotion::StickHeadingOf(stick.x, stick.y, cameraYaw, heading);
+            return hky::locomotion::StickHeadingOf(stick.x, stick.y, cameraYaw, heading);
         }
 
         /// @brief settings.ini `[Character] fStickMoveThreshold`: the stick length (0..1) from which the player moves, at a
@@ -189,7 +189,7 @@ namespace CB::feature::controller {
             static const RE::BSFixedString intensity("iCB_StickIntensity");
             /// @note The player's frame only, one at a time.
             static int held = 0;
-            const auto in   = CB::engine::locomotion::StickInputOf(raw.x, raw.y, cameraYaw, heading, held);
+            const auto in   = hky::locomotion::StickInputOf(raw.x, raw.y, cameraYaw, heading, held);
             held            = in.direction;
             player->SetGraphVariableInt(direction, in.direction);
             player->SetGraphVariableInt(intensity, in.intensity);
@@ -440,10 +440,10 @@ namespace CB::feature::controller {
             const float engineFull = out->speed;
             /// @note The speed profile's, not the movement type record's (CharSpeedProfile): the engine's own stays in engineFull.
             const float deflection = std::hypot(raw.x, raw.y);
-            const CB::engine::locomotion::StickThresholds thresholds{ StickMoveThreshold(), StickRunThreshold() };
+            const hky::locomotion::StickThresholds thresholds{ StickMoveThreshold(), StickRunThreshold() };
             Gait        gait       = GaitOf(player);
             float       full       = speed::Forward(player, gait, engineFull);
-            if (const Gait moving = CB::engine::locomotion::StickGait(gait, haveStick, deflection, thresholds); moving != gait) {
+            if (const Gait moving = hky::locomotion::StickGait(gait, haveStick, deflection, thresholds); moving != gait) {
                 gait = moving;
                 full = speed::WalkOfRun(player, full);
             }
@@ -517,7 +517,7 @@ namespace CB::feature::controller {
             in.mode      = Aiming(player) ? move::Mode::Strafe : move::Mode::Orient;
             in.gait      = gait;
             in.airborne  = Airborne(player);
-            CB::engine::locomotion::ApplyStick(in, haveStick, stickHeading, deflection, thresholds);
+            hky::locomotion::ApplyStick(in, haveStick, stickHeading, deflection, thresholds);
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
@@ -603,8 +603,8 @@ namespace CB::feature::controller {
 
         [[maybe_unused]] const bool s_subscribed = Frame::Subscribe(&OnFrame, hooks::Priority::Late, "CharFacing", "char_movement_model");
 
-        using CB::engine::locomotion::kHorse;
-        using CB::engine::locomotion::Rung;
+        using hky::locomotion::kHorse;
+        using hky::locomotion::Rung;
 
         /// @brief locomotion::TopRung for `horse` under the rider's controls.
         /// @note  "Running" is vanilla's own test (0x14079b230, the one Planner Horse Controls doubles its speed by): a
@@ -615,7 +615,7 @@ namespace CB::feature::controller {
             const bool sprinting = horse->AsActorState()->IsSprinting();
             auto*      devices   = RE::BSInputDeviceManager::GetSingleton();
             const bool running   = (devices && devices->IsGamepadEnabled()) || data.running;
-            return CB::engine::locomotion::TopRung(sprinting, running, deflection);
+            return hky::locomotion::TopRung(sprinting, running, deflection);
         }
 
         /// @brief locomotion::RungSpeed from the horse's current movement type's forward walk and run speeds (while
@@ -629,7 +629,7 @@ namespace CB::feature::controller {
             const auto& sp    = high->currentMovementType.defaultData.speeds;
             const float walk  = sp[Dir::kForward][RE::Movement::MaxSpeeds::kWalk];
             const float run   = sp[Dir::kForward][RE::Movement::MaxSpeeds::kRun];
-            return CB::engine::locomotion::RungSpeed(rung, walk, run);
+            return hky::locomotion::RungSpeed(rung, walk, run);
         }
 
         /// @brief The player's horse whose frame this is, while the player rides it (sit state riding).

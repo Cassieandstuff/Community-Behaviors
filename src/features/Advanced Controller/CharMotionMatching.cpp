@@ -4,7 +4,7 @@
 #include "CharGround.h"
 #include "CharJumpTakeoff.h"
 #include "CharMotionMatching.h"
-#include <locomotion/ChooserInputs.h>
+#include <hky/locomotion/ChooserInputs.h>
 #include "CharMovementModel.h"
 #include "CharPoseSearch.h"
 #include "CharSkeletonWatch.h"
@@ -12,12 +12,12 @@
 #include <core/debug/Settings.h>
 #include <core/resolve/LoadOrderReader.h>
 #include <platform/relay/Relay.h>
-#include <compile/MotionMatchingCache.h>
-#include <decompile/BehaviorDecompile.h>
-#include <locomotion/PoseSearch.h>
+#include <hky/compile/MotionMatchingCache.h>
+#include <hky/decompile/BehaviorDecompile.h>
+#include <hky/locomotion/PoseSearch.h>
 #include <core/discover/ServeKey.h>
 #include <core/resolve/CacheKey.h>
-#include <disk/Disk.h>
+#include <hky/disk/Disk.h>
 #include <platform/game/Character.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
@@ -78,8 +78,8 @@ namespace CB::feature {
         namespace relay = CB::platform::relay;
         namespace mv    = CB::feature::controller::move;
         namespace game  = CB::platform::game;
-        namespace ea    = CB::engine::anim;
-        namespace ps    = CB::engine::locomotion;
+        namespace ea    = hky::anim;
+        namespace ps    = hky::locomotion;
         using Frame     = hooks::Override<&game::MovementControllerNPC_ComputeFrameMovement>;
         using Clock     = std::chrono::steady_clock;
         using ps::Biases;
@@ -168,7 +168,7 @@ namespace CB::feature {
             std::error_code ec;
             if (!std::filesystem::exists(CachePath(), ec)) return out;
             std::string err;
-            const auto  bytes = CB::engine::disk::ReadBytes(CachePath());
+            const auto  bytes = hky::disk::ReadBytes(CachePath());
             if (!bytes) err = "unreadable";
             std::vector<ea::MmCachedClip> clips;
             if (!bytes || !ea::ReadMmCache(*bytes, clips, err)) {
@@ -301,7 +301,7 @@ namespace CB::feature {
                 std::string               err;
                 std::error_code           ec;
                 std::filesystem::create_directories(CachePath().parent_path(), ec);
-                if (!ea::WriteMmCache(all, bytes, err) || !CB::engine::disk::WriteFile(CachePath(), bytes, {}, &err))
+                if (!ea::WriteMmCache(all, bytes, err) || !hky::disk::WriteFile(CachePath(), bytes, {}, &err))
                     LOG_WARN("motion matching: cache not written ({})", err);
             }
             LOG_INFO("motion matching: {} of {} clip(s) from the cache", cacheHits, played);
@@ -316,7 +316,7 @@ namespace CB::feature {
                      "game units/s",
                      secs, db->clips.size(), report.distinctClips, report.measuredClips, db->databases.size(),
                      db->haveChooser ? std::format("{} row(s), {} fallback", db->chooser.size(), db->fallback.size()) : std::string("none"),
-                     report.frames, CB::engine::anim::features::kDims, db->gaitSpeed[1], report.gaitFrames[1], db->gaitSpeed[2], report.gaitFrames[2],
+                     report.frames, hky::anim::features::kDims, db->gaitSpeed[1], report.gaitFrames[1], db->gaitSpeed[2], report.gaitFrames[2],
                      db->gaitSpeed[3], report.gaitFrames[3]);
             const auto text = [](const Expression& e) { return e.text.empty() ? std::string("0") : "`" + e.text + "`"; };
             for (const PoseDatabase& d : db->databases)
@@ -367,7 +367,7 @@ namespace CB::feature {
             if (!reader.addedBehaviors) return;
             std::size_t built = 0;
             for (const std::string& key : reader.addedBehaviors()) {
-                CB::engine::decompile::ParsedHky graph;
+                hky::decompile::ParsedHky graph;
                 if (!reader.mergedGraph(key, graph)) continue;
                 const auto* selector = ps::RootSelector(graph);
                 if (!selector) continue;
@@ -376,7 +376,7 @@ namespace CB::feature {
                 if (rigKeys.empty()) rigKeys.emplace_back();
                 for (const std::string& rigKey : rigKeys) {
                     ea::Rig                          rig;
-                    CB::engine::decompile::ParsedHky skeleton;
+                    hky::decompile::ParsedHky skeleton;
                     if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
                         if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
                     if (rig.bones.empty() && !spec.schemas.empty())
@@ -627,11 +627,11 @@ namespace CB::feature {
         ///       0-4 are MM_Future0-4 and MM_FutureMotion0-4, at kAhead's times; 5-9 MM_Past0-4 and MM_PastMotion0-4.
         struct QueryNames {
             RE::BSFixedString have{ "MM_HaveQuery" }, rate{ "MM_PlayRate" }, desired{ "MM_Desired" };
-            std::array<RE::BSFixedString, CB::engine::anim::features::kSamples> where, how;
+            std::array<RE::BSFixedString, hky::anim::features::kSamples> where, how;
             QueryNames()
             {
-                constexpr int ahead = static_cast<int>(CB::engine::anim::features::kAhead.size());
-                for (int s = 0; s < CB::engine::anim::features::kSamples; ++s) {
+                constexpr int ahead = static_cast<int>(hky::anim::features::kAhead.size());
+                for (int s = 0; s < hky::anim::features::kSamples; ++s) {
                     const bool        future = s < ahead;
                     const std::string k      = std::to_string(future ? s : s - ahead);
                     where[s] = RE::BSFixedString((future ? "MM_Future" : "MM_Past") + k);

@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace CB::engine::schema { class SchemaRegistry; }
+namespace hky::schema { class SchemaRegistry; }
 
 /// @file
 /// @brief CB's own Havok classes registered with the game: a class's LAYOUT comes from its schema descriptor (the one
@@ -32,7 +32,7 @@ namespace CB::platform::classes {
     /// @pre   Havok's type registry exists and no behavior has loaded yet: Plugin.cpp calls it at kDataLoaded.
     /// @note  A class that cannot be registered (no descriptor, a size mismatch, a field kind with no Havok member
     ///        type here) is logged and skipped; a behavior holding it must then not be served.
-    void RegisterAll(const CB::engine::schema::SchemaRegistry& schema);
+    void RegisterAll(const hky::schema::SchemaRegistry& schema);
 
     /// @return the offset of `member` in vanilla class `cls`, when RegisterAll extended it with that member (a
     ///         `cb: true` field of its schema descriptor); -1 otherwise, and always before RegisterAll has run. Names

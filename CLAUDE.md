@@ -77,8 +77,8 @@ common/                      what features build against; common/ is their inclu
 HKY-SDK (fetched)            THE SHARED ENGINE, its own private repo (github.com/Cassieandstuff/HKY-SDK, FetchContent;
                              FETCHCONTENT_SOURCE_DIR_HKY-SDK for a local checkout): hky::core (codecs, schema registry,
                              units, compile/decompile/merge, rules, relay) + hky::locomotion. CommonLib-FREE; code is
-                             CB::engine:: with bare includes (<codec/…> <compile/…> <interface/…> …) until its hky::
-                             rename. It owns schema/ (one YAML per class; metadata/ = enums, merge semantics, probes,
+                             hky::<purpose>, included as <hky/<purpose>/…>; <hky/HKY.h> is the curated facade
+                             (hky::api::, which include/CB-API.h re-exports as cb::). It owns schema/ (one YAML per class; metadata/ = enums, merge semantics, probes,
                              adsf/asdsf descriptors), HKY_SCHEMA_VERSION and the hky_*_schema ship helpers; deployed as
                              data: plugin → Data/community_behaviors/schema, converter → <exe>/schema (+ templates/).
                              Engine changes, and their engine-tests, land in HKY-SDK; bump the pin here.
@@ -114,9 +114,9 @@ The top-level folder picks the ROOT; the purpose word names what the code is for
 another root renames its namespace; a stray top-level namespace is a bug.
 
 - **Roots.** `CB::core::` = the plugin (src/core) · `CB::platform::` = the runtime SDK (src/platform) ·
-  `CB::engine::` = the shared engine (HKY-SDK, until its hky:: rename) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
-  config scanner. Nothing else at the top — no `havok::`, no `sct::` / `bconv::`.
+  config scanner. The shared engine is HKY-SDK's `hky::` (its own repo, its own roots). Nothing else at the top — no
+  `havok::`, no `sct::` / `bconv::`.
   The SDK's Havok classes sit at global scope (`::hkbGenerator`), as the exe's names require.
 - **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
@@ -130,23 +130,22 @@ another root renames its namespace; a stray top-level namespace is a bug.
   `text` = the shared string operations (trim, line split, BOM, float text form, YAML
   quoting); `disk` = whole-file read/write, checked and optionally atomic; `exec` = ParallelFor
   (offline tools — in-game work runs on the plugin's injected BELOW_NORMAL pool). Use them instead of
-  re-rolling a per-file helper. The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io,resource}` + the
+  re-rolling a per-file helper. The one sanctioned 4th-level family: `hky::codec::{spline,crc,formid,io,resource}` + the
   packfile serialization spine (all genuinely codecs).
-- **`CB::engine::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
+- **`hky::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,
   `LayerSource`) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those
   stay in their purpose namespaces. Because the engine references these types UNqualified throughout, a
-  force-included prelude (HKY-SDK `src/hky/common/CorePrelude.h`, the engine's PCH, also pulled by the plugin
-  PCH and the converter) forward-declares and makes `CB::engine::common` + `CB::engine::codec` ambient in
-  every TU. So a file never needs a per-file `using namespace` for the shared vocabulary.
+  force-included prelude (`<hky/Prelude.h>`, the engine's PCH, also pulled by the plugin PCH and the
+  converter) forward-declares and makes `hky::common` + `hky::codec` ambient in every TU. So a file never needs a per-file `using namespace` for the shared vocabulary.
 - **Depth is free — use the language.** Define with nested syntax `namespace CB::core::resolve { … }`
   (C++17, no brace pyramid); alias at heavy call sites `namespace ccr = CB::core::resolve;`. Verbosity at
   use sites is a `using`-alias problem, never a reason to flatten a real purpose.
-- **Forward-declare a shared type in its OWN namespace.** A fwd-decl inside `CB::engine::compile` of a
+- **Forward-declare a shared type in its OWN namespace.** A fwd-decl inside `hky::compile` of a
   type that lives in `common` creates a phantom `compile::X` that SHADOWS the real one (a fwd-declared name
-  in the current namespace beats a `using`-directive). Always `namespace CB::engine::common { struct X; }`.
+  in the current namespace beats a `using`-directive). Always `namespace hky::common { struct X; }`.
 - **`detail` / `en` / anonymous namespaces** stay as the innermost leaf under a purpose
-  (`CB::engine::codec::detail`), never top-level.
+  (`hky::codec::detail`), never top-level.
 
 ## Build
 

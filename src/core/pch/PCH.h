@@ -58,9 +58,4 @@
 using namespace std::literals;
 #endif
 
-// The engine's shared vocabulary (see HKY-SDK src/hky/common/CorePrelude.h). The plugin includes
-// the codec/compile/decompile headers, which reference CB::engine::common / CB::engine::codec names
-// unqualified; forward-declare + make ambient here so those headers resolve in plugin TUs too.
-namespace CB::engine { namespace common {} namespace codec {} }
-using namespace CB::engine::common;
-using namespace CB::engine::codec;
+#include <hky/Prelude.h>

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <interface/AnimationData.h>
-#include <codec/format/AnimDataYaml.h>   // ProjectHeader, ParseAnimdataIndexYaml
-#include <compile/AnimDataDeriver.h>     // DeriveClipInput
+#include <hky/interface/AnimationData.h>
+#include <hky/codec/format/AnimDataYaml.h>   // ProjectHeader, ParseAnimdataIndexYaml
+#include <hky/compile/AnimDataDeriver.h>     // DeriveClipInput
 
 #include <filesystem>
 #include <functional>
@@ -11,7 +11,7 @@
 
 namespace CB::core::serve {
 
-    namespace animdata = ::CB::engine::animdata;
+    namespace animdata = ::hky::animdata;
 
     struct ServeResult {
         bool                  attempted = false;

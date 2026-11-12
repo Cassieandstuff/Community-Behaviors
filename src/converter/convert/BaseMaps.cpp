@@ -1,7 +1,7 @@
 #include "BaseMaps.h"
 
-#include <codec/resource/PathKey.h>
-#include <codec/serialization/HkyArchive.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/codec/serialization/HkyArchive.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -9,7 +9,7 @@
 namespace CB::converter {
 namespace {
 
-using CB::engine::codec::resource::PathKey;
+using hky::codec::resource::PathKey;
 
 // "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse"
 // Handles the space-folder variants ("behaviors wolf", "characters female") and _1stperson.
@@ -39,8 +39,8 @@ std::string stemOf(const std::string& prefixKey) {
 
 std::string ActorOfServePath(const std::string& servePath) { return actorOf(PathKey(servePath)); }
 
-BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc) {
-    using UK = CB::engine::codec::HkyArchive::UnitKind;
+BaseMaps BuildBaseMaps(const hky::codec::HkyArchive& baseArc) {
+    using UK = hky::codec::HkyArchive::UnitKind;
     BaseMaps m;
     for (const auto& u : baseArc.units()) {
         /// @note Map KEYS (stem, actor) are path identity; the VALUES keep the unit's own serve path (unitOut writes it).

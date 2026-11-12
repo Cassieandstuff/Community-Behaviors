@@ -5,7 +5,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::engine::codec { class HkyArchive; }
+namespace hky::codec { class HkyArchive; }
 
 namespace CB::converter {
 
@@ -24,7 +24,7 @@ struct BaseMaps {
     std::unordered_set<std::string>                           vanillaGraphStems;  // behavior stems present in base (derive-vs-own-new)
 };
 
-BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc);
+BaseMaps BuildBaseMaps(const hky::codec::HkyArchive& baseArc);
 
 /// @brief "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse" (handles the space-folder variants and
 ///        _1stperson).

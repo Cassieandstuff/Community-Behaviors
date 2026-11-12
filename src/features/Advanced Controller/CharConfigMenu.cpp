@@ -24,7 +24,7 @@ namespace CB::feature::controller::config {
 
     namespace {
 
-        namespace loco = CB::engine::locomotion;
+        namespace loco = hky::locomotion;
 
         /// @note Changes are live from the next frame; only Save writes the ini.
         bool EditGait(const char* label, loco::DirectionSpeeds& d, const loco::DirectionSpeeds& stated, bool record)

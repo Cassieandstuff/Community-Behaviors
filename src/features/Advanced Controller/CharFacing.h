@@ -1,6 +1,6 @@
 #pragma once
 
-#include <locomotion/Movement.h>
+#include <hky/locomotion/Movement.h>
 
 /// @file
 /// @brief The player's frame driver (CharFacing): each frame it steps the movement model (CharMovementModel) and hands
@@ -16,7 +16,7 @@ namespace CB::feature::controller {
     ///         stick idle. Thread-safe.
     bool StickHeading(float& heading);
 
-    using CB::engine::locomotion::Gait;
+    using hky::locomotion::Gait;
 
     /// @brief The latest frame's speeds (game units/s): the forward speed the engine asked for (`full`) and the speed
     ///        the movement model handed on (`speed`).
@@ -31,6 +31,6 @@ namespace CB::feature::controller {
     /// @brief `actor`'s, the same.
     bool CurrentSpeed(RE::FormID actor, FrameSpeed& out);
 
-    using CB::engine::locomotion::WrapPi;
+    using hky::locomotion::WrapPi;
 
 }  // namespace CB::feature::controller

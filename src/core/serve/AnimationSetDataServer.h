@@ -1,6 +1,6 @@
 #pragma once
 
-#include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
+#include <hky/codec/format/AnimationSetData.h>   // the setdata model (hky::animsetdata)
 
 #include <filesystem>
 #include <string>
@@ -22,7 +22,7 @@
 namespace CB::core::serve {
 
     // Short alias for the engine's setdata model, used throughout this server.
-    namespace asd = CB::engine::animsetdata;
+    namespace asd = hky::animsetdata;
 
     struct SetDataServeResult {
         bool        attempted = false;   // found >=1 bundle contributing set-data

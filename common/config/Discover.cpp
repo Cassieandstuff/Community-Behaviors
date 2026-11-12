@@ -1,7 +1,7 @@
 #include <config/Config.h>
 
-#include <codec/resource/PathKey.h>
-#include <disk/Disk.h>
+#include <hky/codec/resource/PathKey.h>
+#include <hky/disk/Disk.h>
 
 #include <algorithm>
 
@@ -10,8 +10,8 @@ namespace fs = std::filesystem;
 namespace CB::config {
 namespace {
 
-using CB::engine::codec::resource::HasExt;
-using CB::engine::codec::resource::PathKey;
+using hky::codec::resource::HasExt;
+using hky::codec::resource::PathKey;
 
 }  // namespace
 
@@ -69,7 +69,7 @@ std::vector<Source> Discover(const ScanSpec& spec) {
 }
 
 std::optional<std::string> ReadText(const fs::path& path) {
-    return CB::engine::disk::ReadFile(path, { .stripBom = true });
+    return hky::disk::ReadFile(path, { .stripBom = true });
 }
 
 }  // namespace CB::config

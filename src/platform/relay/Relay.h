@@ -6,11 +6,11 @@
 
 #include <PCH.h>
 
-#include <relay/Relay.h>
+#include <hky/relay/Relay.h>
 
 namespace CB::platform::relay {
 
-    using namespace CB::engine::relay;
+    using namespace hky::relay;
 
     inline RE::Actor*      ActorOf(const EvalContext& c) { return static_cast<RE::Actor*>(c.actor); }
     inline RE::TESForm*    FormOf(const Value& v) { return static_cast<RE::TESForm*>(v.form); }
