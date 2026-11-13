@@ -185,7 +185,7 @@ across the rows' conditions (`EvaluationScope`). FormKeys resolve once per proce
 
 - **Relay scope syntax.** CB's condition text (Relay, `CBGameRelayCondition`) could gain scopes, e.g.
   `Equipped("right").HasKeyword("WeapTypeSword")`, compiling to the same structured conditions BK edits: one language
-  in text form and object form. Not built until the user confirms the syntax.
+  in text form and object form. Syntax settled (user, 2026-11-12): the method chain. The parser is not built yet.
 - **The exit event's name** - settled (user, 2026-11-12): per key, `<key>Done`. The cutscene slot's key is `Cutscene`, so
   its exit event is `CutsceneDone`.
 - **CB-21**: the bind-time behavior load.
