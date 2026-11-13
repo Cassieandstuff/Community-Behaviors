@@ -1408,6 +1408,61 @@ namespace CB {
         return folded;
     }
 
+    std::vector<hky::compile::FolderClip> Resolver::ClipsUnder(std::string_view projectRoot, std::string_view folder) const
+    {
+        std::string want = PathKey(projectRoot);
+        if (!want.empty() && want.back() != '/') want += '/';
+        std::string sub = PathKey(folder);
+        while (!sub.empty() && sub.front() == '/') sub.erase(0, 1);
+        while (!sub.empty() && sub.back() == '/') sub.pop_back();
+        const std::size_t rootLen = want.size();
+        want += "animations/";
+        if (!sub.empty()) want += sub + "/";
+
+        std::vector<hky::compile::FolderClip> out;
+        std::unordered_set<std::string>              seen;
+        for (auto a = m_nativeAnims.rbegin(); a != m_nativeAnims.rend(); ++a) {
+            const std::string k = PathKey(a->outKey);
+            if (k.size() <= want.size() || k.compare(0, want.size(), want) != 0) continue;
+            if (k.find('/', want.size()) != std::string::npos) continue;   ///< directly in the folder only
+            if (!seen.insert(k).second) continue;                          ///< a later bundle's copy already won
+            hky::compile::FolderClip clip;
+            clip.animationName = a->outKey.substr(rootLen);
+            std::replace(clip.animationName.begin(), clip.animationName.end(), '/', '\\');
+            try {
+                if (auto text = a->arc ? a->arc->file(k) : disk::ReadFile(a->file)) clip.unitText = std::move(*text);
+            } catch (const std::exception& e) {
+                LOG_WARN("Resolver: dynamic clip '{}' could not be read ({}) - it keeps the default selection", a->outKey, e.what());
+            }
+            out.push_back(std::move(clip));
+        }
+        return out;
+    }
+
+    const std::vector<std::string>& Resolver::DynamicClipRoster(const std::string& projectRoot) const
+    {
+        std::call_once(m_dynamicRosterOnce, [this] {
+            auto* reg = hky::schema::SharedRegistry();
+            if (!reg) return;
+            for (const auto& [key, gs] : m_sources) {
+                if (gs.isCharacter || gs.layers.empty()) continue;
+                /// @note Vanilla holds no dynamic generator: only a behavior some mod adds or patches can.
+                if (gs.layers.size() < 2 && gs.layers.front().stem == hky::codec::formid::BASE_GAME_STEM) continue;
+                hky::decompile::ParsedHky graph;
+                if (!MergedGraph(key, graph)) continue;
+                hky::decompile::GraphEdit edit(graph, *reg);
+                const std::string                root  = hky::compile::ProjectRootOf(key);
+                auto&                            names = m_dynamicRoster[PathKey(root)];
+                for (const std::string& folder : hky::compile::DynamicClipFolders(edit))
+                    for (auto& clip : ClipsUnder(root, folder))
+                        if (std::find(names.begin(), names.end(), clip.animationName) == names.end()) names.push_back(std::move(clip.animationName));
+            }
+        });
+        static const std::vector<std::string> none;
+        const auto it = m_dynamicRoster.find(PathKey(projectRoot));
+        return it == m_dynamicRoster.end() ? none : it->second;
+    }
+
     std::vector<hky::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
     {
         const auto it = m_sources.find(NormalizeKey(key));
@@ -1685,6 +1740,11 @@ namespace CB {
         std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
         if (const std::size_t folded = FoldAuthorRoster(cstem, names))
             LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
+        /// @note Exact-case union, as the author roster's.
+        std::size_t dynamic = 0;
+        for (const std::string& n : DynamicClipRoster(hky::compile::ProjectRootOf(key)))
+            if (std::find(names.begin(), names.end(), n) == names.end()) { names.push_back(n); ++dynamic; }
+        if (dynamic) LOG_INFO("Resolver: rostered {} dynamic clip(s) into character '{}'.", dynamic, key);
 
         /// @note Cache-qualify the character's main behavior reference when CB serves that behavior, so the
         ///       redirected load reaches CB's compiled graph instead of the vanilla file.
@@ -1765,6 +1825,14 @@ namespace CB {
                     if (const std::string q = QualifyChildRef(key, name); q != name) { name = q; ++qualified; }
                 });
                 if (qualified) LOG_INFO("Resolver: cache-qualified {} behavior reference(s) in '{}'.", qualified, key);
+
+                /// @note Every CBDynamicClipGenerator's table, from its folder over the merged load order. The runtime
+                ///       never scans a folder: a clip a mod adds appears on the next compile.
+                const auto dyn = hky::compile::FillDynamicClipTables(
+                    edit, key, [this](std::string_view root, std::string_view folder) { return ClipsUnder(root, folder); });
+                for (const std::string& w : dyn.warnings) LOG_WARN("Resolver: {}", w);
+                if (dyn.generators)
+                    LOG_INFO("Resolver: filled {} dynamic clip generator(s) in '{}' with {} row(s).", dyn.generators, key, dyn.rows);
 
                 /// @warning hkbBehaviorGraph::nextUniqueID (the runtime node-id minter) is a SIGNED 16-bit counter
                 ///          (RE'd): a graph at/over 32767 hkbNodes mints negative ids into Havok's -1 "none" space,

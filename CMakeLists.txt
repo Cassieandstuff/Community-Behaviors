@@ -59,7 +59,7 @@ if(CB_STANDALONE)
 endif()
 FetchContent_Declare(HKY-SDK
     GIT_REPOSITORY https://github.com/Cassieandstuff/HKY-SDK.git
-    GIT_TAG        07bd061028d56bb1868aa2a76fc0234e67773803)
+    GIT_TAG        4d76fe25f1d8b48b191f4daf7e679c2ef4ed0e9f)
 FetchContent_MakeAvailable(HKY-SDK)
 get_property(HKY_SCHEMA_DIR GLOBAL PROPERTY HKY_SCHEMA_SOURCE_DIR)
 

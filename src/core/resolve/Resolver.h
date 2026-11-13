@@ -3,6 +3,7 @@
 #include "core/discover/BundleManifest.h"
 #include "core/resolve/SymbolInjector.h"
 
+#include <hky/compile/DynamicClips.h>   // FolderClip: what a CBDynamicClipGenerator's folder holds
 #include <hky/compile/AnimDataDeriver.h>   // hky::animdata::DeriveClipInput
 
 #include <hky/interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
@@ -308,6 +309,14 @@ namespace CB {
         /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
         /// @return how many were added.
         std::size_t FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const;
+        /// @brief The clips directly in `folder` of project `projectRoot`'s animation folder, over the merged load order:
+        ///        the bundle-authored animation units (m_nativeAnims), the last bundle's copy of a path winning.
+        /// @note  Under a folder is path identity, matched through PathKey as the engine's own lookup folds; each clip's
+        ///        name keeps its source's spelling.
+        std::vector<hky::compile::FolderClip> ClipsUnder(std::string_view projectRoot, std::string_view folder) const;
+        /// @brief The clips every CBDynamicClipGenerator of project `projectRoot` may play, so the project's characters
+        ///        roster them (a clip binds only through the roster). Built once, from every behavior a mod touches.
+        const std::vector<std::string>& DynamicClipRoster(const std::string& projectRoot) const;
 
         // Build the above-OAR redirect map (folderRoot -> owned characters) from m_sources and
         // publish it (m_redirectReady). Shared by MaterializeCacheToDisk (after it writes the
@@ -384,6 +393,9 @@ namespace CB {
         /// @brief m_nativeAnims' path keys, sorted; built on the first CompilesAnimationsUnder call.
         mutable std::vector<std::string> m_nativeAnimKeys;
         mutable std::once_flag           m_nativeAnimKeysOnce;
+        /// @brief PathKey(project root) -> DynamicClipRoster's names; built on its first call.
+        mutable std::unordered_map<std::string, std::vector<std::string>> m_dynamicRoster;
+        mutable std::once_flag                                           m_dynamicRosterOnce;
         // bundle stem (lowercase, e.g. "bfco") -> its parsed manifest.json (identity,
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.

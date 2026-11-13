@@ -24,6 +24,17 @@ namespace {
         // cb::schema — the registry
         cb::schema::Registry reg; (void)reg;
 
+        // cb::dynamic — the dynamic generators' pick and table fill
+        {
+            const std::vector<cb::dynamic::ClipCandidate> rows;
+            const int picked = cb::dynamic::PickClip(rows, cb::dynamic::PickSeed(0, 0, 0)); (void)picked;
+            const bool again = cb::dynamic::ShouldRepick(rows, -1, cb::dynamic::Moment::Loop); (void)again;
+            const auto key = cb::dynamic::ParseFormKey(""); (void)key;
+            const auto types = cb::dynamic::ParseConditionTypes("", err); (void)types;
+            const auto sel = cb::dynamic::ClipSelectionOfAnimation("", reg, "", err); (void)sel;
+            const std::string root = cb::dynamic::ProjectRootOf(""); (void)root;
+        }
+
         cb::resolve::Graph g;
         bool gok = cb::resolve::MergeLayersReflective(std::vector<cb::resolve::Layer>{}, reg, nullptr, g, err); (void)gok;
         cb::resolve::GraphEdit edit(g, reg); (void)edit;

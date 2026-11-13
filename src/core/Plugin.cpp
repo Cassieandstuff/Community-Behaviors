@@ -39,6 +39,8 @@
 #include <optional>      // AnimParallel — pool held unless the sequencer.disable marker is present
 #include <process.h>   // _beginthreadex — large-stack warm-up thread
 
+#include "features/Dynamic Generators/Bindings.h"   // ListenForBindings — cb::bindings messages from other plugins
+
 namespace CB {
 
     // The load-order -> compiled-behavior engine. Lives for the process lifetime;
@@ -669,6 +671,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         return false;
     }
     messaging->RegisterListener(CB::OnMessage);
+    CB::feature::dynamic::ListenForBindings(*messaging);
 
     LOG_INFO("Community Behaviors loaded.");
     return true;

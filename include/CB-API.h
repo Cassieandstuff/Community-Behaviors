@@ -9,7 +9,11 @@
 
 #include <hky/HKY.h>
 
-namespace cb = ::hky::api;
+/// @note A namespace with a using-directive, not an alias: <CB-Bindings.h> opens cb::bindings, and a namespace alias
+///       could not be reopened beside it.
+namespace cb {
+using namespace ::hky::api;
+}
 
 namespace CB {
 namespace engine = ::hky;

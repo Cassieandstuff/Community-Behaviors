@@ -38,6 +38,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 - [CB-19](CB-19-sdk-unmatched-traps.md) — OPEN: six SDK functions have no body or exe binding and trap if called.
 - [CB-20](CB-20-phantom-stale-collision-agent.md) — INVESTIGATING: a character phantom keeps a freed collision agent and
   the game crashes in `hkpCachingShapePhantom`; four crashes, all on one Whiterun stables horse, cause unknown.
+- [CB-21](CB-21-dynamic-behavior-load.md) — OPEN: a behavior bound to a `CBDynamicBehaviorReferenceGenerator` never
+  loads (no seam yet for the exe's behavior-reference load), so the slot plays its fallback.
 
 ## Per-bug file template
 

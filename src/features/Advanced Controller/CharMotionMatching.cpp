@@ -601,11 +601,11 @@ namespace CB::feature {
         {
             const auto& names = InputNames();
             for (int i = 0; i < kInputs; ++i) {
-                if (IsBoolInput(i)) controller::SetGraphBool(player, names[i], in[i] != 0);
-                else controller::SetGraphInt(player, names[i], in[i]);
+                if (IsBoolInput(i)) ch::SetGraphBool(player, names[i], in[i] != 0);
+                else ch::SetGraphInt(player, names[i], in[i]);
             }
             const auto& realNames = RealInputNames();
-            for (int i = 0; i < kRealInputs; ++i) controller::SetGraphFloat(player, realNames[i], in.real[i]);
+            for (int i = 0; i < kRealInputs; ++i) ch::SetGraphFloat(player, realNames[i], in.real[i]);
         }
 
         /// @brief The chooser's inputs as `actor`'s graph holds them; one it cannot read keeps its value in `in`.
@@ -615,13 +615,13 @@ namespace CB::feature {
             for (int i = 0; i < kInputs; ++i) {
                 if (IsBoolInput(i)) {
                     bool b = false;
-                    if (controller::GetGraphBool(actor, names[i], b)) in[i] = b ? 1 : 0;
+                    if (ch::GetGraphBool(actor, names[i], b)) in[i] = b ? 1 : 0;
                 } else {
-                    controller::GetGraphInt(actor, names[i], in[i]);
+                    ch::GetGraphInt(actor, names[i], in[i]);
                 }
             }
             const auto& realNames = RealInputNames();
-            for (int i = 0; i < kRealInputs; ++i) controller::GetGraphFloat(actor, realNames[i], in.real[i]);
+            for (int i = 0; i < kRealInputs; ++i) ch::GetGraphFloat(actor, realNames[i], in.real[i]);
         }
 
         /// @brief The query's graph variables.
@@ -659,18 +659,18 @@ namespace CB::feature {
                 have = match.queryValid && std::chrono::duration<double>(Clock::now() - match.queryAt).count() < kQueryStale;
                 q    = match.query;
             }
-            controller::SetGraphBool(player, names.have, have);
+            ch::SetGraphBool(player, names.have, have);
             if (!have) return false;
             RE::NiPoint3 p;
             for (std::size_t s = 0; s < q.samples.size(); ++s) {
                 const auto& t = q.samples[s];
                 p = { t.x, t.y, std::atan2(-t.dirX, t.dirY) };
-                controller::SetGraphPoint(player, names.where[s], p);
+                ch::SetGraphPoint(player, names.where[s], p);
                 p = { t.vx, t.vy, t.z };
-                controller::SetGraphPoint(player, names.how[s], p);
+                ch::SetGraphPoint(player, names.how[s], p);
             }
             p = { q.desiredX, q.desiredY, 0.0f };
-            controller::SetGraphPoint(player, names.desired, p);
+            ch::SetGraphPoint(player, names.desired, p);
             return true;
         }
 
@@ -680,18 +680,18 @@ namespace CB::feature {
             const QueryNames& names = QueryVariables();
             float             rate  = 0.0f;
             /// @note A graph just activated may hold its declared 0.
-            if (controller::GetGraphFloat(actor, names.rate, rate) && rate > 0.0f) out.rate = rate;
+            if (ch::GetGraphFloat(actor, names.rate, rate) && rate > 0.0f) out.rate = rate;
             bool have = false;
-            if (!controller::GetGraphBool(actor, names.have, have) || !have) return;
+            if (!ch::GetGraphBool(actor, names.have, have) || !have) return;
             RE::NiPoint3 p;
             for (std::size_t s = 0; s < out.samples.size(); ++s) {
                 auto& t = out.samples[s];
-                if (!controller::GetGraphPoint(actor, names.where[s], p)) return;
+                if (!ch::GetGraphPoint(actor, names.where[s], p)) return;
                 t.x = p.x, t.y = p.y, t.dirX = -std::sin(p.z), t.dirY = std::cos(p.z);
-                if (!controller::GetGraphPoint(actor, names.how[s], p)) return;
+                if (!ch::GetGraphPoint(actor, names.how[s], p)) return;
                 t.vx = p.x, t.vy = p.y, t.z = p.z;
             }
-            if (!controller::GetGraphPoint(actor, names.desired, p)) return;
+            if (!ch::GetGraphPoint(actor, names.desired, p)) return;
             out.desiredX = p.x, out.desiredY = p.y;
             out.haveQuery = true;
         }
@@ -741,7 +741,7 @@ namespace CB::feature {
             if (!mc || static_cast<void*>(mc.get()) != controller) return nullptr;
             static const RE::BSFixedString enableName(kEnableVar);
             std::int32_t enable = 0;
-            return controller::GetGraphInt(actor, enableName, enable) ? actor : nullptr;
+            return ch::GetGraphInt(actor, enableName, enable) ? actor : nullptr;
         }
 
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
@@ -757,7 +757,7 @@ namespace CB::feature {
             /// @note An NPC its frame driver has let go (it sat down, mounted, died) goes back to the graph's own locomotion.
             const auto* character = reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController());
             if (!player && !ch::IsManagedNpc(character)) {
-                if (match.enabled) controller::SetGraphInt(actor, enableName, 0), match.enabled = false;
+                if (match.enabled) ch::SetGraphInt(actor, enableName, 0), match.enabled = false;
                 return;
             }
 
@@ -768,14 +768,14 @@ namespace CB::feature {
                 static const RE::BSFixedString toStop("MM_DistanceToStop"), toPivot("MM_DistanceToPivot");
                 ch::motion::Distances d;
                 if (ch::motion::DistancesOf(actor->GetFormID(), d)) {
-                    controller::SetGraphFloat(actor, toStop, d.toStop);
-                    controller::SetGraphFloat(actor, toPivot, d.toPivot);
+                    ch::SetGraphFloat(actor, toStop, d.toStop);
+                    ch::SetGraphFloat(actor, toPivot, d.toPivot);
                 }
             }
 
             /// @note Until there is a query to search with, MM_Enable stays at its declared 0: vanilla locomotion plays.
             if (!WriteQuery(actor, match)) return;
-            controller::SetGraphInt(actor, enableName, 1);
+            ch::SetGraphInt(actor, enableName, 1);
             match.enabled = true;
         }
 
@@ -913,11 +913,11 @@ namespace CB::feature {
                     if (b.dim < 0 || b.dim + b.width > static_cast<int>(out.size())) continue;
                     if (b.how == How::Float) {
                         float v = 0;
-                        if (controller::GetGraphFloat(actor, name, v)) out[b.dim] = v;
+                        if (ch::GetGraphFloat(actor, name, v)) out[b.dim] = v;
                         continue;
                     }
                     RE::NiPoint3 p;
-                    if (!controller::GetGraphPoint(actor, name, p)) continue;
+                    if (!ch::GetGraphPoint(actor, name, p)) continue;
                     if (b.how == How::PoseXY) {
                         out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = -std::sin(p.z), out[b.dim + 3] = std::cos(p.z);
                     } else {
@@ -1098,8 +1098,8 @@ namespace CB::feature {
             return step.nextClip;
         }
         static const RE::BSFixedString clipName(kClipVar), timeName(kTimeVar);
-        controller::SetGraphInt(actor, clipName, step.nextClip);
-        controller::SetGraphFloat(actor, timeName, fraction);
+        ch::SetGraphInt(actor, clipName, step.nextClip);
+        ch::SetGraphFloat(actor, timeName, fraction);
         return step.nextClip;
     }
 
