@@ -4,6 +4,7 @@
 // FIRST-PARTY CONSUMER of its own public API — the same one door a downstream tool uses.
 #include <CB-API.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -65,8 +66,7 @@ namespace {
         auto* charStrings = &cb::resolve::ReadCharacterStrings; (void)charStrings;
         cb::resolve::CharacterStrings cs; (void)cs;
 
-        cb::schema::SetSharedSchemaDir("");
-        std::string sdir = cb::schema::SharedSchemaDir(); (void)sdir;
+        const std::uint64_t schemaHash = cb::schema::SchemaContentHash(); (void)schemaHash;
         cb::schema::Registry* shared = cb::schema::SharedRegistry(); (void)shared;
         const std::string& serr = cb::schema::SharedRegistryError(); (void)serr;
         long mode = cb::schema::EnumTable("PlaybackMode").at("MODE_LOOPING"); (void)mode;

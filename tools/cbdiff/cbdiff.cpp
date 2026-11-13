@@ -130,8 +130,6 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string mode = argv[1];
-    if (hky::schema::SharedSchemaDir().empty())
-        hky::schema::SetSharedSchemaDir((fs::path(argv[0]).parent_path() / "schema").string());
     try {
         if      (mode == "adsf"   && argc >= 4) diffAdsf(argv[2], argv[3]);
         else if (mode == "asd"    && argc >= 4) diffAsd(argv[2], argv[3]);

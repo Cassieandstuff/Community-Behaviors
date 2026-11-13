@@ -28,7 +28,7 @@
 #include <platform/profile/Profile.h>
 #include <platform/startup/Startup.h>
 
-#include <hky/interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
+#include <hky/interface/reflection/HavokSchema.h>             // schema::SharedRegistry / SharedRegistryError
 
 #include <atomic>
 #include <chrono>
@@ -57,18 +57,11 @@ namespace CB {
     // won't re-enter, but this keeps that a guarantee, not an assumption.
     static thread_local bool t_compileGateInProgress = false;
 
-    // Schema registry dir (settings.ini, [Compiler] sSchemaDir). The class schema ships with CB
-    // (Data/community_behaviors/schema, staged by CMake); sSchemaDir overrides, then env
-    // SCT_HAVOK_SCHEMA_DIR, then that shipped default.
-    /// @note A schema that fails to LOAD (missing/foreign/version-mismatched tree) leaves the registry null:
-    ///       every compile then fails and every graph serves VANILLA, loudly — never a half-armed compiler.
+    /// @brief Loads the class schema, compiled into the DLL (HKY-SDK's SharedRegistry): no schema folder is read.
+    /// @note A schema that fails to LOAD leaves the registry null: every compile then fails and every graph serves
+    ///       VANILLA, loudly — never a half-armed compiler.
     static void ApplySchemaCompilerSetting()
     {
-        std::string dir = CB::core::debug::Value("Compiler", "sSchemaDir");
-        if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
-            dir = "Data/community_behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
-
-        hky::schema::SetSharedSchemaDir(dir);
         const bool ready = hky::schema::SharedRegistry() != nullptr;
         LOG_INFO("Community Behaviors: data-driven compiler ENABLED (schema registry {}).",
                  ready ? "loaded" : "FAILED TO LOAD → all graphs serve VANILLA");

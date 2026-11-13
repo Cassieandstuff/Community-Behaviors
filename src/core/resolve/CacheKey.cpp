@@ -141,8 +141,11 @@ namespace CB::core::resolve {
                 const auto t0 = std::chrono::steady_clock::now();
                 const auto [dllName, dllValue] = CompilerLine();
                 lines.push_back({ "compiler", dllName, dllValue });
-                const std::string schemaDir = hky::schema::SharedSchemaDir();
-                lines.push_back({ "schema", schemaDir, schemaDir.empty() ? std::string(kAbsent) : TreeContentValue(schemaDir, true) });
+                /// @note The schema is compiled into the DLL (the compiler line keys it too); its own hash names it here.
+                char schemaHash[17]{};
+                std::snprintf(schemaHash, sizeof(schemaHash), "%016llx",
+                              static_cast<unsigned long long>(hky::schema::SchemaContentHash()));
+                lines.push_back({ "schema", "compiled-in", schemaHash });
                 /// @note Only the settings that change compiled output belong here.
                 lines.push_back({ "setting", "ERGate.bEnable", CB::core::debug::FlagOn("er_gate") ? "1" : "0" });
                 lines.push_back({ "loadorder", "loadorder.txt", FileValue(dataDir / "community_behaviors" / "loadorder.txt") });

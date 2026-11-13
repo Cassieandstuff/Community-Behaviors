@@ -411,15 +411,12 @@ namespace CB::platform::classes {
         }
     }
 
-    int MemberOffset(const char* cls, const char* member)
+    bool Extended(const char* cls)
     {
-        if (!g_extensionsPublished.load(std::memory_order_acquire)) return -1;
-        for (const Extension& x : Extensions()) {
-            if (x.name != cls) continue;
-            for (const auto& m : x.members)
-                if (m.getName() && std::strcmp(m.getName(), member) == 0) return m.getOffset();
-        }
-        return -1;
+        if (!g_extensionsPublished.load(std::memory_order_acquire)) return false;
+        for (const Extension& x : Extensions())
+            if (x.name == cls) return true;
+        return false;
     }
 
     bool Registered(const char* name)

@@ -66,7 +66,7 @@ namespace CB::core::debug {
 
         std::string warn;
         const auto entries = hky::compile::trace::LoadRuntimeWatch(
-            "Data/community_behaviors/schema", &warn);
+            "Data/community_behaviors/probes", &warn);
         if (!warn.empty()) LOG_WARN("Community Behaviors: runtime-trace watch load: {}", warn);
         if (entries.empty()) {
             LOG_INFO("Community Behaviors: [Debug] bRuntimeTrace ON but no probe defines a `watch:` list — runtime trace idle.");

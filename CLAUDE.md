@@ -78,9 +78,11 @@ HKY-SDK (fetched)            THE SHARED ENGINE, its own private repo (github.com
                              FETCHCONTENT_SOURCE_DIR_HKY-SDK for a local checkout): hky::core (codecs, schema registry,
                              units, compile/decompile/merge, rules, relay) + hky::locomotion. CommonLib-FREE; code is
                              hky::<purpose>, included as <hky/<purpose>/…>; <hky/HKY.h> is the curated facade
-                             (hky::api::, which include/CB-API.h re-exports as cb::). It owns schema/ (one YAML per class; metadata/ = enums, merge semantics, probes,
-                             adsf/asdsf descriptors), HKY_SCHEMA_VERSION and the hky_*_schema ship helpers; deployed as
-                             data: plugin → Data/community_behaviors/schema, converter → <exe>/schema (+ templates/).
+                             (hky::api::, which include/CB-API.h re-exports as cb::). It owns schema/ (one YAML per class;
+                             metadata/ = enums, merge semantics, probes, adsf/asdsf descriptors) and HKY_SCHEMA_VERSION.
+                             The schema is COMPILED IN (SharedRegistry): nothing ships it or reads a schema folder. Its
+                             generated <hky/layout/<Class>.h> give each class's size and member offsets (CB's feature
+                             classes HKY_LAYOUT_CHECK against them). Only the probes ship: Data/community_behaviors/probes.
                              Engine changes, and their engine-tests, land in HKY-SDK; bump the pin here.
 lib/cb-sdk/                  the private CB-SDK-Export submodule: the SDK generated from the private CB-SDK repo by
                              Tools/Reconstruction/export.py. Never edit it here. RE and matching happen in CB-SDK;
@@ -184,9 +186,9 @@ perm(deploy, /BUILDER_DEPLOY=ON/i): You may deploy over the live MO2 mod and too
 - CommonLibSSE-NG is a **git submodule** at `lib/commonlibsse-ng` (alandtse fork, `ng` branch, full SE+AE+VR). No env var — `git submodule update --init --recursive` after clone.
 - `SKYRIM_MODS_FOLDER` / `SKYRIM_TOOLS_FOLDER` — deploy roots, read only by **BUILDER** (libs-BUILDER, pinned in the
   root CMakeLists; its README is the contract). A build stages each product in `build/<preset>/stage/<config>/<Name>`,
-  then deploys it: the plugin as the `Community Behaviors` mod (`SKSE/Plugins`, `community_behaviors/schema`,
-  `community_behaviors/plugins/*.hky`), the converter as the `Behavior Converter` tool (exe + schema/, templates
-  inside). `-DBUILDER_DEPLOY=OFF` stages without deploying.
+  then deploys it: the plugin as the `Community Behaviors` mod (`SKSE/Plugins`, `community_behaviors/probes`,
+  `community_behaviors/plugins/*.hky`), the converter as the `Behavior Converter` tool (exe + templates/).
+  `-DBUILDER_DEPLOY=OFF` stages without deploying.
 - `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
   bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
   runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate

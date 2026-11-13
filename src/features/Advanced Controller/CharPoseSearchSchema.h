@@ -1,5 +1,13 @@
 #pragma once
 
+#include <hky/layout/CBPoseSearchCurve.h>
+#include <hky/layout/CBPoseSearchFeature.h>
+#include <hky/layout/CBPoseSearchHeading.h>
+#include <hky/layout/CBPoseSearchPosition.h>
+#include <hky/layout/CBPoseSearchSchema.h>
+#include <hky/layout/CBPoseSearchTrajectory.h>
+#include <hky/layout/CBPoseSearchTrajectorySample.h>
+#include <hky/layout/CBPoseSearchVelocity.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Node/hkbBindable.h>
 #include <Common/Base/Container/String/hkString.h>
@@ -27,7 +35,7 @@ namespace CB::feature::controller::motion {
         ::hkReal m_weight;   ///< +0x30
         explicit PoseSearchFeature(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag) {}
     };
-    static_assert(sizeof(PoseSearchFeature) == 56, "PoseSearchFeature size (schema: 56)");
+    HKY_LAYOUT_CHECK(PoseSearchFeature, hky::layout::CBPoseSearchFeature);
 
     /// @brief CBPoseSearchTrajectorySample. POD in the loaded file's array.
     struct alignas(16) PoseSearchTrajectorySample {
@@ -42,7 +50,7 @@ namespace CB::feature::controller::motion {
         ::hkVector4 m_pose;       ///< +0x20 (x, y, facing angle, -)
         ::hkVector4 m_motion;     ///< +0x30 (velocity x, velocity y, height, -)
     };
-    static_assert(sizeof(PoseSearchTrajectorySample) == 64, "PoseSearchTrajectorySample size (schema: 64)");
+    HKY_LAYOUT_CHECK(PoseSearchTrajectorySample, hky::layout::CBPoseSearchTrajectorySample);
 
     class PoseSearchTrajectory : public PoseSearchFeature {
     public:
@@ -50,7 +58,7 @@ namespace CB::feature::controller::motion {
         explicit PoseSearchTrajectory(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    static_assert(sizeof(PoseSearchTrajectory) == 72, "PoseSearchTrajectory size (schema: 72)");
+    HKY_LAYOUT_CHECK(PoseSearchTrajectory, hky::layout::CBPoseSearchTrajectory);
 
     /// @brief CBPoseSearchPosition and CBPoseSearchVelocity share a layout.
     class PoseSearchBoneFeature : public PoseSearchFeature {
@@ -61,7 +69,8 @@ namespace CB::feature::controller::motion {
         ::hkVector4   m_query;    ///< +0x50
         explicit PoseSearchBoneFeature(::hkFinishLoadedObjectFlag flag);
     };
-    static_assert(sizeof(PoseSearchBoneFeature) == 96, "PoseSearchBoneFeature size (schema: 96)");
+    HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchPosition);
+    HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchVelocity);
     class PoseSearchPosition : public PoseSearchBoneFeature {
     public:
         using PoseSearchBoneFeature::PoseSearchBoneFeature;
@@ -82,7 +91,7 @@ namespace CB::feature::controller::motion {
         explicit PoseSearchHeading(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    static_assert(sizeof(PoseSearchHeading) == 96, "PoseSearchHeading size (schema: 96)");
+    HKY_LAYOUT_CHECK(PoseSearchHeading, hky::layout::CBPoseSearchHeading);
 
     class PoseSearchCurve : public PoseSearchFeature {
     public:
@@ -91,7 +100,7 @@ namespace CB::feature::controller::motion {
         explicit PoseSearchCurve(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    static_assert(sizeof(PoseSearchCurve) == 72, "PoseSearchCurve size (schema: 72)");
+    HKY_LAYOUT_CHECK(PoseSearchCurve, hky::layout::CBPoseSearchCurve);
 
     /// @brief CBPoseSearchSchema: shared by the databases pointing at it.
     class PoseSearchSchema : public ::hkReferencedObject {
@@ -102,7 +111,7 @@ namespace CB::feature::controller::motion {
         explicit PoseSearchSchema(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    static_assert(sizeof(PoseSearchSchema) == 48, "PoseSearchSchema size (schema: 48)");
+    HKY_LAYOUT_CHECK(PoseSearchSchema, hky::layout::CBPoseSearchSchema);
 
     /// @brief One query value a feature takes from a graph variable: where it lands in the schema's row and how it reads.
     struct BoundInput {

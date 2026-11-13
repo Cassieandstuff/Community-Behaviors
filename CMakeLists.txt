@@ -48,7 +48,8 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 # ── HKY-SDK: the engine (built in BOTH modes) ───────────────────────────────────
 # HKY-SDK (github.com/Cassieandstuff/HKY-SDK, private) is the shared engine CB used to carry as src/engine: codecs,
 # the class schema, units, compile/decompile/merge, rules, relay (hky::core) and the locomotion model
-# (hky::locomotion). It also owns schema/ and its version (HKY_SCHEMA_VERSION) and the hky_*_schema ship helpers.
+# (hky::locomotion). It also owns schema/ (compiled into hky::core) and its version (HKY_SCHEMA_VERSION), and ships its
+# debug probes (hky_builder_probes).
 # Local builds point FETCHCONTENT_SOURCE_DIR_HKY-SDK at a checkout. The engine's tests (engine-tests) build here too
 # when CB is top-level, so one ctest covers both.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SctSources.cmake")   # sct_collect_sources() — the underscore-exclusion source glob
@@ -58,7 +59,7 @@ if(CB_STANDALONE)
 endif()
 FetchContent_Declare(HKY-SDK
     GIT_REPOSITORY https://github.com/Cassieandstuff/HKY-SDK.git
-    GIT_TAG        ef56a68a94b0fde064c4fda2d7d9ba0640836c98)
+    GIT_TAG        f4a81bfb0ae95f45d15fe007d1d992d1224409a2)
 FetchContent_MakeAvailable(HKY-SDK)
 get_property(HKY_SCHEMA_DIR GLOBAL PROPERTY HKY_SCHEMA_SOURCE_DIR)
 
@@ -251,12 +252,12 @@ if(CB_FEATURE_BUNDLES_TARGET)
     add_dependencies(CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
 endif()
 
-# The "Community Behaviors" mod: DLL + pdb, the stamped class schema (owned: cleared, so a stale tree can't
-# double-register classes) and the packed bundles (merged: a Skyrim.hky regenerated earlier stays). The plugin never
-# reads the converter's Nemesis-ingest templates (src/converter/templates), so they stay out of the mod. The regen
-# (generate-base-master) is deliberately not a dependency: a plugin build ships whatever the stage already holds.
+# The "Community Behaviors" mod: DLL + pdb (the class schema is compiled into the DLL), the schema's debug probes
+# (owned: community_behaviors/probes, read by the runtime trace) and the packed bundles (merged: a Skyrim.hky
+# regenerated earlier stays). The regen (generate-base-master) is deliberately not a dependency: a plugin build ships
+# whatever the stage already holds.
 builder_stage_plugin(CommunityBehaviors MOD "Community Behaviors")
-hky_builder_schema(MOD "Community Behaviors" TO community_behaviors/schema)
+hky_builder_probes(MOD "Community Behaviors" TO community_behaviors/probes)
 builder_stage_generated(MOD "Community Behaviors" DIR "${CB_HKY_STAGE}"
     DEPENDS CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
 builder_package(MOD "Community Behaviors" VERSION ${PROJECT_VERSION})

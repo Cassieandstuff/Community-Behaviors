@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hky/layout/CBDistanceMatchModifier.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Context/hkbContext.h>
@@ -43,6 +44,6 @@ namespace CB::feature::controller {
         bool             isValid(::hkStringPtr& errorString) const override;
         ::hkbNode*       cloneNode(::hkbBehaviorGraph& rootBehavior) const override;
     };
-    static_assert(sizeof(DistanceMatchModifier) == 0x78, "DistanceMatchModifier size (schema: 120)");
+    HKY_LAYOUT_CHECK(DistanceMatchModifier, hky::layout::CBDistanceMatchModifier);
 
 }  // namespace CB::feature::controller

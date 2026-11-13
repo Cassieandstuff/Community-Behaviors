@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hky/layout/CBDamageModifier.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Context/hkbContext.h>
@@ -40,6 +41,6 @@ namespace CB::feature::combat {
         bool                 isValid(::hkStringPtr& errorString) const override;
         ::hkbNode*  cloneNode(::hkbBehaviorGraph& rootBehavior) const override;
     };
-    static_assert(sizeof(DamageModifier) == 0x60, "DamageModifier size (schema: 96)");
+    HKY_LAYOUT_CHECK(DamageModifier, hky::layout::CBDamageModifier);
 
 }  // namespace CB::feature::combat

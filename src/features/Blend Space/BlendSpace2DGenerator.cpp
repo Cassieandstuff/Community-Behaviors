@@ -2,6 +2,7 @@
 
 #include "BlendSpace2DGenerator.h"
 
+#include <hky/layout/hkbBlenderGeneratorChild.h>
 #include <hky/locomotion/BlendSpace.h>
 #include <platform/classes/ClassRegistry.h>
 
@@ -41,26 +42,15 @@ namespace CB::feature::blendspace {
         [[maybe_unused]] const bool s_declared = platform::classes::Declare(
             { kClassName, sizeof(BlendSpace2DGenerator), &Finish, &Cleanup, &Vtable });
 
-        /// @return where hkbBlenderGeneratorChild holds `member` (schema `cb: true`, reached by offset because the SDK's
+        /// @return where hkbBlenderGeneratorChild holds x / y (schema `cb: true`, reached by offset because the SDK's
         ///         class stays as exported); -1 until the class is extended
-        int CachedOffset(std::atomic<int>& cached, const char* member)
-        {
-            int offset = cached.load(std::memory_order_relaxed);
-            if (offset < 0) {
-                offset = platform::classes::MemberOffset("hkbBlenderGeneratorChild", member);
-                if (offset >= 0) cached.store(offset, std::memory_order_relaxed);
-            }
-            return offset;
-        }
         int XOffset()
         {
-            static std::atomic<int> cached{ -1 };
-            return CachedOffset(cached, "x");
+            return platform::classes::Extended("hkbBlenderGeneratorChild") ? hky::layout::hkbBlenderGeneratorChild::offset::x : -1;
         }
         int YOffset()
         {
-            static std::atomic<int> cached{ -1 };
-            return CachedOffset(cached, "y");
+            return platform::classes::Extended("hkbBlenderGeneratorChild") ? hky::layout::hkbBlenderGeneratorChild::offset::y : -1;
         }
 
         ::hkReal& Coordinate(::hkbBlenderGeneratorChild* child, int offset)

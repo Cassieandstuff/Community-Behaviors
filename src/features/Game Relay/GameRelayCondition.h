@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hky/layout/CBGameRelayCondition.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Condition/hkbCondition.h>
 #include <Behavior/Behavior/Context/hkbContext.h>
@@ -36,7 +37,7 @@ namespace CB::feature::relay {
         ///        call, never on the object.
         bool isTrue(const ::hkbContext& context) override;
     };
-    static_assert(sizeof(GameRelayCondition) == 0x20, "GameRelayCondition size (schema: 32)");
+    HKY_LAYOUT_CHECK(GameRelayCondition, hky::layout::CBGameRelayCondition);
     static_assert(offsetof(GameRelayCondition, m_expression) == 0x10);
     static_assert(offsetof(GameRelayCondition, m_compiled) == 0x18);
 

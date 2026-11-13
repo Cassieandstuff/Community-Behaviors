@@ -1,5 +1,10 @@
 #pragma once
 
+#include <hky/layout/CBPoseSearchChild.h>
+#include <hky/layout/CBPoseSearchChooser.h>
+#include <hky/layout/CBPoseSearchChooserRow.h>
+#include <hky/layout/CBPoseSearchDatabase.h>
+#include <hky/layout/CBPoseSearchGenerator.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Context/hkbContext.h>
@@ -38,7 +43,7 @@ namespace CB::feature::controller::motion {
         ::hkBool        m_disableReselection;   ///< +0x18
         ::hkBool        m_looping;              ///< +0x19
     };
-    static_assert(sizeof(PoseSearchChild) == 32, "PoseSearchChild size (schema: 32)");
+    HKY_LAYOUT_CHECK(PoseSearchChild, hky::layout::CBPoseSearchChild);
 
     /// @brief CBPoseSearchDatabase: a dance card, named by its children, with Unreal's per-database cost biases
     ///        (condition expressions) and its tags.
@@ -56,7 +61,7 @@ namespace CB::feature::controller::motion {
         ::hkStringPtr          m_movingCandidate;          ///< +0x38
         ::hkReferencedObject*  m_schema;                   ///< +0x40 CBPoseSearchSchema; none = the classic layout
     };
-    static_assert(sizeof(PoseSearchDatabase) == 72, "PoseSearchDatabase size (schema: 72)");
+    HKY_LAYOUT_CHECK(PoseSearchDatabase, hky::layout::CBPoseSearchDatabase);
 
     /// @brief CBPoseSearchChooserRow: a condition expression and the databases it selects.
     struct PoseSearchChooserRow {
@@ -65,7 +70,7 @@ namespace CB::feature::controller::motion {
         ::hkStringPtr                     m_when;        ///< +0x00
         ::hkArray<::hkStringPtr> m_databases;   ///< +0x08
     };
-    static_assert(sizeof(PoseSearchChooserRow) == 24, "PoseSearchChooserRow size (schema: 24)");
+    HKY_LAYOUT_CHECK(PoseSearchChooserRow, hky::layout::CBPoseSearchChooserRow);
 
     /// @brief CBPoseSearchChooser: the generator's chooser table, which it evaluates through its database.
     /// @note  Only ever loaded (the finish constructor).
@@ -78,7 +83,7 @@ namespace CB::feature::controller::motion {
         ~PoseSearchChooser() override = default;
         const ::hkClass* getClassType() const override;
     };
-    static_assert(sizeof(PoseSearchChooser) == 48, "PoseSearchChooser size (schema: 48)");
+    HKY_LAYOUT_CHECK(PoseSearchChooser, hky::layout::CBPoseSearchChooser);
 
     /// @brief What a node loaded, for its database and its query.
     struct NodeDescription {
@@ -140,7 +145,7 @@ namespace CB::feature::controller::motion {
         /// @brief Cross the output pose from the switched-from child's extrapolated motion into the live child's.
         void deadBlend(const ::hkbContext& context, ::hkbGeneratorOutput& output);
     };
-    static_assert(sizeof(PoseSearchGenerator) == 0x80, "PoseSearchGenerator size (schema: 128)");
+    HKY_LAYOUT_CHECK(PoseSearchGenerator, hky::layout::CBPoseSearchGenerator);
 
     /// @brief Seconds left in the newest dead blend (0 when none runs), for the HUD.
     /// @note  One value for every instance: motion matching plays the node for the player alone.

@@ -144,7 +144,7 @@ struct BaseBuildResult {
 /// @param outHky its filename names the bundle; any regen source runs this same build over whatever its meshes hold.
 /// @param keepStagingDir when non-empty, the unpacked <Name>.hky/ tree is KEPT under it (only <Name>.hky/ is cleared;
 ///        the root is shared across bundles) instead of a temp dir deleted after packing. Pick a SHORT path (MAX_PATH).
-/// @pre The shared schema registry is armed (SetSharedSchemaDir) — the build fails without it.
+/// @pre The shared schema registry loads (it is compiled in) — the build fails without it.
 BaseBuildResult BuildBaseBundle(const std::string& sourceDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& keepStagingDir = "");

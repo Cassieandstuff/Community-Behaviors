@@ -1,7 +1,6 @@
 #include "app/App.h"
 #include "Converter.h"
 
-#include <hky/interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
 #include <hky/codec/serialization/HkyArchive.h>
 #include "platform/Platform.h"
 
@@ -16,24 +15,20 @@
 #include <vector>
 
 #ifdef _WIN32
-#  include <windows.h>  // GetModuleFileNameW — resolve the bundled schema next to the exe
+#  include <windows.h>  // GetModuleFileNameW — the templates next to the exe
 #endif
 
-/// @brief <exe dir>/schema — the class schema CMake stages beside the exe (cwd-relative "schema" fallback).
-/// @note The shared registry is armed from the EXE dir, never from a passed templatesDir (--cli may be handed
-///       any templates path), so the packaged converter stays self-contained.
-static std::filesystem::path ExeSchemaDir() {
+/// @brief <exe dir>/templates — the Nemesis-ingest templates CMake stages beside the exe (cwd-relative fallback).
+/// @note The class schema is compiled in (hky::schema::SharedRegistry): nothing beside the exe holds it.
+static std::string ExeTemplatesDir() {
 #ifdef _WIN32
     wchar_t buf[MAX_PATH]{};
     const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
     if (n > 0 && n < MAX_PATH)
-        return std::filesystem::path(buf).parent_path() / "schema";
+        return (std::filesystem::path(buf).parent_path() / "templates").string();
 #endif
-    return "schema";
+    return "templates";
 }
-
-/// @brief The default templatesDir when none is given: the Nemesis-ingest templates staged inside the schema.
-static std::string ExeTemplatesDir() { return (ExeSchemaDir() / "templates").string(); }
 
 // SCT Behavior Converter — a standalone, MO2-launchable GUI that converts a Nemesis/
 // Pandora behavior load order into per-mod Community Behaviors .hky bundles (each mod -> its
@@ -42,11 +37,6 @@ static std::string ExeTemplatesDir() { return (ExeSchemaDir() / "templates").str
 // Headless: `BehaviorConverter --cli <dataDir> <templatesDir> <outDir>` runs the
 // conversion with no window (for automation / CI), streaming the log to stdout.
 int main(int argc, char** argv) {
-    /// @note Arm the process-wide schema registry for EVERY mode (GUI, --cli, the gates, the base build): every
-    ///       decompile / derive / gate reads it. SetSharedSchemaDir only records the dir; SharedRegistry() lazily
-    ///       loads once on first use, so the per-verb re-arms below are harmless.
-    hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());
-
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         CB::converter::Options opt;
         opt.dataDir      = argv[2];
@@ -175,7 +165,6 @@ int main(int argc, char** argv) {
     if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <sourceDir> <out.hky>
         if (argc > 4) { std::printf("usage: --build-base <sourceDir: meshes/ and/or *.bsa> <out.hky>\n"); return EXIT_FAILURE; }
         std::atomic<bool> cancel{ false };
-        hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel);
         if (!res.ok) { std::printf("build-base FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
@@ -204,7 +193,6 @@ int main(int argc, char** argv) {
             std::printf("usage: --regen-master <sourceDir: meshes/ and/or *.bsa> <outHky> [--strict] [--keep-unpacked <dir>]\n");
             return EXIT_FAILURE;
         }
-        hky::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::RegenerateMaster(pos[0], pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }

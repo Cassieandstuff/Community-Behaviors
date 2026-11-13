@@ -577,7 +577,6 @@ int doGraphHtml(int argc, char** argv) {
     }
     if (schemaDir.empty() || out.empty() || sources.empty()) { PrintUsage(); return 2; }
 
-    hky::schema::SetSharedSchemaDir(schemaDir);
     auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 

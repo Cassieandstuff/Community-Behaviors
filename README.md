@@ -94,8 +94,8 @@ target_link_libraries(your-tool PRIVATE cb::CB-API)
 
 ## How it works (the short version)
 
-A Havok class is described **once as data** (`schema/`), which the engine's schema registry loads and
-its codecs use to read/write `.hkx` byte-exactly. The engine holds the name-keyed `.hky` document,
+A Havok class is described **once as data** (HKY-SDK's `schema/`), compiled into the engine at build time; its
+schema registry and codecs use it to read/write `.hkx` byte-exactly. The engine holds the name-keyed `.hky` document,
 merges deltas across a load order, and emits compiled graphs. The runtime plugin serves those compiled
 bytes to the engine; the converter runs the same core offline.
 

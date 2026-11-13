@@ -174,7 +174,6 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     if (!table) { std::printf("FAIL: cannot read %s\n", tablePath.c_str()); return 1; }
     const hky::schema::SchemaRegistry* reg = nullptr;
     if (!schemaDir.empty()) {
-        hky::schema::SetSharedSchemaDir(schemaDir);
         reg = hky::schema::SharedRegistry();
         if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     }
@@ -249,7 +248,6 @@ int doShuffleCheck(const std::string& hkyPath, const std::string& schemaDir, con
     namespace fs = std::filesystem;
     using hky::codec::HkyArchive;
     using hky::codec::resource::PathKey;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
@@ -353,7 +351,6 @@ int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, con
     }
     namespace dc = hky::decompile;
     using hky::codec::HkyArchive;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
@@ -415,7 +412,6 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
     }
     namespace dc = hky::decompile;
     namespace ea = hky::anim;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::string err;
@@ -495,7 +491,6 @@ int doLoadOrder(int argc, char** argv) {
         std::printf("usage: hky-tool loadorder <schemaDir> (--mo2 <instance> [--profile <p>] | --data <DataFolder>) [--unit <key>]... [--all] [--ls <prefix>]\n");
         return 2;
     }
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
@@ -597,7 +592,6 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
     namespace fs = std::filesystem;
     using hky::codec::HkyArchive;
     using hky::codec::resource::PathKey;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
@@ -718,7 +712,6 @@ int doAnimReformat(const std::string& dir, const std::string& schemaDir) {
         std::printf("usage: hky-tool anim-reformat <unpackedDir> <schemaDir>\n");
         return 2;
     }
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
     std::vector<fs::path> files;
@@ -771,7 +764,6 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
         return 2;
     }
     namespace mm = hky::compile;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 
@@ -829,7 +821,6 @@ int doServeDump(int argc, char** argv) {
     namespace ad  = hky::animdata;
     namespace asd = hky::animsetdata;
     using Kind    = hky::codec::HkyArchive::UnitKind;
-    hky::schema::SetSharedSchemaDir(schemaDir);
     const auto* reg = hky::schema::SharedRegistry();
     if (!reg) { std::printf("FAIL: schema: %s\n", hky::schema::SharedRegistryError().c_str()); return 1; }
 

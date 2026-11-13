@@ -3,6 +3,7 @@
 #include "features/Animation 64/BindingIndex.h"
 #include "features/Animation 64/Watch.h"
 
+#include <hky/layout/hkbClipGenerator.h>
 #include <platform/classes/ClassRegistry.h>
 #include <platform/classes/TypeRegistries.h>
 
@@ -59,13 +60,9 @@ namespace CB::feature::widen {
 
     int WideBindingOffset()
     {
-        static std::atomic<int> cached{ -1 };
-        int offset = cached.load(std::memory_order_relaxed);
-        if (offset < 0) {
-            offset = platform::classes::MemberOffset("hkbClipGenerator", "animationBindingIndex64");
-            if (offset >= 0) cached.store(offset, std::memory_order_relaxed);
-        }
-        return offset;
+        return platform::classes::Extended("hkbClipGenerator")
+                   ? hky::layout::hkbClipGenerator::offset::animationBindingIndex64
+                   : -1;
     }
 
     std::int64_t BindingIndex(::hkbClipGenerator* clip)
