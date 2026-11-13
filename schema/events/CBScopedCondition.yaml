@@ -1,0 +1,18 @@
+name:      CBScopedCondition
+parent:    hkbCondition
+size:      80
+enums:     [ConditionQuantifier]
+runtime:
+  source: self
+# CB's own condition: (scope, test, arguments). `scope` is a chain of steps producing forms (empty: the character's own
+# actor); `test` runs on each form with `arguments`; `quantifier` says whether any or all must pass. `other` is a second
+# chain, read only by tests that compare two forms (IsSame). Scopes, tests and their types are metadata/conditions.json's,
+# so an editor checks that a test accepts what its scope produces. An unknown scope or test does not hold.
+# Within one evaluation of a CBDynamicClipGenerator's rows, each distinct chain resolves once.
+fields:
+  - { name: scope,      type: structarray, ref: CBConditionScope, roster: whole }
+  - { name: test,       type: string }
+  - { name: arguments,  type: stringarray, roster: whole }
+  - { name: other,      type: structarray, ref: CBConditionScope, roster: whole }
+  - { name: quantifier, type: int8, enum: ConditionQuantifier }
+  - { pad: 8 }

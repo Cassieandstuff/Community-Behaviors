@@ -1,0 +1,45 @@
+{
+  "types": {
+    "Form":      { "is": [],              "traits": [] },
+    "Reference": { "is": ["Form"],        "traits": [] },
+    "Actor":     { "is": ["Reference"],   "traits": ["keywords", "actorValues", "magicEffects"] },
+    "NPC":       { "is": ["Form"],        "traits": ["keywords"] },
+    "Race":      { "is": ["Form"],        "traits": ["keywords"] },
+    "Weapon":    { "is": ["Form"],        "traits": ["keywords"] },
+    "Spell":     { "is": ["Form"],        "traits": ["keywords"] },
+    "Armor":     { "is": ["Form"],        "traits": ["keywords"] },
+    "Ammo":      { "is": ["Form"],        "traits": ["keywords"] },
+    "Furniture": { "is": ["Form"],        "traits": ["keywords"] },
+    "Equipped":  { "is": ["Form"],        "traits": ["keywords"] }
+  },
+  "scopes": {
+    "self":           { "accepts": null,    "produces": "Actor",     "arguments": [] },
+    "alias":          { "accepts": null,    "produces": "Reference", "arguments": ["quest:FormKey", "aliasId:uint"] },
+    "base":           { "accepts": "Actor", "produces": "NPC",       "arguments": [] },
+    "race":           { "accepts": "Actor", "produces": "Race",      "arguments": [] },
+    "equipped.right": { "accepts": "Actor", "produces": "Equipped",  "arguments": [] },
+    "equipped.left":  { "accepts": "Actor", "produces": "Equipped",  "arguments": [] },
+    "ammo":           { "accepts": "Actor", "produces": "Ammo",      "arguments": [] },
+    "worn":           { "accepts": "Actor", "produces": "Armor",     "arguments": ["slot:uint?"], "many": true },
+    "furniture":      { "accepts": "Actor", "produces": "Furniture", "arguments": [] },
+    "combatTarget":   { "accepts": "Actor", "produces": "Actor",     "arguments": [] },
+    "mount":          { "accepts": "Actor", "produces": "Actor",     "arguments": [] }
+  },
+  "tests": {
+    "Exists":                    { "accepts": "Form",    "arguments": [] },
+    "IsForm":                    { "accepts": "Form",    "arguments": ["form:FormKey"] },
+    "IsSame":                    { "accepts": "Form",    "arguments": [], "other": true },
+    "HasKeyword":                { "accepts": "keywords", "arguments": ["keyword:FormKey"] },
+    "ActorValue":                { "accepts": "Actor",   "arguments": ["actorValue:string", "op:compare", "value:float"] },
+    "HasMagicEffect":            { "accepts": "Actor",   "arguments": ["effect:FormKey"] },
+    "HasMagicEffectWithKeyword": { "accepts": "Actor",   "arguments": ["keyword:FormKey"] }
+  },
+  "argumentKinds": {
+    "FormKey": "<plugin file name>|<form id in hex, the load-order byte dropped>, e.g. Skyrim.esm|0x0001E711; the plugin name byte-exact",
+    "uint":    "decimal",
+    "float":   "decimal",
+    "string":  "byte-exact",
+    "compare": "one of == != < <= > >="
+  },
+  "chainLimit": 4
+}

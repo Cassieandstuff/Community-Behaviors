@@ -1,0 +1,8 @@
+name:      CBConditionOr
+parent:    hkbCondition
+size:      32
+runtime:
+  source: self
+# CB's own condition: holds when any condition in `conditions` holds (none: does not hold). Short-circuits in order.
+fields:
+  - { name: conditions, type: ptrarray, ref: hkbCondition, roster: whole }

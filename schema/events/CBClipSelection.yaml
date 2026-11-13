@@ -1,0 +1,15 @@
+name:      CBClipSelection
+parent:    null
+size:      24
+enums:     [DynamicClipFlags]
+defaults:  { weight: 1 }
+# A clip's selection data: the `selection:` map of its animation unit, what a CBDynamicClipGenerator whose folder holds
+# the clip copies into its row. A clip with none: priority 0, weight 1, no condition, no flags. `condition` is a tree of
+# inline conditions (CBConditionAnd / Or / Not, CBScopedCondition, CBGameRelayCondition), each `class:`-tagged. Never
+# serialized to a packfile: read by the compile alone.
+fields:
+  - { name: condition, type: ptr, ref: hkbCondition }
+  - { name: priority,  type: int32 }
+  - { name: weight,    type: float }
+  - { name: flags,     type: int8, hkyenum: DynamicClipFlags, flags: true }
+  - { pad: 8 }

@@ -18,5 +18,6 @@ void RunRootMotionTests(const schema::SchemaRegistry& reg);
 void RunSetDataTests(const schema::SchemaRegistry& reg);
 void RunDodgeTests();
 void RunCompatTests();
+void RunDynamicClipTests(const schema::SchemaRegistry& reg, const std::string& schemaDir);
 
 }  // namespace CB::engine::tests

@@ -201,6 +201,15 @@ std::shared_ptr<io::SchemaObject> ParseEmbeddedObject(const c4::yml::ConstNodeRe
 ///        say renders nothing); ParseEmbeddedObject is its inverse.
 std::string EmitEmbeddedObject(const io::SchemaObject& so, const schema::SchemaRegistry& reg);
 
+/// @brief A clip's selection data (CBClipSelection) from the YAML text of its `selection:` map, its condition tree inline.
+/// @return null with `err` set when the map does not parse.
+std::shared_ptr<io::SchemaObject> ParseClipSelection(std::string_view mapYaml, const schema::SchemaRegistry& reg,
+                                                     const std::string& where, std::string& err);
+/// @brief The selection data an animation unit's text states (`animation:` -> `selection:`).
+/// @return null with `err` empty when the unit states none; null with `err` set when it does not parse.
+std::shared_ptr<io::SchemaObject> ClipSelectionOfAnimation(std::string_view unitText, const schema::SchemaRegistry& reg,
+                                                           const std::string& where, std::string& err);
+
 /// @brief UNIT READERS — the facts load planning needs from a reflective unit, without compiling it.
 std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg);
 /// @brief A character's string data (original case).

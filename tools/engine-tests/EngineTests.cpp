@@ -114,6 +114,7 @@ int main(int argc, char** argv) {
     t::RunSetDataTests(reg);
     t::RunDodgeTests();
     t::RunCompatTests();
+    t::RunDynamicClipTests(reg, argv[1]);
 
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");

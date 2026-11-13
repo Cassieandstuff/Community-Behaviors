@@ -1,0 +1,15 @@
+name:      CBDynamicClipRow
+parent:    null
+size:      32
+enums:     [DynamicClipFlags]
+# One row of a CBDynamicClipGenerator's compiled table: a clip of its folder and that clip's selection data
+# (CBClipSelection, from the clip's animation unit). `clip` is a real hkbClipGenerator, so the character's clip loading
+# binds it as any other. `condition` null = always holds. A row whose weight is <= 0 wins a draw only when every
+# candidate's is.
+fields:
+  - { name: clip,      type: ptr, ref: hkbGenerator }
+  - { name: condition, type: ptr, ref: hkbCondition }
+  - { name: priority,  type: int32 }
+  - { name: weight,    type: float }
+  - { name: flags,     type: int8, hkyenum: DynamicClipFlags, flags: true }
+  - { pad: 8 }

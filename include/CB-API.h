@@ -21,6 +21,7 @@
 //   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches), and
 //                  the same database and scoring the game runs (measure clips, build the database, search, top candidates)
 //   cb::relay    — the condition language: compile and evaluate an expression over caller-supplied variables
+//   cb::dynamic  — the dynamic generators: fill a dynamic clip generator's table, pick its clip, type-check scoped conditions
 //   cb::locomotion — a character's movement step (GASP's CMC model + the facing spring), the horse ladder, slope math,
 //                  the dead blend between poses
 //
@@ -81,6 +82,8 @@
 
 // relay — the condition language's game-free core
 #include "relay/Relay.h"
+#include "relay/DynamicClip.h"
+#include "compile/DynamicClips.h"
 
 // locomotion — the pure movement step the plugin's Advanced Controller runs, game-free
 #include "locomotion/Movement.h"
@@ -416,6 +419,31 @@ namespace relay {
     using CB::engine::relay::FindCallable;                     ///< one of them by exact name; null when absent
     using CB::engine::relay::Choices;                          ///< a choice table by name ("Hand", "WEAPON_TYPE")
 }  // namespace relay
+
+// ── cb::dynamic ──────────────────────────────────────────────────────────────
+/// The dynamic generators' game-free half: CBDynamicClipGenerator's table fill and pick, and the scoped conditions'
+/// type table. A host that previews them runs these, so its picks are the game's.
+namespace dynamic {
+    using ClipCandidate  = CB::engine::relay::ClipCandidate;    ///< one row: priority, weight, flags, whether it passes
+    using Moment         = CB::engine::relay::Moment;           ///< when a re-pick is asked: Update or Loop
+    using FormKey        = CB::engine::relay::FormKey;          ///< "<plugin>|<hex id>", plugin byte-exact
+    using ConditionTypes = CB::engine::relay::ConditionTypes;   ///< schema/metadata/conditions.json: scopes, tests, types
+    using FolderClip     = CB::engine::compile::FolderClip;     ///< one clip of a folder: its name and unit text
+    using ClipLister     = CB::engine::compile::ClipLister;     ///< the host's folder listing over its load order
+    using CB::engine::relay::DynamicClipFlag;                   ///< kInterruptible, kRedrawOnLoop, kKeepRandomOnLoop
+
+    using CB::engine::relay::PickSeed;                          ///< (actor, activation, loop) -> the draw's seed
+    using CB::engine::relay::TopPriority;
+    using CB::engine::relay::PickClip;                          ///< the pick: top priority, then a seeded weighted draw
+    using CB::engine::relay::ShouldRepick;                      ///< the Interruptible / RedrawOnLoop / KeepRandomOnLoop rules
+    using CB::engine::relay::ParseFormKey;
+    using CB::engine::relay::ParseConditionTypes;               ///< conditions.json text -> ConditionTypes
+    using CB::engine::compile::ProjectRootOf;                   ///< a unit's project folder
+    using CB::engine::compile::FillDynamicClipTables;           ///< the compile step: rows and fallbackClip from the folder
+    using CB::engine::compile::DynamicClipFolders;              ///< the folders a graph's generators name
+    using CB::engine::decompile::ParseClipSelection;            ///< a `selection:` map -> CBClipSelection
+    using CB::engine::decompile::ClipSelectionOfAnimation;      ///< an animation unit's text -> its CBClipSelection, if any
+}  // namespace dynamic
 
 // ── cb::trace ──────────────────────────────────────────────────────────────────
 /// One actor's behavior-graph path per update, as data (a runtime's collector fills it, a debugger draws it), and where

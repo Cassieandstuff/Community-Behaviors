@@ -1,0 +1,16 @@
+name:      CBDynamicBehaviorReferenceGenerator
+parent:    hkbGenerator
+size:      104
+runtime:
+  source: self
+# CB's own generator: a behavior reference whose behavior is chosen at run time. In place of hkbBehaviorReferenceGenerator's
+# fixed `behaviorName` it holds a `key`; on activation it asks CB's binding registry which behavior this character's actor
+# is bound to under that key (<CB-Bindings.h>) and runs it. Nothing bound: it runs `fallback` when
+# set, otherwise it is inert. Either way CB logs it.
+# The bound behavior loads and links when it is bound, never at activation. Its events and variables link into the
+# character's by name, as a referenced behavior's do. The node knows nothing about who binds or why.
+# No `signature:` here on purpose: see CBPoseSearchGenerator.yaml.
+fields:
+  - { name: key,      type: string }                    # byte-exact, compared exactly
+  - { name: fallback, type: ptr, ref: hkbGenerator }    # optional
+  - { skip: 16 }   # runtime: this clone's hold on its binding and the generator it runs (not serialized)

@@ -1,0 +1,7 @@
+# CB's own: how a CBScopedCondition's test reads a scope that produces several forms (all worn armor).
+kind:  enum
+name:  ConditionQuantifier
+flags: false
+items:
+  - { name: QUANTIFIER_ANY , value: 0 }
+  - { name: QUANTIFIER_ALL , value: 1 }

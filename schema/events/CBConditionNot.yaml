@@ -1,0 +1,8 @@
+name:      CBConditionNot
+parent:    hkbCondition
+size:      24
+runtime:
+  source: self
+# CB's own condition: holds when `condition` does not (null: holds).
+fields:
+  - { name: condition, type: ptr, ref: hkbCondition }

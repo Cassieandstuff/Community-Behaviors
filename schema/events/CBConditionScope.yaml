@@ -1,0 +1,9 @@
+name:      CBConditionScope
+parent:    null
+size:      24
+# One step of a scope chain: a scope `kind` and its arguments, both byte-exact. The first step starts from the
+# character's own actor (or names its own start, as `alias` does); each later step reads the forms the step before
+# produced. The kinds, what each accepts and produces, and their arguments are metadata/conditions.json's.
+fields:
+  - { name: kind,      type: string }
+  - { name: arguments, type: stringarray, roster: whole }

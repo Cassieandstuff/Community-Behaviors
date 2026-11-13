@@ -70,6 +70,7 @@ bool IsNodeClass(const std::string& className) {
     static const std::unordered_set<std::string> kNodes = {
         "hkRootLevelContainer", "hkbStateMachine", "hkbStateMachineStateInfo", "hkbClipGenerator",
         "hkbTransitionEffect", "hkbBlendingTransitionEffect", "hkbManualSelectorGenerator", "CBPoseSearchGenerator", "CBBlendSpace2DGenerator",
+        "CBDynamicClipGenerator", "CBDynamicBehaviorReferenceGenerator",
         "hkbBehaviorReferenceGenerator", "BSiStateTaggingGenerator", "hkbBlenderGenerator",
         "BSCyclicBlendTransitionGenerator", "BSBoneSwitchGenerator", "BSOffsetAnimationGenerator",
         "BSSynchronizedClipGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",

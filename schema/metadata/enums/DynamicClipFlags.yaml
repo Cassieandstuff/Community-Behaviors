@@ -1,0 +1,9 @@
+# CB's own: how a CBDynamicClipGenerator re-picks while a row plays. One to one with OAR's flags (interruptible,
+# replaceOnLoop, keepRandomResultsOnLoop), which the OAR conversion maps across.
+kind:  enum
+name:  DynamicClipFlags
+flags: true
+items:
+  - { name: FLAG_INTERRUPTIBLE       , value: 1 }
+  - { name: FLAG_REDRAW_ON_LOOP      , value: 2 }
+  - { name: FLAG_KEEP_RANDOM_ON_LOOP , value: 4 }

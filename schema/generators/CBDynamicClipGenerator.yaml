@@ -1,0 +1,37 @@
+name:      CBDynamicClipGenerator
+parent:    hkbGenerator
+size:      176
+enums:     [PlaybackMode, ClipFlags]
+defaults:  { playbackSpeed: 1, blendDuration: 0.2 }
+runtime:
+  source: self
+# CB's own generator: plays one clip of a FOLDER, picked by the selection data each clip carries. Not derived from
+# hkbClipGenerator on purpose, so nothing that hooks clip generators acts on it.
+# Authored: the clip generator's own settings (triggers .. flags, given to every clip it plays), `folder` and `fallback`.
+# `folder` is relative to the hosting project's animation root (meshes/actors/<project>/animations/), byte-exact, either
+# slash; it never leaves that project. `fallback` names one clip, as hkbClipGenerator's animationName does.
+# Compiled: CB's compile fills `rows` from the folder over the merged load order (one row per clip, its selection data
+# from the clip's animation unit, `selection:`), and `fallbackClip` from `fallback`. The runtime never scans folders. A
+# patch never states `rows` or `fallbackClip`: the compile replaces them whole.
+# Pick, at every activation: among the rows whose condition holds, the highest priority wins; ties within that priority
+# draw by weight, seeded by the actor and the activation, so a replay picks the same. No row holds: fallbackClip plays.
+# A switch of clip dead-blends over `blendDuration` seconds.
+# No `signature:` here on purpose: see CBPoseSearchGenerator.yaml.
+fields:
+  - { name: triggers,                    type: ptr, ref: hkbClipTriggerArray }
+  - { name: cropStartAmountLocalTime,    type: float }
+  - { name: cropEndAmountLocalTime,      type: float }
+  - { name: startTime,                   type: float }
+  - { name: playbackSpeed,               type: float }
+  - { name: enforcedDuration,            type: float }
+  - { name: userControlledTimeFraction,  type: float }
+  - { name: mode,                        type: int8, enum: PlaybackMode }
+  - { name: flags,                       type: int8, hkyenum: ClipFlags, flags: true }
+  - { pad: 8 }
+  - { name: folder,                      type: string }
+  - { name: fallback,                    type: string }
+  - { name: blendDuration,               type: float }   # seconds a switch of clip blends over
+  - { pad: 8 }
+  - { name: rows,                        type: structarray, ref: CBDynamicClipRow, roster: whole }   # compiled
+  - { name: fallbackClip,                type: ptr, ref: hkbGenerator }                             # compiled
+  - { skip: 16 }   # runtime: this clone's pick state (not serialized)
