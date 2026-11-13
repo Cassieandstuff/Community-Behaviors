@@ -2,7 +2,9 @@
 
 #include "Bindings.h"
 
-#include <CB-Bindings.h>
+#include "../../../include/CB-Bindings.h"
+
+#include <Behavior/Behavior/Generator/hkbGenerator.h>
 
 #include <map>
 #include <memory>
@@ -140,7 +142,7 @@ namespace CB::feature::dynamic {
         r.held.erase(it);
     }
 
-    void ListenForBindings(SKSE::MessagingInterface& messaging)
+    void ListenForBindings(const SKSE::MessagingInterface& messaging)
     {
         if (!messaging.RegisterListener(nullptr, &OnMessage)) LOG_WARN("[dynamic-behavior] could not listen for binding messages");
     }

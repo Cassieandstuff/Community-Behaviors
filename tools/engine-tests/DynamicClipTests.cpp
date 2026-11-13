@@ -165,7 +165,7 @@ void SelectionChecks(const schema::SchemaRegistry& reg) {
     Check(sel->GetFloat("weight") == 2.5f, "weight reads");
     Check(sel->GetInt("flags") == 3, "flags read by name");
     const auto* cond = sel->Child("condition");
-    Check(cond && cond->ClassName() == "CBConditionAnd", "the condition tree is inline, class-tagged");
+    Check(cond && std::string(cond->ClassName()) == "CBConditionAnd", std::string("the condition tree is inline, class-tagged: ") + (cond ? cond->ClassName() : "null"));
 }
 
 
@@ -198,7 +198,7 @@ void FillChecks(const schema::SchemaRegistry& reg) {
     Check(report.warnings.size() == 1, "a malformed selection warns and keeps the defaults");
     const auto& rows = gen->FieldRef("rows").objs;
     if (rows.size() != 3) return;
-    const auto row = [&](std::size_t i) { return std::static_pointer_cast<io::SchemaObject>(rows[i]); };
+    const auto row = [&](std::size_t i) { return std::static_pointer_cast<codec::io::SchemaObject>(rows[i]); };
     const auto clip = [&](std::size_t i) { return row(i)->Child("clip"); };
     Check(clip(0)->Str("animationName") == "Animations/Idles/Random/A.hkx", "rows sorted by name, names byte-exact");
     Check(row(0)->GetInt("priority") == 0 && row(0)->GetFloat("weight") == 1.0f, "a binary clip has the default selection");

@@ -9,6 +9,7 @@
 
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Context/hkbContext.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
 #include <Common/Base/Reflection/hkClass.h>
 

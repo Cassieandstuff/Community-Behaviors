@@ -41,7 +41,7 @@ namespace CB::engine::compile {
 
     std::string ProjectRootOf(std::string_view unitKey)
     {
-        const std::filesystem::path p(std::string(unitKey));
+        const std::filesystem::path p{ std::string(unitKey) };
         const std::filesystem::path root = p.parent_path().parent_path();
         if (root.empty()) return {};
         std::string out = root.generic_string();

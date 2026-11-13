@@ -38,6 +38,6 @@ namespace CB::feature::dynamic {
     void Release(std::uint64_t ticket);
 
     /// @brief Take bindings from other plugins: cb::bindings messages (<CB-Bindings.h>) from any sender.
-    void ListenForBindings(SKSE::MessagingInterface& messaging);
+    void ListenForBindings(const SKSE::MessagingInterface& messaging);
 
 }  // namespace CB::feature::dynamic
