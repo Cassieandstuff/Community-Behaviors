@@ -5,6 +5,7 @@
 #include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
 #include <BSHavok/bhkPickData.h>
 
+#include <algorithm>
 #include <cfloat>
 #include <cstddef>
 #include <cstring>
