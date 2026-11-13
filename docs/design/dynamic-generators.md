@@ -178,14 +178,17 @@ alias A" is `IsSame` with an empty scope and `other: [alias(Q, A)]`. A scene's c
 which is how cutscene roles are told apart with no role concept in any node. `alias` produces a Reference: chaining
 an actor scope after it (`alias(...).equipped.right`) needs an alias-to-actor step, not in the first set.
 
+**Text form** (`relay/ConditionText.h`, settled by the user 2026-11-12): a method chain over the same tree, e.g.
+`equipped.right.HasKeyword("Skyrim.esm|0x0001E711") && !IsSame(alias("MyScene.esp|0x000D62", 3))`. Dot-separated steps,
+the last one the test; names byte-exact as conditions.json spells them (a dotted scope matches longest-first); `all.` in
+front sets the quantifier; `!`, `&&`, `||`, parentheses. `ParseConditionText` type-checks against the table and
+`FormatConditionText` writes it back. Nothing reads it yet: the unit format and BK still carry the classes.
+
 **Cost.** Within one evaluation of a generator's rows, each distinct chain resolves once per actor and is shared
 across the rows' conditions (`EvaluationScope`). FormKeys resolve once per process.
 
 ## Open
 
-- **Relay scope syntax.** CB's condition text (Relay, `CBGameRelayCondition`) could gain scopes, e.g.
-  `Equipped("right").HasKeyword("WeapTypeSword")`, compiling to the same structured conditions BK edits: one language
-  in text form and object form. Syntax settled (user, 2026-11-12): the method chain. The parser is not built yet.
 - **The exit event's name** - settled (user, 2026-11-12): per key, `<key>Done`. The cutscene slot's key is `Cutscene`, so
   its exit event is `CutsceneDone`.
 - **CB-21**: the bind-time behavior load.

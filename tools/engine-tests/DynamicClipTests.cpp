@@ -5,6 +5,7 @@
 
 #include <compile/DynamicClips.h>
 #include <decompile/BehaviorDecompile.h>
+#include <relay/ConditionText.h>
 #include <relay/DynamicClip.h>
 
 #include <algorithm>
@@ -105,6 +106,33 @@ void TypeChecks(const std::string& schemaDir) {
     Check(!types->Check(chain({ "self", "alias" }), "Exists").empty(), "alias starts a chain");
     Check(!types->Check(chain({ "self", "mount", "mount", "mount", "mount" }), "Exists").empty(), "chains are capped");
     Check(types->Check({}, "ActorValue").empty(), "an empty chain is the actor itself");
+
+    using K = rl::ConditionNode::Kind;
+    std::string e;
+    auto n = rl::ParseConditionText(R"(equipped.right.HasKeyword("Skyrim.esm|0x0001E711"))", *types, e);
+    Check(n && n->kind == K::Scoped && n->scope.size() == 1 && n->scope[0].kind == "equipped.right" && n->test == "HasKeyword" &&
+              n->arguments == std::vector<std::string>{ "Skyrim.esm|0x0001E711" },
+          "a dotted scope then a test: " + e);
+    n = rl::ParseConditionText(R"(IsSame(alias("MyScene.esp|0x000D62", 3)) && !(combatTarget.equipped.left.Exists || all.worn(32).HasKeyword("a.esp|0x1")))", *types, e);
+    Check(n && n->kind == K::And && n->children.size() == 2, "&& and ! nest: " + e);
+    if (n && n->children.size() == 2) {
+        const auto& same = n->children[0];
+        Check(same.scope.empty() && same.test == "IsSame" && same.other.size() == 1 && same.other[0].kind == "alias" &&
+                  same.other[0].arguments == std::vector<std::string>{ "MyScene.esp|0x000D62", "3" },
+              "IsSame takes a chain as its other");
+        const auto& no = n->children[1];
+        Check(no.kind == K::Not && no.children.size() == 1 && no.children[0].kind == K::Or && no.children[0].children.size() == 2 &&
+                  no.children[0].children[1].all && no.children[0].children[1].scope[0].arguments == std::vector<std::string>{ "32" },
+              "! over a parenthesised ||, all. sets the quantifier");
+        const std::string formatted = rl::FormatConditionText(*n);
+        const auto        back = rl::ParseConditionText(formatted, *types, e);
+        Check(back && rl::FormatConditionText(*back) == formatted, "the text form round-trips: " + formatted + " " + e);
+    }
+    Check(rl::ParseConditionText("ActorValue(\"Health\", <, 50)", *types, e) && e.empty(), "an empty chain is the actor: " + e);
+    Check(!rl::ParseConditionText("race.equipped.right.HasKeyword(\"a.esp|0x1\")", *types, e) && !e.empty(), "a mistyped chain is refused");
+    Check(!rl::ParseConditionText("Equipped.right.HasKeyword(\"a.esp|0x1\")", *types, e), "names are byte-exact: no case folding");
+    Check(!rl::ParseConditionText("HasKeyword()", *types, e), "a missing argument is refused");
+    Check(!rl::ParseConditionText("Exists && ", *types, e), "a dangling && is refused");
 }
 
 void SchemaChecks(const schema::SchemaRegistry& reg) {
