@@ -10,7 +10,6 @@
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
-#include <BSHavok/bhkPickData.h>
 
 #include <algorithm>
 #include <array>
@@ -87,23 +86,24 @@ namespace CB::feature {
             fn(shape, transform, 0.0f, out);
         }
 
+        /// @note Cast through the game's hky::physics backend (game units at the interface, Havok units here).
         Hit CastDown(::bhkWorld* world, ::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
         {
-            Hit             h;
-            ::bhkPickData pick;
-            pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
-            pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
-            pick.m_rayInput.m_filterInfo = filter;
+            Hit                                h;
+            constexpr float                    k = hky::physics::kHavokToGame;
+            const platform::physics::GameWorld game(world);
+            hky::physics::QueryFilter          q;
+            q.native = filter;
             controller::CountLoad(controller::LoadCounter::Rays);
-            world->PickObject(pick);
-            if (!pick.m_rayOutput.hasHit() || !pick.m_rayOutput.m_rootCollidable) return h;
+            const auto hit = game.CastRay({ x * k, y * k, fromZ * k }, { x * k, y * k, toZ * k }, q);
+            if (!hit) return h;
             h.hit   = true;
-            h.dz    = fromZ + (toZ - fromZ) * pick.m_rayOutput.m_hitFraction - feetZ;
-            h.nx    = pick.m_rayOutput.m_normal(0);
-            h.ny    = pick.m_rayOutput.m_normal(1);
-            h.nz    = pick.m_rayOutput.m_normal(2);
-            h.body  = pick.m_rayOutput.m_rootCollidable;
-            h.layer = h.body->getCollisionFilterInfo() & 0x7f;
+            h.dz    = fromZ + (toZ - fromZ) * hit->fraction - feetZ;
+            h.nx    = hit->normal.x;
+            h.ny    = hit->normal.y;
+            h.nz    = hit->normal.z;
+            h.body  = reinterpret_cast<const ::hkpCollidable*>(hit->userData);
+            h.layer = hit->layer;
             return h;
         }
 

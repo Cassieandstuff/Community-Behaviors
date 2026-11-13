@@ -62,7 +62,10 @@ src/                         CB's code. src/ is the plugin's private include roo
                              an engine.yaml row (its decorated name comes from the first link error). Flags,
                              settings, the overlay host and startup phases move here next; until then it still
                              reads core/debug. relay/ = Animation Relay's game-state primitives
-                             (<platform/relay/Relay.h>) over the engine's condition language (<relay/Relay.h>).
+                             (<platform/relay/Relay.h>) over the engine's condition language (<hky/relay/Relay.h>).
+                             physics/ = the game's backends of HKY-SDK's runtime interfaces: GameWorld
+                             (hky::physics::IPhysicsWorld over bhkWorld: rays, sweeps of a live collidable) and
+                             GameGraph (hky::runtime::IBehaviorRuntime over an actor's graph variables and events).
   features/<Owner>/          self-registered graph features (CB_REGISTER_FEATURE, CB::feature::), compiled
                              straight into the plugin; ERGate.h (the ER wildcard-gate hook) lives here too
   converter/                 the GLFW+ImGui Behavior Converter (BehaviorConverter.exe, CB::converter::);
@@ -124,7 +127,7 @@ another root renames its namespace; a stray top-level namespace is a bug.
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
-  conditions` (core) · `hooks relay` (platform: the game-state primitives) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
+  conditions` (core) · `hooks relay physics` (platform: the game-state primitives, the runtime backends) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
   linker` + `text disk exec` + `locomotion relay` (engine). `locomotion` = the pure character movement step (CMC model,
   facing spring, horse ladder, slope math) the plugin's Advanced Controller runs and `cb::locomotion` re-exports, plus
   the motion-matching database and scoring (PoseSearch) it and `cb::mm` share; `relay` = Animation Relay's core, the

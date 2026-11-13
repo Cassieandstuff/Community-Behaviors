@@ -1,14 +1,18 @@
 #include "PCH.h"
 
+#include "CharGraph.h"
+
 #include "CharGround.h"
 #include "CharLoad.h"
+
+#include <hky/locomotion/Floor.h>
+#include <platform/physics/GameWorld.h>
 
 #include <Common/Base/hkBase.h>
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
-#include <BSHavok/bhkPickData.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
 #include <algorithm>
@@ -38,25 +42,6 @@ namespace CB::feature::controller {
             using Fn      = void (*)(const ::hkpShape*, const ::hkTransform&, float, ::hkAabb&);
             const auto fn = reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(shape))[7]);
             fn(shape, transform, 0.0f, out);
-        }
-
-        FloorHit CastDown(::bhkWorld* world, ::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
-        {
-            FloorHit         h;
-            ::bhkPickData  pick;
-            pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
-            pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
-            pick.m_rayInput.m_filterInfo = filter;
-            world->PickObject(pick);
-            if (!pick.m_rayOutput.hasHit() || !pick.m_rayOutput.m_rootCollidable) return h;
-            h.hit   = true;
-            h.dz    = fromZ + (toZ - fromZ) * pick.m_rayOutput.m_hitFraction - feetZ;
-            h.nx    = pick.m_rayOutput.m_normal(0);
-            h.ny    = pick.m_rayOutput.m_normal(1);
-            h.nz    = pick.m_rayOutput.m_normal(2);
-            h.body  = pick.m_rayOutput.m_rootCollidable;
-            h.layer = h.body->getCollisionFilterInfo() & 0x7f;
-            return h;
         }
 
         /// @brief A body this much longer than it is wide is read as a long body.
@@ -233,8 +218,8 @@ namespace CB::feature::controller {
         if (!actor) return "";
         bool        on   = false;
         const char* flag = "";
-        if (actor->GetGraphVariableBool(animationDriven, on) && on) flag = "bAnimationDriven";
-        else if (actor->GetGraphVariableBool(isSynced, on) && on) flag = "bIsSynced";
+        if (GetGraphBool(actor, animationDriven, on) && on) flag = "bAnimationDriven";
+        else if (GetGraphBool(actor, isSynced, on) && on) flag = "bIsSynced";
         if (actor == RE::PlayerCharacter::GetSingleton()) g_playerGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
         else if (IsRiddenHorse(reinterpret_cast<const ::bhkCharacterController*>(actor->GetCharController())))
             g_horseGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
@@ -332,81 +317,65 @@ namespace CB::feature::controller {
 
     namespace {
 
-        /// @brief The centre of a long body's fore (+1) or hind (-1) end: half a width in from its tip, so the end's
-        ///        footprint ring stays inside the body.
-        void EndCentre(const Hull& hull, float side, float& x, float& y)
+        namespace lc = hky::locomotion;
+
+        lc::FloorBody BodyOf(const Hull& h)
         {
-            const float reach = (std::max)(0.0f, hull.halfLength - hull.radius) * side;
-            x                 = hull.cx + hull.fx * reach;
-            y                 = hull.cy + hull.fy * reach;
+            lc::FloorBody b;
+            b.feetZ = h.feetZ, b.cx = h.cx, b.cy = h.cy, b.radius = h.radius;
+            b.longBody = h.longBody, b.fx = h.fx, b.fy = h.fy, b.halfLength = h.halfLength, b.lift = h.lift;
+            return b;
         }
 
-        void RingXY(float centreX, float centreY, float radius, int i, const FloorTunables& t, float& x, float& y)
+        lc::FloorTunables TunablesOf(const FloorTunables& t) { return { t.perchFraction, t.footTolerance, t.wallNormalZ }; }
+
+        FloorHit FromSdk(const lc::FloorHit& h)
         {
-            const float perch = radius * t.perchFraction;
-            const float a     = 6.2831853f * static_cast<float>(i - 1) / 8.0f;
-            x                 = centreX + (i == 0 ? 0.0f : perch * std::cos(a));
-            y                 = centreY + (i == 0 ? 0.0f : perch * std::sin(a));
+            FloorHit o;
+            o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
+            o.body = reinterpret_cast<const ::hkpCollidable*>(h.body);
+            return o;
         }
 
-        FloorVerdict Footprint(::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t);
-        bool         PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which);
-
-        /// @brief A long body's verdict from its two ends (see QueryFloor).
-        FloorVerdict Combine(const FloorVerdict& fore, const FloorVerdict& hind)
+        lc::FloorHit ToSdk(const FloorHit& h)
         {
-            FloorVerdict v = fore;
-            const bool   foreDown = fore.ground == Ground::Grounded, hindDown = hind.ground == Ground::Grounded;
-            if (foreDown && hindDown) {
-                v.support      = (std::min)(fore.support, hind.support);
-                v.supportHits  = fore.supportHits + hind.supportHits;
-                v.walkableHits = fore.walkableHits + hind.walkableHits;
-                const float nx = fore.groundNx + hind.groundNx, ny = fore.groundNy + hind.groundNy, nz = fore.groundNz + hind.groundNz;
-                const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-                if (len > 1.0e-6f) v.groundNx = nx / len, v.groundNy = ny / len, v.groundNz = nz / len;
-                if (!v.supportBody) v.supportBody = hind.supportBody;
-            } else if (hindDown) {
-                v.ground       = hind.ground;
-                v.support      = hind.support;
-                v.supportHits  = hind.supportHits;
-                v.walkableHits = hind.walkableHits;
-                v.groundNx = hind.groundNx, v.groundNy = hind.groundNy, v.groundNz = hind.groundNz;
-                v.supportBody  = hind.supportBody;
-            }
-            v.longBody  = true;
-            v.hindHits  = hind.hits;
-            v.stickable = fore.stickable || hind.stickable;
-            v.stickDz   = !fore.stickable ? hind.stickDz : !hind.stickable ? fore.stickDz : (std::max)(fore.stickDz, hind.stickDz);
-            return v;
+            lc::FloorHit o;
+            o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
+            o.body = reinterpret_cast<std::uint64_t>(h.body);
+            return o;
         }
 
-    }  // namespace
+        FloorVerdict FromSdk(const lc::FloorVerdict& v)
+        {
+            FloorVerdict o;
+            o.ground    = v.ground == lc::Ground::Grounded ? Ground::Grounded : Ground::Airborne;
+            o.support   = v.support;
+            o.stickable = v.stickable;
+            o.stickDz   = v.stickDz;
+            o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
+            o.supportBody  = reinterpret_cast<const ::hkpCollidable*>(v.supportBody);
+            o.supportHits  = v.supportHits;
+            o.walkableHits = v.walkableHits;
+            o.longBody     = v.longBody;
+            for (std::size_t i = 0; i < o.hits.size(); i++) o.hits[i] = FromSdk(v.hits[i]), o.hindHits[i] = FromSdk(v.hindHits[i]);
+            return o;
+        }
 
-    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind)
-    {
-        float cx = hull.cx, cy = hull.cy;
-        if (hull.longBody) EndCentre(hull, hind ? -1.0f : 1.0f, cx, cy);
-        RingXY(cx, cy, hull.radius, i, t, x, y);
-    }
-
-    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
-    {
-        return QueryFloorAt(ctrl, hull, 0.0f, 0.0f, 0.0f, t);
-    }
-
-    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hullHere, float dx, float dy, float dz, const FloorTunables& t)
-    {
-        if (!hullHere.valid) return FloorVerdict{};
-        Hull hull = hullHere;
-        hull.cx += dx, hull.cy += dy, hull.feetZ += dz, hull.topZ += dz;
-        if (!hull.longBody) return Footprint(ctrl, hull, hull.cx, hull.cy, t);
-        float foreX, foreY, hindX, hindY;
-        EndCentre(hull, 1.0f, foreX, foreY);
-        EndCentre(hull, -1.0f, hindX, hindY);
-        return Combine(Footprint(ctrl, hull, foreX, foreY, t), Footprint(ctrl, hull, hindX, hindY, t));
-    }
-
-    namespace {
+        lc::FloorVerdict ToSdk(const FloorVerdict& v)
+        {
+            lc::FloorVerdict o;
+            o.ground    = v.ground == Ground::Grounded ? lc::Ground::Grounded : lc::Ground::Airborne;
+            o.support   = v.support;
+            o.stickable = v.stickable;
+            o.stickDz   = v.stickDz;
+            o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
+            o.supportBody  = reinterpret_cast<std::uint64_t>(v.supportBody);
+            o.supportHits  = v.supportHits;
+            o.walkableHits = v.walkableHits;
+            o.longBody     = v.longBody;
+            for (std::size_t i = 0; i < o.hits.size(); i++) o.hits[i] = ToSdk(v.hits[i]), o.hindHits[i] = ToSdk(v.hindHits[i]);
+            return o;
+        }
 
         std::atomic<std::uint64_t> g_footprints{ 0 }, g_rings{ 0 };
 
@@ -421,102 +390,42 @@ namespace CB::feature::controller {
                          n + 8 * rings);
         }
 
-        FloorVerdict Footprint(::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t)
-        {
-            CB_ZONE(zone, "floor query");
-            FloorVerdict      v;
-            const float       probe  = ctrl.m_stepHeight;
-            const float       walkZ  = WalkableZ(ctrl);
-            const ::CFilter filter = ctrl.GetCollisionFilterInfo();
-            const float       top    = hull.feetZ + (std::max)(hull.radius, hull.lift);
-            auto cast = [&](int i) {
-                float x, y;
-                RingXY(centreX, centreY, hull.radius, i, t, x, y);
-                v.hits[i]      = CastDown(hull.world, filter.m_filter, x, y, top, hull.feetZ - probe, hull.feetZ);
-                v.hits[i].cast = true;
-            };
-            cast(0);
-            /// @note Box3D's skirt rule, under the pogo (a floating hull): the ring is cast only when the axis is unsure,
-            ///       that is its ray missed or met a wall, a character or ground too steep to walk (a ledge, a rail, the
-            ///       foot of a slope). Otherwise the axis alone decides, as it alone holds the pogo (locomotion::PogoSelect).
-            /// @note The full ring stays without the pogo: there walkability was judged on the averaged normal of every
-            ///       hit (see below), which one ray cannot give.
-            const FloorHit& axis = v.hits[0];
-            const bool      sure = hull.lift > 0.0f && axis.hit && axis.layer != kCharControllerLayer && axis.nz >= t.wallNormalZ && axis.nz >= walkZ;
-            if (!sure)
-                for (int i = 1; i < static_cast<int>(v.hits.size()); i++) cast(i);
-            CountFootprint(!sure);
-            float sx = 0, sy = 0, sz = 0;
-            v.stickDz = -1.0e9f;
-            for (const FloorHit& h : v.hits) {
-                if (!h.hit || h.layer == kCharControllerLayer || h.nz < t.wallNormalZ) continue;
-                const bool walkable = h.nz >= walkZ;
-                if (h.dz >= -t.footTolerance) {
-                    ++v.supportHits;
-                    sx += h.nx, sy += h.ny, sz += h.nz;
-                    if (walkable) {
-                        ++v.walkableHits;
-                        if (!v.supportBody) v.supportBody = h.body;
-                    }
-                } else {
-                    v.stickable = true;
-                    v.stickDz   = (std::max)(v.stickDz, h.dz);
-                }
-            }
-            /// @note Walkability is judged on the AVERAGED normal of every hit under the feet, not on any single ray: the
-            ///       first ground-states capture flipped Grounded / Sliding 172 times (117 within a second) on rough 50-60 deg
-            ///       terrain because one walkable ray among four to seven steep ones decided it.
-            const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
-            if (len > 1.0e-6f) v.groundNx = sx / len, v.groundNy = sy / len, v.groundNz = sz / len;
-            v.support = v.supportHits == 0 ? 0.0f : Support(ctrl, v.groundNz);
-            v.ground  = v.supportHits == 0 ? Ground::Airborne : Ground::Grounded;
-            /// @note Under the pogo the ray it holds the feet to is the one floor source (Box3D's dynamic mover): its
-            ///       normal is the ground's and walkable or not is all the support there is, so an edge's steep face
-            ///       never outvotes the walkable top a skirt ray found. The ground states fade the grip over time
-            ///       (Box3D's slideDuration), which is what keeps rough steep terrain from flickering.
-            float pogoDz = 0.0f;
-            int   chosen = -1;
-            if (hull.lift > 0.0f && v.supportHits > 0 && PogoEnd(v.hits, walkZ, pogoDz, chosen) && chosen >= 0) {
-                const FloorHit& h = v.hits[chosen];
-                v.groundNx = h.nx, v.groundNy = h.ny, v.groundNz = h.nz;
-                v.support  = h.nz >= walkZ ? 1.0f : 0.0f;
-            }
-            if (Supported(v) && !v.supportBody) {
-                for (const FloorHit& h : v.hits)
-                    if (h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ && h.dz >= -t.footTolerance) {
-                        v.supportBody = h.body;
-                        break;
-                    }
-            }
-            if (!v.stickable) v.stickDz = 0.0f;
-            return v;
-        }
-
-        bool PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which)
-        {
-            const FloorTunables                                 t;
-            std::array<hky::locomotion::PogoProbe, 9> probes{};
-            for (std::size_t i = 0; i < hits.size(); i++) {
-                const FloorHit& h = hits[i];
-                probes[i]         = { h.hit, h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ, h.dz, h.nz };
-            }
-            return hky::locomotion::PogoSelect(probes.data(), static_cast<int>(probes.size()), walkableZ, dz, &which);
-        }
-
     }  // namespace
+
+    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind)
+    {
+        lc::FloorRayXY(BodyOf(hull), i, TunablesOf(t), x, y, hind);
+    }
+
+    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
+    {
+        return QueryFloorAt(ctrl, hull, 0.0f, 0.0f, 0.0f, t);
+    }
+
+    /// @note hky::locomotion's floor query, cast through the game's world (platform::physics::GameWorld) with the
+    ///       controller's own collision filter.
+    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t)
+    {
+        if (!hull.valid) return FloorVerdict{};
+        CB_ZONE(zone, "floor query");
+        const platform::physics::GameWorld world(hull.world);
+        const ::CFilter                    filter = ctrl.GetCollisionFilterInfo();
+        lc::FloorQuery                     q;
+        q.world          = &world;
+        q.filter.native  = filter.m_filter;
+        q.stepHeight     = ctrl.m_stepHeight;
+        q.walkableZ      = WalkableZ(ctrl);
+        q.characterLayer = kCharControllerLayer;
+        q.support        = [&ctrl](float groundNz) { return Support(ctrl, groundNz); };
+        const lc::FloorVerdict v = lc::QueryFloorAt(q, BodyOf(hull), dx, dy, dz, TunablesOf(t));
+        CountFootprint(v.ringCast);
+        if (v.longBody) CountFootprint(v.hindRingCast);
+        return FromSdk(v);
+    }
 
     bool PogoFloor(const ::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray)
     {
-        const float walkZ = WalkableZ(ctrl);
-        float       fore = 0.0f, hind = 0.0f;
-        int         foreRay = -1, hindRay = -1;
-        const bool  haveFore = PogoEnd(v.hits, walkZ, fore, foreRay);
-        const bool  haveHind = v.longBody && PogoEnd(v.hindHits, walkZ, hind, hindRay);
-        if (!haveFore && !haveHind) return false;
-        const bool useHind = !haveFore || (haveHind && hind > fore);
-        dz                 = useHind ? hind : fore;
-        if (ray) *ray = useHind ? static_cast<int>(v.hits.size()) + hindRay : foreRay;
-        return true;
+        return lc::PogoFloor(WalkableZ(ctrl), ToSdk(v), dz, ray, kCharControllerLayer);
     }
 
     bool PogoOn()

@@ -1,5 +1,7 @@
 #include "PCH.h"
 
+#include "CharGraph.h"
+
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
@@ -846,7 +848,7 @@ namespace CB::feature {
             std::int32_t iState = 0;
             {
                 static const RE::BSFixedString kIState("iState");
-                actor->GetGraphVariableInt(kIState, iState);
+                controller::GetGraphInt(actor, kIState, iState);
             }
 
             const float speed      = std::sqrt(v(0) * v(0) + v(1) * v(1));

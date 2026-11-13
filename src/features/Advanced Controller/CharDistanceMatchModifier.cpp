@@ -1,5 +1,7 @@
 #include "PCH.h"
 
+#include "CharGraph.h"
+
 #include "CharDistanceMatchModifier.h"
 #include "CharMotionMatching.h"
 
@@ -106,7 +108,7 @@ namespace CB::feature::controller {
         }
         const double duration = curve->Duration();
         m_clipTime            = static_cast<float>(std::clamp(t, 0.0, duration));
-        actor->SetGraphVariableFloat(RE::BSFixedString(var), duration > 0.0 ? static_cast<float>(m_clipTime / duration) : 0.0f);
+        SetGraphFloat(actor, RE::BSFixedString(var), duration > 0.0 ? static_cast<float>(m_clipTime / duration) : 0.0f);
     }
 
     bool DistanceMatchModifier::isValid(::hkStringPtr& errorString) const { return true; }

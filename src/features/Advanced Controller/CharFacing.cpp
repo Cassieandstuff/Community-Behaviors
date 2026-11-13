@@ -1,5 +1,7 @@
 #include "PCH.h"
 
+#include "CharGraph.h"
+
 #include "CharDebugHud.h"
 #include "CharMovementTuning.h"
 #include "CharFacing.h"
@@ -191,8 +193,8 @@ namespace CB::feature::controller {
             static int held = 0;
             const auto in   = hky::locomotion::StickInputOf(raw.x, raw.y, cameraYaw, heading, held);
             held            = in.direction;
-            player->SetGraphVariableInt(direction, in.direction);
-            player->SetGraphVariableInt(intensity, in.intensity);
+            SetGraphInt(player, direction, in.direction);
+            SetGraphInt(player, intensity, in.intensity);
         }
 
         /// @brief Whether the player is doing something aimed (an attack or a bow, blocking, casting): then the body
@@ -260,7 +262,7 @@ namespace CB::feature::controller {
             static const RE::BSFixedString speedSynced("bSpeedSynced");
             if (const char* moves = GraphMovesActor(actor); *moves) return moves;
             bool on = false;
-            if (actor->GetGraphVariableBool(speedSynced, on) && on) return "bSpeedSynced";
+            if (GetGraphBool(actor, speedSynced, on) && on) return "bSpeedSynced";
             return "";
         }
 
