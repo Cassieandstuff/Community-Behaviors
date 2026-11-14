@@ -201,6 +201,20 @@ namespace CB::feature::controller {
 
         /// @brief Whether the player is doing something aimed (an attack or a bow, blocking, casting): then the body
         ///        faces the camera and strafes.
+        float MagnetizedAim(RE::Actor* actor, float heading);
+
+        /// @brief Where an attack goes: while the camera is locked onto a fight, at its primary target (the stick does not
+        ///        redirect it; a flick of the look stick changes the target); otherwise the stick's heading, magnetized.
+        float AttackAim(RE::Actor* actor, bool haveStick, float stickHeading, float heading)
+        {
+            float x = 0.0f, y = 0.0f;
+            if (camera::lock::Primary(x, y)) {
+                const RE::NiPoint3 at = actor->GetPosition();
+                return std::atan2(x - at.x, y - at.y);
+            }
+            return MagnetizedAim(actor, haveStick ? stickHeading : heading);
+        }
+
         bool Aiming(RE::Actor* actor)
         {
             return actor->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone || actor->IsBlocking() || actor->WhoIsCasting() != 0;
@@ -480,7 +494,7 @@ namespace CB::feature::controller {
                 if (graphDrives && hold && !vanilla && steer == Steer::Player && deltaTime > 0.0f &&
                     player->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone) {
                     const float cap  = AttackTurnRate(player) * deltaTime;
-                    const float aim  = MagnetizedAim(player, haveStick ? stickHeading : heading);
+                    const float aim  = AttackAim(player, haveStick, stickHeading, heading);
                     const float step = std::clamp(WrapPi(aim - heading), -cap, cap);
                     out->turn[2]     = step / deltaTime;
                 }
@@ -536,7 +550,7 @@ namespace CB::feature::controller {
                 float face = lockedOn ? std::atan2(lockX - pos.x, lockY - pos.y) : cameraYaw;
                 if (MeleeAttacking(player)) {
                     face = heading;
-                    if (AttackTurnRate(player) > 0.0f) face = MagnetizedAim(player, haveStick ? stickHeading : heading);
+                    if (AttackTurnRate(player) > 0.0f) face = AttackAim(player, haveStick, stickHeading, heading);
                 }
                 in.haveTarget = true;
                 in.targetX    = pos.x + kFaceCameraReach * std::sin(face);

@@ -72,6 +72,8 @@ namespace CB::feature::camera::lock {
             v.firstPersonHold = std::clamp(ReadFloat("fFirstPersonHoldTime", v.firstPersonHold), 0.1f, 3.0f);
             v.maxDistance     = (std::max)(100.0f, ReadFloat("fFramingMaxDistance", v.maxDistance));
             v.range           = (std::max)(100.0f, ReadFloat("fLockRange", v.range));
+            v.fullWeightAt    = (std::max)(0.0f, ReadFloat("fFramingFullWeight", v.fullWeightAt));
+            v.zeroWeightAt    = (std::max)(v.fullWeightAt + 1.0f, ReadFloat("fFramingZeroWeight", v.zeroWeightAt));
             const long key    = (std::max)(0L, ReadInt("iLockKey", 0));
             v.keyboardKey     = static_cast<std::uint32_t>(key) >= kMouseBase
                                     ? input::Key{ input::Device::Mouse, static_cast<std::uint32_t>(key) - kMouseBase }
@@ -90,7 +92,10 @@ namespace CB::feature::camera::lock {
             bool            wasDrawn = false;
             float           heldAway = 0.0f;   ///< seconds the look input has been held
             RE::ActorHandle lastHit;           ///< the last actor the player hit
+            RE::ActorHandle primary;           ///< the target the body faces, kept until it has to change
             bool            povHoldFired = false;
+            float           flickTime = -1.0f;   ///< seconds the look input has been out past the flick threshold; -1 while in
+            float           flickX    = 0.0f;    ///< its strongest sideways value meanwhile
         };
         State& St()
         {
@@ -116,6 +121,20 @@ namespace CB::feature::camera::lock {
 
         bool Bound(input::Key k) { return k.code != 0 || k.device == input::Device::Mouse; }
 
+        float WrapPi(float a)
+        {
+            constexpr float kPi = 3.14159265f, kTwoPi = 6.2831853f;
+            a = std::fmod(a + kPi, kTwoPi);
+            if (a < 0.0f) a += kTwoPi;
+            return a - kPi;
+        }
+
+        /// @brief Whether `actor` can still be fought from `at`: alive, in combat, within `range`.
+        bool Fightable(RE::Actor* actor, const RE::NiPoint3& at, float range)
+        {
+            return actor && !actor->IsDead() && actor->IsInCombat() && actor->GetPosition().GetDistance(at) <= range;
+        }
+
         /// @brief A hit by the player on an actor re-arms a lock the look stick ended, and names the primary target.
         struct HitSink final : RE::BSTEventSink<RE::TESHitEvent> {
             RE::BSEventNotifyControl ProcessEvent(const RE::TESHitEvent* event, RE::BSTEventSource<RE::TESHitEvent>*) override
@@ -127,6 +146,7 @@ namespace CB::feature::camera::lock {
                 State&           st = St();
                 std::scoped_lock guard(st.lock);
                 st.lastHit = target->GetHandle();
+                st.primary = st.lastHit;
                 if (st.broken) {
                     st.broken  = false;
                     st.toggled = true;
@@ -220,13 +240,15 @@ namespace CB::feature::camera::lock {
         ok = set("fFirstPersonHoldTime", std::format("{:g}", now.firstPersonHold)) && ok;
         ok = set("fFramingMaxDistance", std::format("{:g}", now.maxDistance)) && ok;
         ok = set("fLockRange", std::format("{:g}", now.range)) && ok;
+        ok = set("fFramingFullWeight", std::format("{:g}", now.fullWeightAt)) && ok;
+        ok = set("fFramingZeroWeight", std::format("{:g}", now.zeroWeightAt)) && ok;
         ok = set("iLockKey", std::to_string(key)) && ok;
         ok = set("iLockGamepadKey", std::format("0x{:X}", now.gamepadKey.code)) && ok;
         LOG_INFO("camera lock: saved to settings.ini [Camera]{}", ok ? "" : " (with errors)");
         return ok;
     }
 
-    Frame Step(RE::PlayerCharacter& player, float dt, float lookX, float lookY)
+    Frame Step(RE::PlayerCharacter& player, float dt, float lookX, float lookY, float cameraYaw)
     {
         const Settings s = Current();
         Frame          out;
@@ -235,6 +257,8 @@ namespace CB::feature::camera::lock {
             ToggleByKey();
 
         RE::Actor* lastHit = nullptr;
+        RE::Actor* primary = nullptr;
+        int        flick   = 0;
         {
             State&           st     = St();
             std::scoped_lock guard(st.lock);
@@ -251,6 +275,16 @@ namespace CB::feature::camera::lock {
             /// @note Holding the look input away (either axis) for the break time ends the lock.
             if (out.engaged && std::hypot(lookX, lookY) > kLookHeld) st.heldAway += dt;
             else st.heldAway = 0.0f;
+            /// @note A flick: out past 0.5 and back under 0.2 within a quarter second, mostly sideways.
+            const float look = std::hypot(lookX, lookY);
+            if (look > 0.5f) {
+                st.flickTime = st.flickTime < 0.0f ? 0.0f : st.flickTime + dt;
+                if (std::abs(lookX) > std::abs(st.flickX)) st.flickX = lookX;
+            } else if (look < 0.2f) {
+                if (out.engaged && st.flickTime >= 0.0f && st.flickTime <= 0.25f && std::abs(st.flickX) > 0.4f) flick = st.flickX > 0.0f ? 1 : -1;
+                st.flickTime = -1.0f;
+                st.flickX    = 0.0f;
+            }
             if (out.engaged && st.heldAway >= s.breakTime) {
                 st.broken   = true;
                 st.toggled  = false;
@@ -259,6 +293,7 @@ namespace CB::feature::camera::lock {
                 LOG_INFO("camera lock: broken by the look stick (held {:.2f} s)", s.breakTime);
             }
             lastHit = st.lastHit.get().get();
+            primary = st.primary.get().get();
         }
         g_engaged.store(out.engaged, std::memory_order_relaxed);
         if (!out.engaged || s.maxTargets <= 0) return out;
@@ -282,9 +317,40 @@ namespace CB::feature::camera::lock {
             ranked.push_back({ actor == lastHit ? -1.0f : d, actor });
         }
         std::ranges::sort(ranked, {}, &Ranked::key);
+
+        /// @note The primary: kept while it can still be fought, else the best-ranked; a flick moves it to the nearest
+        ///       combatant on that side of it, as the camera sees them.
+        if (!Fightable(primary, at, s.range) || std::ranges::none_of(ranked, [&](const Ranked& r) { return r.actor == primary; }))
+            primary = ranked.empty() ? nullptr : ranked.front().actor;
+        if (flick != 0 && primary) {
+            const auto bearing = [&](RE::Actor* a) {
+                const RE::NiPoint3 p = a->GetPosition();
+                return WrapPi(std::atan2(p.x - at.x, p.y - at.y) - cameraYaw);
+            };
+            const float from = bearing(primary);
+            RE::Actor*  best = nullptr;
+            float       gap  = 10.0f;
+            for (const Ranked& r : ranked) {
+                const float d = (bearing(r.actor) - from) * static_cast<float>(flick);
+                if (r.actor != primary && d > 0.0f && d < gap) gap = d, best = r.actor;
+            }
+            if (best) {
+                primary = best;
+                LOG_INFO("camera lock: flicked {} to a new target", flick > 0 ? "right" : "left");
+            }
+        }
+        {
+            State&           st = St();
+            std::scoped_lock guard(st.lock);
+            st.primary = primary ? primary->GetHandle() : RE::ActorHandle{};
+        }
+        if (primary) {
+            out.primary = primary->GetHandle();
+            out.candidates.push_back(CandidateOf(primary));
+        }
         for (const Ranked& r : ranked) {
             if (static_cast<int>(out.candidates.size()) >= s.maxTargets) break;
-            out.candidates.push_back(CandidateOf(r.actor));
+            if (r.actor != primary) out.candidates.push_back(CandidateOf(r.actor));
         }
         return out;
     }

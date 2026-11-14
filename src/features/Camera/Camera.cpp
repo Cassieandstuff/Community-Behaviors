@@ -351,7 +351,7 @@ namespace CB::feature::camera {
             const float        yawIn = l.view.yaw;
             /// @note Locked onto a fight (CameraLock), the yaw turns to face it; the stick's sideways look only nudges it
             ///       (springing back on release), its pitch is the player's as ever.
-            const lock::Frame locked      = lock::Step(*player, dt, look.x, look.y);
+            const lock::Frame locked      = lock::Step(*player, dt, look.x, look.y, l.view.yaw);
             const bool        facingFight = locked.engaged && l.fightWeight > 0.05f;
             if (facingFight) {
                 constexpr float kMaxNudge = 1.0f, kNudgeReturn = 0.3f, kFaceHalflife = 0.25f;
@@ -519,21 +519,26 @@ namespace CB::feature::camera {
                 it->point.radius = c.radius;
                 it->candidate    = true;
             }
+            /// @note A combatant's weight falls off with its distance from the player (full to fFramingFullWeight, none from
+            ///       fFramingZeroWeight), so a far one barely steers the framing; the primary always weighs in full.
             std::vector<rig::FramePoint> points;
+            const RE::NiPoint3           me = player->GetPosition();
             for (auto& f : l.framed) {
-                f.visible      = f.candidate && SweepBoom(player, camera, profile.collision, 5.0f, follow, f.point.pos).clear >= 0.97f;
-                f.point.weight = rig::Damp(f.point.weight, f.visible ? 1.0f : 0.0f, 0.3f, dt);
+                f.visible        = f.candidate && SweepBoom(player, camera, profile.collision, 5.0f, follow, f.point.pos).clear >= 0.97f;
+                const float away = std::hypot(f.point.pos.x - me.x, f.point.pos.y - me.y);
+                const float closeness = f.actor == locked.primary
+                                       ? 1.0f
+                                       : std::clamp(1.0f - (away - ls.fullWeightAt) / (ls.zeroWeightAt - ls.fullWeightAt), 0.0f, 1.0f);
+                f.point.weight   = rig::Damp(f.point.weight, f.visible ? closeness : 0.0f, 0.3f, dt);
                 if (f.point.weight > 1.0e-3f) points.push_back(f.point);
             }
-            /// @note The primary target, the one the body strafes toward: the best-ranked candidate in sight.
+            /// @note The primary target, the one the body faces and attacks go at, in sight or not.
             bool      havePrimary = false;
             rig::Vec3 primary;
-            for (const lock::Candidate& c : locked.candidates) {
-                const auto it = std::ranges::find_if(l.framed, [&](const Live::Framed& f) { return f.actor == c.actor && f.visible; });
-                if (it == l.framed.end()) continue;
-                havePrimary = true;
-                primary     = it->point.pos;
-                break;
+            if (!locked.candidates.empty() && locked.candidates.front().actor == locked.primary) {
+                const lock::Candidate& c = locked.candidates.front();
+                havePrimary              = true;
+                primary                  = { c.x, c.y, c.z };
             }
             std::erase_if(l.framed, [](const Live::Framed& f) { return !f.candidate && f.point.weight < 0.01f; });
             const float                fov  = camera->GetRuntimeData2().worldFOV;

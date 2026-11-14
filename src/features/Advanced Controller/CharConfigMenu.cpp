@@ -252,6 +252,9 @@ namespace CB::feature::controller::config {
                 lockEdit |= ImGuiMCP::SliderFloat("First person hold (s)", &ls.firstPersonHold, 0.1f, 2.0f, "%.2f");
             lockEdit |= ImGuiMCP::SliderFloat("Framing max distance", &ls.maxDistance, 300.0f, 2500.0f, "%.0f");
             lockEdit |= ImGuiMCP::SliderFloat("Lock range", &ls.range, 500.0f, 6000.0f, "%.0f");
+            lockEdit |= ImGuiMCP::SliderFloat("Full framing weight within", &ls.fullWeightAt, 0.0f, 3000.0f, "%.0f");
+            lockEdit |= ImGuiMCP::SliderFloat("No framing weight beyond", &ls.zeroWeightAt, ls.fullWeightAt + 1.0f, 6000.0f, "%.0f");
+            ImGuiMCP::TextDisabled("A flick of the look stick switches the target the body faces and attacks go at.");
             if (lockEdit) camera::lock::Set(ls);
             ImGuiMCP::TextDisabled("Engaged now: %s", camera::lock::Engaged() ? "yes" : "no");
 

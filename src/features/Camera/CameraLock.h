@@ -26,6 +26,8 @@ namespace CB::feature::camera::lock {
         float      firstPersonHold = 0.5f;           ///< fFirstPersonHoldTime: POV key mode, seconds held to enter first person
         float      maxDistance     = 900.0f;         ///< fFramingMaxDistance: the farthest the framing pulls the boom
         float      range           = 2500.0f;        ///< fLockRange: the farthest a combatant may be to be framed
+        float      fullWeightAt    = 500.0f;         ///< fFramingFullWeight: a combatant this close frames at full weight
+        float      zeroWeightAt    = 1500.0f;        ///< fFramingZeroWeight: and this far at none (the primary always full)
         input::Key keyboardKey{};                    ///< iLockKey: scan code, or 256 + mouse button
         input::Key gamepadKey{ input::Device::Gamepad, 0 };   ///< iLockGamepadKey
     };
@@ -46,12 +48,16 @@ namespace CB::feature::camera::lock {
 
     struct Frame {
         bool                   engaged = false;
-        std::vector<Candidate> candidates;   ///< ranked (the player's last hit first, then nearest), at most maxTargets
+        std::vector<Candidate> candidates;   ///< the primary first, then the nearest; at most maxTargets
+        RE::ActorHandle        primary;      ///< the target the body faces and attacks go at; empty without one
     };
 
     /// @brief Once per camera frame (main thread): the engagement from the mode, the lock key, the look stick
     ///        (`lookX`, `lookY`: this frame's look input) and hits, and while engaged the hostiles to frame.
-    Frame Step(RE::PlayerCharacter& player, float dt, float lookX, float lookY);
+    /// @note  The primary target sticks: it changes when it dies, leaves combat or range, when the player hits another
+    ///        combatant, or on a flick of the look stick (out and back within a quarter second), which picks the nearest
+    ///        combatant on that side of it as seen from the camera (`cameraYaw`).
+    Frame Step(RE::PlayerCharacter& player, float dt, float lookX, float lookY, float cameraYaw);
 
     /// @brief The camera's half of Primary: the framed target the body should face, or none.
     void PublishPrimary(bool have, float x, float y);
