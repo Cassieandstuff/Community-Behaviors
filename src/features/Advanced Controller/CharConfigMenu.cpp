@@ -8,6 +8,7 @@
 
 #include <features/Advanced Dodge/Dodge.h>
 #include <features/Advanced Input/Input.h>
+#include <features/Camera/CameraLock.h>
 #include <features/Camera/CameraRules.h>
 #include <features/Camera/CameraZoom.h>
 #include <platform/startup/Startup.h>
@@ -225,7 +226,39 @@ namespace CB::feature::controller::config {
             changed |= ImGuiMCP::Checkbox("First person (zooming all the way in, and the POV key)", &s.firstPerson);
             changed |= ImGuiMCP::SliderFloat("Zoom halflife (s)", &s.halflife, 0.0f, 1.0f, "%.2f");
             if (changed) camera::zoom::Set(s);
-            if (ImGuiMCP::Button("Save")) camera::zoom::Save();
+
+            ImGuiMCP::Separator();
+            ImGuiMCP::Text("Combat target lock");
+            ImGuiMCP::TextDisabled("Locked: the hostiles fighting you are framed with you, the camera faces the fight and you strafe "
+                                   "toward the nearest. Hold the look stick away to break it; a hit re-arms it.");
+            camera::lock::Settings ls       = camera::lock::Current();
+            bool                   lockEdit = false;
+            int                    mode     = static_cast<int>(ls.mode);
+            lockEdit |= ImGuiMCP::RadioButton("Off", &mode, 0);
+            ImGuiMCP::SameLine();
+            lockEdit |= ImGuiMCP::RadioButton("POV key (tap: lock, hold: first person)", &mode, 1);
+            lockEdit |= ImGuiMCP::RadioButton("Custom key", &mode, 2);
+            ImGuiMCP::SameLine();
+            lockEdit |= ImGuiMCP::RadioButton("Automatic (weapon drawn, not sprinting)", &mode, 3);
+            ls.mode = static_cast<camera::lock::Mode>(mode);
+            if (ls.mode == camera::lock::Mode::CustomKey) {
+                lockEdit |= EditKey("Lock key", ls.keyboardKey, Capture::KeyboardOrMouse);
+                lockEdit |= EditKey("Lock gamepad button", ls.gamepadKey, Capture::Gamepad);
+                ImGuiMCP::TextDisabled("Needs Advanced Input (settings.ini [Input] bAdvancedInput).");
+            }
+            lockEdit |= ImGuiMCP::SliderInt("Max targets to blend", &ls.maxTargets, 0, 8);
+            lockEdit |= ImGuiMCP::SliderFloat("Break time (s)", &ls.breakTime, 0.1f, 3.0f, "%.2f");
+            if (ls.mode == camera::lock::Mode::PovKey)
+                lockEdit |= ImGuiMCP::SliderFloat("First person hold (s)", &ls.firstPersonHold, 0.1f, 2.0f, "%.2f");
+            lockEdit |= ImGuiMCP::SliderFloat("Framing max distance", &ls.maxDistance, 300.0f, 2500.0f, "%.0f");
+            lockEdit |= ImGuiMCP::SliderFloat("Lock range", &ls.range, 500.0f, 6000.0f, "%.0f");
+            if (lockEdit) camera::lock::Set(ls);
+            ImGuiMCP::TextDisabled("Engaged now: %s", camera::lock::Engaged() ? "yes" : "no");
+
+            if (ImGuiMCP::Button("Save")) {
+                camera::zoom::Save();
+                camera::lock::Save();
+            }
             ImGuiMCP::Separator();
             ImGuiMCP::TextDisabled("Rule files: SKSE/Plugins/Community Behaviors/Movement and Camera.");
             if (ImGuiMCP::Button("Reload rule files")) {

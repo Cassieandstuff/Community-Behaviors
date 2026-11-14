@@ -12,6 +12,7 @@
 #include "CharSpeedProfile.h"
 
 #include <features/Camera/Camera.h>
+#include <features/Camera/CameraLock.h>
 #include <hky/locomotion/Horse.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
@@ -521,14 +522,18 @@ namespace CB::feature::controller {
 
             const RE::NiPoint3 pos = player->GetPosition();
             move::Input        in;
-            in.mode      = Aiming(player) ? move::Mode::Strafe : move::Mode::Orient;
+            /// @note Locked onto a fight (the camera's target lock), the body strafes toward the primary target, except
+            ///       while sprinting.
+            float      lockX = 0.0f, lockY = 0.0f;
+            const bool lockedOn = gait != Gait::Sprint && camera::lock::Primary(lockX, lockY);
+            in.mode      = Aiming(player) || lockedOn ? move::Mode::Strafe : move::Mode::Orient;
             in.gait      = gait;
             in.airborne  = Airborne(player);
             hky::locomotion::ApplyStick(in, haveStick, stickHeading, deflection, thresholds);
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
-                float face = cameraYaw;
+                float face = lockedOn ? std::atan2(lockX - pos.x, lockY - pos.y) : cameraYaw;
                 if (MeleeAttacking(player)) {
                     face = heading;
                     if (AttackTurnRate(player) > 0.0f) face = MagnetizedAim(player, haveStick ? stickHeading : heading);

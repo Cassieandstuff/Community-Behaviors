@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <span>
 
 /// @file
 /// @brief CB's third-person camera rig: a fixed pipeline of stages, each shaped like a blueprint node (its profile's
@@ -140,6 +141,41 @@ namespace CB::feature::camera::rig {
     /// @note The push is squared closeness, so it fades to nothing at the probe's reach and a far hit cannot flicker.
     ///       Opposite probes subtract, which centres the camera in a corridor. The Collision sweep still has the last
     ///       word: a spring can be outrun.
+    /// @brief One point the camera keeps in frame besides the player (a combatant, later a quest hint).
+    struct FramePoint {
+        Vec3  pos;
+        float radius = 50.0f;
+        float weight = 0.0f;  ///< 0-1, eased by the caller as the point comes and goes
+    };
+
+    /// @brief Combat framing: moves the anchor toward the weighted centre of the points and finds the boom length that
+    ///        keeps them and the player on screen.
+    /// @note The player weighs `playerWeight` against each point's weight, so the anchor only leans toward the fight; the
+    ///       shift is capped at `maxShift`. The fit keeps every point's sphere inside `margin` of the half field of view,
+    ///       measured from the eye along the boom (the shoulder offset included), each point's need scaled by its weight
+    ///       so a point easing in grows the boom smoothly.
+    struct FramingParams {
+        float playerWeight = 3.0f;
+        float maxShift     = 250.0f;
+        float margin       = 0.75f;
+        float playerRadius = 60.0f;
+    };
+    struct FramingIn {
+        Vec3                        anchor;
+        std::span<const FramePoint> points;
+        Basis                       rotation;
+        Vec3                        shoulder;   ///< camera frame, as BoomIn's
+        float                       tanHalfH = 0.7f;
+        float                       tanHalfV = 0.4f;
+    };
+    struct FramingOut {
+        Vec3  shift;            ///< to add to the anchor
+        float distance = 0.0f;  ///< the boom length that fits everything; 0 with no weighted point
+        float weight   = 0.0f;  ///< the points' summed weight
+        Vec3  centre;           ///< the points' weighted centre (not the player's); the anchor when weight is 0
+    };
+    FramingOut StepFraming(const FramingParams& p, const FramingIn& in);
+
     struct ProbeParams {
         bool  enabled  = true;
         float reach    = 60.0f;

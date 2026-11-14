@@ -38,6 +38,45 @@ namespace CB::feature::camera::rig {
         return out;
     }
 
+    FramingOut StepFraming(const FramingParams& p, const FramingIn& in)
+    {
+        FramingOut out;
+        out.centre = in.anchor;
+        Vec3 sum;
+        for (const FramePoint& f : in.points) {
+            if (f.weight <= 0.0f) continue;
+            sum        = sum + f.pos * f.weight;
+            out.weight += f.weight;
+        }
+        if (out.weight <= 0.0f) return out;
+        out.centre = sum * (1.0f / out.weight);
+
+        out.shift         = (out.centre - in.anchor) * (out.weight / (out.weight + p.playerWeight));
+        const float shift = Length(out.shift);
+        if (shift > p.maxShift) out.shift = out.shift * (p.maxShift / shift);
+        const Vec3 pivot = in.anchor + out.shift;
+
+        /// @note Into the camera's frame: world = M * local, so local = transpose(M) * world (the columns).
+        const auto& m    = in.rotation.m;
+        const auto  need = [&](Vec3 at, float radius) {
+            const Vec3  d  = at - pivot;
+            const float lx = m[0][0] * d.x + m[1][0] * d.y + m[2][0] * d.z - in.shoulder.x;
+            const float ly = m[0][1] * d.x + m[1][1] * d.y + m[2][1] * d.z;
+            const float lz = m[0][2] * d.x + m[1][2] * d.y + m[2][2] * d.z - in.shoulder.z;
+            const float h  = (std::abs(lx) + radius) / (in.tanHalfH * p.margin);
+            const float v  = (std::abs(lz) + radius) / (in.tanHalfV * p.margin);
+            return (h > v ? h : v) - ly;
+        };
+        float distance = need(in.anchor, p.playerRadius);
+        for (const FramePoint& f : in.points)
+            if (f.weight > 0.0f) {
+                const float d = need(f.pos, f.radius) * f.weight;
+                if (d > distance) distance = d;
+            }
+        out.distance = distance > 0.0f ? distance : 0.0f;
+        return out;
+    }
+
     Vec3 StepProbes(const ProbeParams& p, ProbeState& s, const ProbeIn& in)
     {
         const auto push = [](float fraction) {

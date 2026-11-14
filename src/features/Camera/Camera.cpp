@@ -2,6 +2,7 @@
 
 #include "Camera.h"
 #include "CameraRig.h"
+#include "CameraLock.h"
 #include "CameraRules.h"
 #include "CameraZoom.h"
 
@@ -22,6 +23,7 @@
 #include <cmath>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 /// @file
 /// @brief CB drives the third-person camera (bCamera) through two slots of ThirdPersonState's vtable, for the player's
@@ -173,6 +175,18 @@ namespace CB::feature::camera {
             bool                  zoomPinned = false;   ///< vanilla's zoom offset was pinned last frame: what moved it since is the wheel
             float                 zoom       = 0.0f;    ///< the boom's length shown, game units (the pitch zoom left out)
             float                 zoomGoal   = 0.0f;    ///< where the zoom is heading
+            /// @brief A combatant being framed: its point, its weight easing in while it is a candidate the anchor can see.
+            struct Framed {
+                RE::ActorHandle  actor;
+                rig::FramePoint  point;
+                bool             candidate = false;
+                bool             visible   = false;
+            };
+            std::vector<Framed>   framed;
+            rig::Vec3             fightCentre;            ///< last frame's weighted centre of the framed combatants
+            float                 fightWeight  = 0.0f;    ///< and their summed weight
+            float                 nudge        = 0.0f;    ///< the look stick's offset from facing the fight, radians
+            float                 framingExtra = 0.0f;    ///< the boom length the framing adds over the zoom, eased
             int                   diags  = 0;
             Clock::time_point     last{};
             Clock::time_point     lastDiag{};
@@ -335,7 +349,23 @@ namespace CB::feature::camera {
             ///       look while it runs, so the look is not counted twice (put back after).
             const RE::NiPoint2 look = controls->data.lookInputVec;
             const float        yawIn = l.view.yaw;
-            rig::StepOrientation(profile.orientation, l.view, { look.x, look.y, dt });
+            /// @note Locked onto a fight (CameraLock), the yaw turns to face it; the stick's sideways look only nudges it
+            ///       (springing back on release), its pitch is the player's as ever.
+            const lock::Frame locked      = lock::Step(*player, dt, look.x, look.y);
+            const bool        facingFight = locked.engaged && l.fightWeight > 0.05f;
+            if (facingFight) {
+                constexpr float kMaxNudge = 1.0f, kNudgeReturn = 0.3f, kFaceHalflife = 0.25f;
+                rig::StepOrientation(profile.orientation, l.view, { 0.0f, look.y, dt });
+                if (std::abs(look.x) > 0.05f) l.nudge = std::clamp(l.nudge + look.x * profile.orientation.speed * dt, -kMaxNudge, kMaxNudge);
+                else l.nudge = rig::Damp(l.nudge, 0.0f, kNudgeReturn, dt);
+                const RE::NiPoint3 me   = player->GetPosition();
+                const float        goal = std::atan2(l.fightCentre.x - me.x, l.fightCentre.y - me.y) + l.nudge;
+                const float        k    = dt > 0.0f ? 1.0f - std::exp(-0.6931472f * dt / kFaceHalflife) : 0.0f;
+                l.view.yaw              = Wrap2Pi(l.view.yaw + WrapPi(goal - l.view.yaw) * k);
+            } else {
+                l.nudge = 0.0f;
+                rig::StepOrientation(profile.orientation, l.view, { look.x, look.y, dt });
+            }
 
             /// @note Vanilla is handed CB's yaw as the offset from the body's heading, so its UpdateRotation (yaw =
             ///       heading + freeRotation.x in free rotation) shows CB's world yaw however the body turned. Pitch goes
@@ -428,9 +458,8 @@ namespace CB::feature::camera {
             rig::AnchorParams anchorParams = profile.anchor;
             anchorParams.halflifeXY        = shape(rules::Output::AnchorLag, anchorParams.halflifeXY);
             anchorParams.halflifeZ         = shape(rules::Output::AnchorLag, anchorParams.halflifeZ);
-            const rig::Vec3 anchor = rig::StepAnchor(anchorParams, l.rig.anchor, { pivot, dt });
+            const rig::Vec3 follow = rig::StepAnchor(anchorParams, l.rig.anchor, { pivot, dt });
             rig::BoomIn     boomIn;
-            boomIn.anchor    = anchor;
             boomIn.shoulder  = { tps->posOffsetActual.x, tps->posOffsetActual.y, tps->posOffsetActual.z };
             /// @note The horse state keeps its offset current while it is not (UpdateThirdPerson broadcasts weapon
             ///       draws to it; StartMountCamera handed it the mount).
@@ -477,7 +506,48 @@ namespace CB::feature::camera {
             l.zoomGoal = std::clamp(l.zoomGoal, zmin, zmax);
             l.zoom     = zs.halflife > 0.0f ? rig::Damp(l.zoom, l.zoomGoal, zs.halflife, dt) : l.zoomGoal;
             zoom::PublishShown(l.zoom);
-            boomIn.distance = (std::max)(0.0f, l.zoom + tps->pitchZoomOffset);
+
+            /// @note Combat framing (CameraLock): each candidate the anchor can see eases in, the rest ease out; the anchor
+            ///       leans toward them and the boom pulls back to fit them, over the zoom and past any rule's range, up to
+            ///       fFramingMaxDistance.
+            const lock::Settings ls = lock::Current();
+            for (auto& f : l.framed) f.candidate = false;
+            for (const lock::Candidate& c : locked.candidates) {
+                auto it = std::ranges::find_if(l.framed, [&](const Live::Framed& f) { return f.actor == c.actor; });
+                if (it == l.framed.end()) it = l.framed.insert(l.framed.end(), Live::Framed{ c.actor, {}, false });
+                it->point.pos    = { c.x, c.y, c.z };
+                it->point.radius = c.radius;
+                it->candidate    = true;
+            }
+            std::vector<rig::FramePoint> points;
+            for (auto& f : l.framed) {
+                f.visible      = f.candidate && SweepBoom(player, camera, profile.collision, 5.0f, follow, f.point.pos).clear >= 0.97f;
+                f.point.weight = rig::Damp(f.point.weight, f.visible ? 1.0f : 0.0f, 0.3f, dt);
+                if (f.point.weight > 1.0e-3f) points.push_back(f.point);
+            }
+            /// @note The primary target, the one the body strafes toward: the best-ranked candidate in sight.
+            bool      havePrimary = false;
+            rig::Vec3 primary;
+            for (const lock::Candidate& c : locked.candidates) {
+                const auto it = std::ranges::find_if(l.framed, [&](const Live::Framed& f) { return f.actor == c.actor && f.visible; });
+                if (it == l.framed.end()) continue;
+                havePrimary = true;
+                primary     = it->point.pos;
+                break;
+            }
+            std::erase_if(l.framed, [](const Live::Framed& f) { return !f.candidate && f.point.weight < 0.01f; });
+            const float                fov  = camera->GetRuntimeData2().worldFOV;
+            const float                tanH = std::tan((fov > 1.0f ? fov : 75.0f) * 0.5f * 0.01745329f);
+            const rig::FramingOut framing = rig::StepFraming({}, { follow, points, basis, boomIn.shoulder, tanH, tanH * 9.0f / 16.0f });
+            l.fightCentre  = framing.centre;
+            l.fightWeight  = framing.weight;
+            const float extraGoal = locked.engaged && framing.weight > 0.0f ? (std::max)(0.0f, (std::min)(framing.distance, ls.maxDistance) - l.zoom) : 0.0f;
+            l.framingExtra = rig::Damp(l.framingExtra, extraGoal, 0.3f, dt);
+            lock::PublishPrimary(locked.engaged && havePrimary, primary.x, primary.y);
+
+            const rig::Vec3 anchor = follow + framing.shift;
+            boomIn.anchor          = anchor;
+            boomIn.distance = (std::max)(0.0f, l.zoom + l.framingExtra + tps->pitchZoomOffset);
             const rig::BoomOut boom = rig::StepBoom(profile.boom, boomIn);
 
             /// @note Two legs: the shoulder can reach through a wall the player stands against, where a sweep starting at

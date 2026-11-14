@@ -14,7 +14,7 @@ namespace CB::feature::camera::zoom {
     struct Settings {
         float preferred   = 330.0f;   ///< fPreferredDistance: the boom's length with no zoom rule holding, game units
         bool  manual      = true;     ///< bManualZoom: the wheel moves the camera; off, it always sits at the preferred distance
-        bool  firstPerson = true;     ///< bFirstPerson: zooming all the way in and the POV key switch to first person
+        bool  firstPerson = true;     ///< bFirstPerson: zooming all the way in and the POV key switch to first person (CameraLock.cpp)
         float halflife    = 0.12f;    ///< fZoomHalflife: seconds for the boom to close half its gap to the zoom's goal
     };
 

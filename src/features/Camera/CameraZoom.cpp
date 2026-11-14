@@ -3,7 +3,6 @@
 #include "CameraZoom.h"
 
 #include <core/debug/Settings.h>
-#include <platform/hooks/VirtualSlot.h>
 
 #include <atomic>
 #include <charconv>
@@ -59,27 +58,6 @@ namespace CB::feature::camera::zoom {
             LOG_INFO("camera zoom: preferred {:.0f}, manual zoom {}, first person {}, halflife {:.2f} s (settings.ini [Camera])",
                      s.settings.preferred, s.settings.manual, s.settings.firstPerson, s.settings.halflife);
         }
-
-        namespace hooks = platform::hooks;
-
-        /// @brief PlayerInputHandler::ProcessButton (vtable index 4 in every runtime) of the handler bound to the POV key.
-        struct TogglePovSlot {
-            static constexpr const char* name = "TogglePOVHandler::ProcessButton";
-            static REL::VariantID        Table() { return RE::VTABLE_TogglePOVHandler[0]; }
-            static std::size_t           Index() { return 4; }
-        };
-        using TogglePov = hooks::VirtualSlot<TogglePovSlot, void(RE::TogglePOVHandler*, RE::ButtonEvent*, RE::PlayerControlsData*)>;
-
-        /// @brief With first person off, the POV key does nothing outside first person (inside it, it still leaves).
-        /// @note  The key's hold-to-zoom goes with it: CB's zoom reads the wheel.
-        void OnTogglePov(TogglePov::Next next, RE::TogglePOVHandler* handler, RE::ButtonEvent* event, RE::PlayerControlsData* data)
-        {
-            auto* camera = RE::PlayerCamera::GetSingleton();
-            if (!Current().firstPerson && camera && !camera->IsInFirstPerson()) return;
-            next(handler, event, data);
-        }
-
-        [[maybe_unused]] const bool s_togglePov = TogglePov::Subscribe(&OnTogglePov, hooks::Priority::Normal, "Camera", "camera");
 
     }  // namespace
 
