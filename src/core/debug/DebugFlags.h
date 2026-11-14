@@ -167,8 +167,8 @@ namespace CB::core::debug {
         { "camera_rules", FlagKind::IniBool, "Camera", "bCameraRules", true, true,
           "Camera rules",
           "The rule files in SKSE/Plugins/Community Behaviors/Camera/*.json reshape CB's camera while their Animation Relay "
-          "condition holds: the boom's length (scaled, capped, its wheel range remapped or forced), the field of view, the "
-          "shoulder offset and the anchor's lag, eased in and out. The wheel's own zoom is never changed. Inert with no rule "
+          "condition holds: CB's zoom (its range scaled, capped or remapped, a preferred distance to head for), the field of view, the "
+          "shoulder offset and the anchor's lag, eased in and out. Inert with no rule "
           "files. Needs bCamera. Unproven in game." },
         { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
           "Camera: thin objects block",

@@ -7,6 +7,7 @@
       "id": "CB.CloserIndoors",
       "condition": "LocationHasKeyword(LocTypePlayerHouse) || LocationHasKeyword(LocTypeInn)",
       "maxDistance": 300,
+      "preferredDistance": 220,
       "shoulderScale": 0.6
     }
   ]

@@ -3,6 +3,7 @@
 #include "Camera.h"
 #include "CameraRig.h"
 #include "CameraRules.h"
+#include "CameraZoom.h"
 
 #include "features/Advanced Controller/CharSweep.h"
 
@@ -168,6 +169,10 @@ namespace CB::feature::camera {
             int                   seeds  = 0;
             float                 fovBase  = 0.0f;    ///< the world FOV before a camera rule took it
             bool                  fovOwned = false;   ///< a camera rule holds the world FOV
+            bool                  zoomInit   = false;
+            bool                  zoomPinned = false;   ///< vanilla's zoom offset was pinned last frame: what moved it since is the wheel
+            float                 zoom       = 0.0f;    ///< the boom's length shown, game units (the pitch zoom left out)
+            float                 zoomGoal   = 0.0f;    ///< where the zoom is heading
             int                   diags  = 0;
             Clock::time_point     last{};
             Clock::time_point     lastDiag{};
@@ -311,6 +316,7 @@ namespace CB::feature::camera {
                 l.mounted    = { mountTarget, 0.0f };
                 l.body       = { bodyTarget, 0.0f };
                 l.seeded     = true;
+                l.zoomPinned = false;
                 dt           = 0.0f;
                 if (++l.seeds <= 20)
                     LOG_INFO("camera: third person entered - yaw {:.1f} deg, pitch {:.1f} deg", l.view.yaw * 57.29578f, l.view.pitch * 57.29578f);
@@ -320,8 +326,9 @@ namespace CB::feature::camera {
             const float mounted = rig::StepEase(profile.mounted.ease, l.mounted, mountTarget, dt);
             const float body    = rig::StepEase(profile.mounted.body, l.body, bodyTarget, dt);
             /// @note The camera rules (CameraRules): each output laid on the rig's own number where the stage reads it.
-            const rules::ModifierState cam   = rules::Step(*player, dt);
-            const auto                 shape = [&](rules::Output o, float base) { return cam.Shape(rules::Index(o), base); };
+            const rules::Result         ruled = rules::Step(*player, dt);
+            const rules::ModifierState& cam   = ruled.state;
+            const auto                  shape = [&](rules::Output o, float base) { return cam.Shape(rules::Index(o), base); };
 
             /// @note CB turns the view by the look input itself (the rig's Orientation stage, by time), so the view
             ///       is the camera's own rather than vanilla's free-rotation offset; vanilla's HandleLookInput is fed no
@@ -338,6 +345,12 @@ namespace CB::feature::camera {
             tps->freeRotation.y           = 0.0f;
             player->data.angle.x          = l.view.pitch;
             controls->data.lookInputVec   = RE::NiPoint2(0.0f, 0.0f);
+            /// @note CB owns the zoom (CameraZoom.h): the wheel is vanilla's zoom offset moved since it was pinned, then it
+            ///       is pinned again, so vanilla's Update neither eases it nor switches to first person on a full zoom-in.
+            constexpr float kZoomPin = 0.5f;
+            const float     wheel    = l.zoomPinned ? tps->targetZoomOffset - kZoomPin : 0.0f;
+            tps->targetZoomOffset = tps->currentZoomOffset = kZoomPin;
+            l.zoomPinned          = true;
             t_inOwnedUpdate = true;
             next(tps, nextState);
             t_inOwnedUpdate = false;
@@ -433,19 +446,39 @@ namespace CB::feature::camera {
             } else {
                 l.mountShoulderInit = false;
             }
-            boomIn.zoom      = tps->currentZoomOffset;
-            boomIn.pitchZoom = tps->pitchZoomOffset;
-            boomIn.rotation  = basis;
-            rig::BoomParams boomParams = profile.boom;
-            boomParams.minDistance     = shape(rules::Output::ZoomMinDistance, boomParams.minDistance);
-            boomParams.maxDistance     = shape(rules::Output::ZoomMaxDistance, boomParams.maxDistance);
-            boomIn.shoulder.x          = shape(rules::Output::ShoulderX, shape(rules::Output::ShoulderScale, boomIn.shoulder.x));
-            boomIn.shoulder.z          = shape(rules::Output::ShoulderZ, shape(rules::Output::ShoulderScale, boomIn.shoulder.z));
-            /// @note The wheel's own zoom is never written: the rules reshape the length it gives.
-            float distance             = shape(rules::Output::Distance, rig::BoomDistance(boomParams, boomIn));
-            distance                   = shape(rules::Output::MaxDistance, distance);
-            boomIn.distance            = (std::max)(0.0f, shape(rules::Output::ForcedDistance, distance));
-            const rig::BoomOut boom = rig::StepBoom(boomParams, boomIn);
+            boomIn.pitchZoom  = tps->pitchZoomOffset;
+            boomIn.rotation   = basis;
+            boomIn.shoulder.x = shape(rules::Output::ShoulderX, shape(rules::Output::ShoulderScale, boomIn.shoulder.x));
+            boomIn.shoulder.z = shape(rules::Output::ShoulderZ, shape(rules::Output::ShoulderScale, boomIn.shoulder.z));
+
+            /// @note The zoom's range is vanilla's wheel range (fVanityModeMinDist..MaxDist) unless a rule sets it, scaled,
+            ///       capped; with no zoom rule its goal is the player's preferred distance. A wheel move holds until the
+            ///       rules stating a zoom output change, then the zoom heads for the new context's preferred distance.
+            const zoom::Settings   zs = zoom::Current();
+            const rules::ZoomGoals& zg = ruled.zoom;
+            float zmin = (std::isnan(zg.min) ? profile.boom.minDistance : zg.min) * zg.scale;
+            float zmax = (std::isnan(zg.max) ? profile.boom.maxDistance : zg.max) * zg.scale;
+            if (!std::isnan(zg.cap)) zmax = (std::min)(zmax, zg.cap);
+            zmin = (std::min)(zmin, zmax);
+            const float preferred = std::clamp((std::isnan(zg.preferred) ? zs.preferred : zg.preferred) * zg.scale, zmin, zmax);
+            if (!l.zoomInit || zg.changed || !zs.manual) l.zoomGoal = preferred;
+            if (!l.zoomInit) l.zoom = l.zoomGoal, l.zoomInit = true;
+            if (zs.manual && wheel != 0.0f) {
+                /// @note One wheel step moves as far as it moved vanilla's camera: its share of vanilla's own range.
+                if (wheel < 0.0f && zs.firstPerson && l.zoomGoal <= zmin + 0.5f) {
+                    if (auto* tasks = SKSE::GetTaskInterface())
+                        tasks->AddTask([] {
+                            if (auto* c = RE::PlayerCamera::GetSingleton()) c->ForceFirstPerson();
+                        });
+                } else {
+                    l.zoomGoal += wheel * (profile.boom.maxDistance - profile.boom.minDistance);
+                }
+            }
+            l.zoomGoal = std::clamp(l.zoomGoal, zmin, zmax);
+            l.zoom     = zs.halflife > 0.0f ? rig::Damp(l.zoom, l.zoomGoal, zs.halflife, dt) : l.zoomGoal;
+            zoom::PublishShown(l.zoom);
+            boomIn.distance = (std::max)(0.0f, l.zoom + tps->pitchZoomOffset);
+            const rig::BoomOut boom = rig::StepBoom(profile.boom, boomIn);
 
             /// @note Two legs: the shoulder can reach through a wall the player stands against, where a sweep starting at
             ///       the pivot would miss it from behind. So the pivot is swept out from the anchor first.
@@ -508,9 +541,9 @@ namespace CB::feature::camera {
                 l.lastDiag = now;
                 ++l.diags;
                 LOG_INFO("camera: thread {} dt {:.3f} - look ({:.2f}, {:.2f}) turned {:.2f}, yaw {:.1f} deg, body {:.1f} -> {:.1f} across "
-                         "vanilla, pitch {:.1f}, zoom {:.2f}, boom {:.0f} shown {:.0f} (clear {:.2f}), mounted {:.2f}",
+                         "vanilla, pitch {:.1f}, zoom {:.0f} -> {:.0f}, boom {:.0f} shown {:.0f} (clear {:.2f}), mounted {:.2f}",
                          ::GetCurrentThreadId(), dt, look.x, look.y, WrapPi(l.view.yaw - yawIn) * kDeg, l.view.yaw * kDeg, heading * kDeg,
-                         headingAfter * kDeg, l.view.pitch * kDeg, tps->currentZoomOffset, rig::Length(boom.eye - boom.pivot),
+                         headingAfter * kDeg, l.view.pitch * kDeg, l.zoom, l.zoomGoal, rig::Length(boom.eye - boom.pivot),
                          rig::Length(eye - boom.pivot), cast.clear, mounted);
             }
 

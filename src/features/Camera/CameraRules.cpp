@@ -27,7 +27,7 @@ namespace CB::feature::camera::rules {
             { "maxDistance", OutputKind::Cap, kHalflife },
             { "zoomMinDistance", OutputKind::Set, kHalflife },
             { "zoomMaxDistance", OutputKind::Set, kHalflife },
-            { "forcedDistance", OutputKind::Set, kHalflife },
+            { "preferredDistance", OutputKind::Set, kHalflife },
             { "fov", OutputKind::Set, kHalflife },
             { "fovScale", OutputKind::Scale, kHalflife },
             { "shoulderScale", OutputKind::Scale, kHalflife },
@@ -50,6 +50,7 @@ namespace CB::feature::camera::rules {
             std::shared_ptr<const loco::RuleSet> rules;
             loco::ModifierSmoother               smoother{ kSchema };
             std::vector<std::string>             active;
+            std::vector<std::string>             zoomRules;   ///< the rules stating a zoom output last frame
         };
         Table& T()
         {
@@ -89,12 +90,13 @@ namespace CB::feature::camera::rules {
 
     const loco::RuleSchema kSchema{ "camera", kOutputs };
 
-    ModifierState Step(RE::Actor& player, float dt)
+    Result Step(RE::Actor& player, float dt)
     {
-        if (!On()) return ModifierState{ kSchema };
+        Result out;
+        if (!On()) return out;
         Table&           t = T();
         std::scoped_lock guard(t.lock);
-        if (!t.rules) return ModifierState{ kSchema };
+        if (!t.rules) return out;
 
         hky::relay::EvalContext ctx;
         ctx.Reset(&player);
@@ -108,7 +110,25 @@ namespace CB::feature::camera::rules {
             LOG_INFO("camera rules: holding {}", ids.empty() ? "none" : ids);
             t.active.assign(goals.active.begin(), goals.active.end());
         }
-        return t.smoother.State();
+
+        constexpr std::array kZoomOutputs{ Output::Distance, Output::MaxDistance, Output::ZoomMinDistance, Output::ZoomMaxDistance,
+                                           Output::PreferredDistance };
+        std::vector<std::string> zoomRules;
+        for (const loco::Rule& r : t.rules->rules) {
+            if (std::ranges::find(goals.active, std::string_view(r.id)) == goals.active.end()) continue;
+            if (std::ranges::any_of(kZoomOutputs, [&](Output o) { return Index(o) < r.values.size() && r.values[Index(o)].has_value(); }))
+                zoomRules.push_back(r.id);
+        }
+        ZoomGoals& z = out.zoom;
+        z.scale      = goals.value[Index(Output::Distance)];
+        z.min        = goals.value[Index(Output::ZoomMinDistance)];
+        z.max        = goals.value[Index(Output::ZoomMaxDistance)];
+        z.cap        = goals.value[Index(Output::MaxDistance)];
+        z.preferred  = goals.value[Index(Output::PreferredDistance)];
+        z.changed    = zoomRules != t.zoomRules;
+        t.zoomRules  = std::move(zoomRules);
+        out.state    = t.smoother.State();
+        return out;
     }
 
     void Reload()

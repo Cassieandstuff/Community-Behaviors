@@ -2,11 +2,14 @@
 
 #include "CharDebugHud.h"
 #include "CharFacing.h"
+#include "CharMoveRules.h"
 #include "CharMovementTuning.h"
 #include "CharSpeedProfile.h"
 
 #include <features/Advanced Dodge/Dodge.h>
 #include <features/Advanced Input/Input.h>
+#include <features/Camera/CameraRules.h>
+#include <features/Camera/CameraZoom.h>
 #include <platform/startup/Startup.h>
 
 #include <SKSEMenuFramework.h>
@@ -203,6 +206,34 @@ namespace CB::feature::controller::config {
             ImGuiMCP::TextDisabled("Saved to settings.ini [Character] bDebugHud.");
         }
 
+        /// @brief CB's camera zoom and the rule files, live; Save writes settings.ini [Camera].
+        void __stdcall RenderCamera()
+        {
+            ImGuiMCP::TextWrapped("CB's camera zoom (needs bCamera). The preferred distance is where the camera sits when no camera "
+                                  "rule changes the zoom, and where it returns when one lets go. Changes apply at once; Save writes "
+                                  "settings.ini [Camera].");
+            ImGuiMCP::Separator();
+            camera::zoom::Settings s       = camera::zoom::Current();
+            bool                   changed = false;
+            changed |= ImGuiMCP::SliderFloat("Preferred distance", &s.preferred, 50.0f, 1200.0f, "%.0f");
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button("Set current")) {
+                if (const float shown = camera::zoom::Shown(); shown > 0.0f) s.preferred = shown, changed = true;
+            }
+            ImGuiMCP::TextDisabled("Showing %.0f now.", camera::zoom::Shown());
+            changed |= ImGuiMCP::Checkbox("Manual zoom (the wheel moves the camera)", &s.manual);
+            changed |= ImGuiMCP::Checkbox("First person (zooming all the way in, and the POV key)", &s.firstPerson);
+            changed |= ImGuiMCP::SliderFloat("Zoom halflife (s)", &s.halflife, 0.0f, 1.0f, "%.2f");
+            if (changed) camera::zoom::Set(s);
+            if (ImGuiMCP::Button("Save")) camera::zoom::Save();
+            ImGuiMCP::Separator();
+            ImGuiMCP::TextDisabled("Rule files: SKSE/Plugins/Community Behaviors/Movement and Camera.");
+            if (ImGuiMCP::Button("Reload rule files")) {
+                rules::Reload();
+                camera::rules::Reload();
+            }
+        }
+
         void Register()
         {
             if (!SKSEMenuFramework::IsInstalled()) {
@@ -219,8 +250,9 @@ namespace CB::feature::controller::config {
             SKSEMenuFramework::AddSectionItem("Movement Speeds", RenderSpeeds);
             SKSEMenuFramework::AddSectionItem("Movement Tuning", RenderTuning);
             SKSEMenuFramework::AddSectionItem("Advanced Dodge", RenderDodge);
+            SKSEMenuFramework::AddSectionItem("Camera", RenderCamera);
             SKSEMenuFramework::AddSectionItem("Debug/Character Controller", RenderDebugController);
-            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Movement Tuning, Advanced Dodge, Debug/Character Controller).");
+            LOG_INFO("config: registered (SKSE Menu Framework > Community Behaviors > Movement Speeds, Movement Tuning, Advanced Dodge, Camera, Debug/Character Controller).");
         }
 
         [[maybe_unused]] const bool s_registered = platform::startup::OnDataLoaded(&Register, "config menu");
