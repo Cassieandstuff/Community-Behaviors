@@ -349,17 +349,20 @@ namespace CB::feature::camera {
             ///       look while it runs, so the look is not counted twice (put back after).
             const RE::NiPoint2 look = controls->data.lookInputVec;
             const float        yawIn = l.view.yaw;
-            /// @note Locked onto a fight (CameraLock), the yaw turns to face it; the stick's sideways look only nudges it
-            ///       (springing back on release), its pitch is the player's as ever.
+            /// @note Locked onto a fight (CameraLock), the yaw eases in behind the player, looking where the body faces
+            ///       (which is at the primary target): the player's facing is framed first, the rest of the fight only as
+            ///       far as the pull-back allows. The stick's sideways look only nudges it (springing back on release);
+            ///       its pitch is the player's as ever.
+            /// @note Why not face the fight's centre: a camera chasing the whole fight swung around the player at will and
+            ///       lost them.
             const lock::Frame locked      = lock::Step(*player, dt, look.x, look.y, l.view.yaw);
             const bool        facingFight = locked.engaged && l.fightWeight > 0.05f;
             if (facingFight) {
-                constexpr float kMaxNudge = 1.0f, kNudgeReturn = 0.3f, kFaceHalflife = 0.25f;
+                constexpr float kMaxNudge = 1.0f, kNudgeReturn = 0.3f, kFaceHalflife = 0.35f;
                 rig::StepOrientation(profile.orientation, l.view, { 0.0f, look.y, dt });
                 if (std::abs(look.x) > 0.05f) l.nudge = std::clamp(l.nudge + look.x * profile.orientation.speed * dt, -kMaxNudge, kMaxNudge);
                 else l.nudge = rig::Damp(l.nudge, 0.0f, kNudgeReturn, dt);
-                const RE::NiPoint3 me   = player->GetPosition();
-                const float        goal = std::atan2(l.fightCentre.x - me.x, l.fightCentre.y - me.y) + l.nudge;
+                const float        goal = heading + l.nudge;
                 const float        k    = dt > 0.0f ? 1.0f - std::exp(-0.6931472f * dt / kFaceHalflife) : 0.0f;
                 l.view.yaw              = Wrap2Pi(l.view.yaw + WrapPi(goal - l.view.yaw) * k);
             } else {

@@ -156,7 +156,7 @@ namespace CB::feature::camera::rig {
     ///       so a point easing in grows the boom smoothly.
     struct FramingParams {
         float playerWeight = 3.0f;
-        float maxShift     = 250.0f;
+        float maxShift     = 150.0f;
         float margin       = 0.75f;
         float playerRadius = 60.0f;
     };

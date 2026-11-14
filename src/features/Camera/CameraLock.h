@@ -6,9 +6,9 @@
 #include <vector>
 
 /// @file
-/// @brief Combat target locking for CB's camera (bCamera): when it is engaged, the hostiles fighting the player are
-///        framed with the player (the rig's Framing stage), the camera's yaw turns to face the fight and the body strafes
-///        toward the primary target.
+/// @brief Combat target locking for CB's camera (bCamera): when it is engaged, the body strafes toward the primary
+///        target, the camera sits behind the player looking where the body faces, and the hostiles fighting the player
+///        are framed with them as far as the pull-back allows (the rig's Framing stage).
 /// @note  Engaged by one of three modes: the POV key (a tap toggles it; held, it enters first person, as True
 ///        Directional Movement does), a key of the player's choosing (needs bAdvancedInput), or automatically while a
 ///        weapon is drawn and the player is not sprinting. Holding the look stick away for the break time ends it; it
@@ -48,15 +48,16 @@ namespace CB::feature::camera::lock {
 
     struct Frame {
         bool                   engaged = false;
-        std::vector<Candidate> candidates;   ///< the primary first, then the nearest; at most maxTargets
+        std::vector<Candidate> candidates;   ///< the primary first, then the best-ranked; at most maxTargets
         RE::ActorHandle        primary;      ///< the target the body faces and attacks go at; empty without one
     };
 
     /// @brief Once per camera frame (main thread): the engagement from the mode, the lock key, the look stick
     ///        (`lookX`, `lookY`: this frame's look input) and hits, and while engaged the hostiles to frame.
-    /// @note  The primary target sticks: it changes when it dies, leaves combat or range, when the player hits another
-    ///        combatant, or on a flick of the look stick (out and back within a quarter second), which picks the nearest
-    ///        combatant on that side of it as seen from the camera (`cameraYaw`).
+    /// @note  The primary target sticks: it changes when it dies or leaves combat or range (then the best-ranked: nearest,
+    ///        an actor off the player's facing counting as farther), or on a flick of the look stick (out and back within a
+    ///        quarter second), which picks the nearest combatant on that side of it as seen from the camera
+    ///        (`cameraYaw`). A hit only re-arms a lock the stick ended.
     Frame Step(RE::PlayerCharacter& player, float dt, float lookX, float lookY, float cameraYaw);
 
     /// @brief The camera's half of Primary: the framed target the body should face, or none.

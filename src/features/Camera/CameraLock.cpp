@@ -146,7 +146,6 @@ namespace CB::feature::camera::lock {
                 State&           st = St();
                 std::scoped_lock guard(st.lock);
                 st.lastHit = target->GetHandle();
-                st.primary = st.lastHit;
                 if (st.broken) {
                     st.broken  = false;
                     st.toggled = true;
@@ -314,7 +313,11 @@ namespace CB::feature::camera::lock {
             if (!onPlayer && actor != lastHit) continue;
             const float d = actor->GetPosition().GetDistance(at);
             if (d > s.range) continue;
-            ranked.push_back({ actor == lastHit ? -1.0f : d, actor });
+            /// @note Ranked by distance, an actor off to the side or behind the player's facing counting as farther (up
+            ///       to twice, straight behind), so the body is not turned around toward one behind it.
+            const RE::NiPoint3 p   = actor->GetPosition();
+            const float        off = std::abs(WrapPi(std::atan2(p.x - at.x, p.y - at.y) - player.GetHeading(false)));
+            ranked.push_back({ d * (1.0f + off / 3.14159265f), actor });
         }
         std::ranges::sort(ranked, {}, &Ranked::key);
 
