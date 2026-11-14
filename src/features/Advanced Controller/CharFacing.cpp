@@ -8,6 +8,7 @@
 #include "CharGround.h"
 #include "CharComponents.h"
 #include "CharMovementModel.h"
+#include "CharMoveRules.h"
 #include "CharSpeedProfile.h"
 
 #include <features/Camera/Camera.h>
@@ -449,6 +450,10 @@ namespace CB::feature::controller {
                 gait = moving;
                 full = speed::WalkOfRun(player, full);
             }
+            /// @note The movement rules (CharMoveRules), once this frame while the model holds the player: the gait cap before
+            ///       the speed column is final, the slope's tuning before its factor; the component lays on the rest.
+            const rules::ModifierState mods = hold ? rules::Step(*player, deltaTime) : rules::ModifierState{};
+            gait                            = rules::CapGait(*player, mods, gait, full);
             const float engineDir = out->angles[2];
             const char* graphFlag   = hold ? GraphDrivesSpeed(player) : "";
             const bool  graphDrives = graphFlag[0] != 0;
@@ -540,7 +545,9 @@ namespace CB::feature::controller {
             const float      speed0 = std::hypot(s.vx, s.vy);
             if (LatestVerdict(ground)) {
                 const float dir = speed0 > 1.0f ? std::atan2(s.vx, s.vy) : (haveStick ? stickHeading : heading);
-                slopeGoal       = SlopeSpeedScale(ground, std::sin(dir), std::cos(dir));
+                hky::locomotion::Tuning slope = SlopeTuning();
+                hky::locomotion::ApplyModifiers(mods, slope);
+                slopeGoal = SlopeSpeedScale(ground, std::sin(dir), std::cos(dir), slope);
             }
             Slope& sl = d.slope;
             if (!sl.init) sl = Slope{ true, slopeGoal, 0.0f };

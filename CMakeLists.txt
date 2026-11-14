@@ -59,7 +59,7 @@ if(CB_STANDALONE)
 endif()
 FetchContent_Declare(HKY-SDK
     GIT_REPOSITORY https://github.com/Cassieandstuff/HKY-SDK.git
-    GIT_TAG        ca00ff718eaf14082a6ddef1bbbb524cf52d85e2)
+    GIT_TAG        48fed7815bc2788f7fe8fa28438876bcd38a8bdd)
 FetchContent_MakeAvailable(HKY-SDK)
 get_property(HKY_SCHEMA_DIR GLOBAL PROPERTY HKY_SCHEMA_SOURCE_DIR)
 
@@ -240,6 +240,10 @@ add_subdirectory(tools/cb-tests)       # cb-tests: unit tests over CB's own libr
 # cmake/GenerateBaseMaster.cmake), packed into this tree already shaped as the runtime serve path
 # (community_behaviors/plugins/<Bundle>.hky), so the deploy is a straight mirror.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
+
+# The example movement rules (data/Movement): staged at their Data path, so the deploy mirrors them with the bundles.
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/data/Movement/CB_Examples.json"
+               "${CB_HKY_STAGE}/SKSE/Plugins/Community Behaviors/Movement/CB_Examples.json" COPYONLY)
 
 # Authored feature bundles (features/<Name>.hky: partitions in Git LFS + inject configs) assemble into the same
 # stage; the plugin depends on them so a plugin build deploys them (cmake/FeatureBundles.cmake).

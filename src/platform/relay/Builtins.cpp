@@ -16,6 +16,9 @@
 #include "Relay.h"
 #include <PluginLogger.h>
 
+#include <hky/relay/DynamicClip.h>
+#include <hky/relay/Surface.h>
+
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 
@@ -625,6 +628,23 @@ namespace CB::platform::relay {
             return Value::Bool(!a.empty() && a[0].type == VType::Keyword && KeywordArrayHas(c, p, a[0].kw));
         }
 
+        /// @brief A bare name in an expression as a form: a FormKey (`Skyrim.esm|0x1CB87`), else an EditorID the game kept
+        ///        (keywords, locations, globals...). A keyword comes back as a Keyword, any other form as a Form.
+        /// @note  Resolved when an expression compiles, so it answers only once the data is loaded; before that every name
+        ///        fails as it always did.
+        bool ResolveArg(std::string_view token, Value& out) {
+            RE::TESForm* form = nullptr;
+            if (const auto key = ParseFormKey(token)) {
+                if (auto* dh = RE::TESDataHandler::GetSingleton()) form = dh->LookupForm(key->id, key->plugin);
+            } else {
+                form = RE::TESForm::LookupByEditorID(token);
+            }
+            if (!form) return false;
+            if (auto* keyword = form->As<RE::BGSKeyword>()) out = KeywordValue(keyword);
+            else out = FormValue(form);
+            return true;
+        }
+
     }  // namespace
 
     void RegisterBuiltins() {
@@ -716,6 +736,9 @@ namespace CB::platform::relay {
         bind("CurrentWeatherHasKeyword", &Fn_CurrentWeatherHasKeyword);
         bind("IsInLocation", &Fn_IsInLocation);
         bind("LocationHasKeyword", &Fn_LocationHasKeyword);
+
+        RegisterSurfaceBuiltins();
+        SetArgResolver(&ResolveArg);
 
         for (const std::string_view name : Unbound()) LOG_ERROR("[relay] catalog function '{}' has no implementation: it never compiles", name);
     }

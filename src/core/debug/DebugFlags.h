@@ -213,6 +213,12 @@ namespace CB::core::debug {
           "half the acceleration and braking, 60% of the friction, a 1.5x slower body turn, and no grip limit or dig-in "
           "turns. The player may dive, the horse swims at the surface (as in vanilla, which still moves both vertically). "
           "Needs bMovementModel or bHorseMovementModel. Unproven in game." },
+        { "char_move_rules", FlagKind::IniBool, "Character", "bMovementRules", true, true,
+          "Movement rules",
+          "The rule files in SKSE/Plugins/Community Behaviors/Movement/*.json change how the player moves while their "
+          "Animation Relay condition holds: speed scales and caps, the fastest gait, acceleration, friction, braking, turn "
+          "rate, the slope's pull, motion-matching tags and graph variables, eased in and out. Inert with no rule files. "
+          "Needs bMovementModel. Unproven in game." },
         { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
           "Horses on the proxy controller",
           "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "

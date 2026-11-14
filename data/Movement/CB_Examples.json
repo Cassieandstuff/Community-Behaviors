@@ -1,0 +1,16 @@
+// Community Behaviors' example movement rules. Every *.json in this folder is read, in name order; a later file stating
+// a rule's id merges into it field by field, and "disabled": true switches it off.
+{
+  "materialGroups": {
+    "Snowy": ["Snow", "SnowStairs"],
+    "Icy": ["Ice", "IceForm"]
+  },
+  "rules": [
+    {
+      "id": "CB.WalkInHomes",
+      "condition": "(LocationHasKeyword(LocTypePlayerHouse) || LocationHasKeyword(LocTypeInn)) && !IsInCombat()",
+      "maxGait": "Walk",
+      "halflife": 0.3
+    }
+  ]
+}

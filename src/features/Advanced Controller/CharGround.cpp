@@ -567,7 +567,7 @@ namespace CB::feature::controller {
         return true;
     }
 
-    float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY)
+    const hky::locomotion::Tuning& SlopeTuning()
     {
         static const hky::locomotion::Tuning tuning{ (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f)),
                                                            (std::max)(0.0f, SettingFloat("fSlopeSpeedUp", 0.5f)) };
@@ -577,8 +577,10 @@ namespace CB::feature::controller {
             return true;
         }();
         (void)logged;
-        return hky::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
+        return tuning;
     }
+
+    float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY) { return SlopeSpeedScale(g, dirX, dirY, SlopeTuning()); }
 
     bool PublishedVerdict(const ::bhkCharacterController& ctrl, FloorVerdict& out)
     {

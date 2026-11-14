@@ -12,7 +12,7 @@ namespace CB::feature::controller::sprint {
         bool        suspended = false;   ///< CB cleared the toggle for a suspend reason and will restore it
         bool        sprinting = false;   ///< what the rules asked the engine for this frame
         /// @brief The current suspend or cancel reason, a static string: "lock beyond 50 deg", "blocking", "airborne",
-        ///        "stopped", "stamina", "encumbered", "attacking", or "".
+        ///        "gait cap", "stopped", "stamina", "encumbered", "attacking", or "".
         const char* why = "";
     };
     /// @brief False while the rules are off (char_movement_model, or the model not running) or no frame evaluated

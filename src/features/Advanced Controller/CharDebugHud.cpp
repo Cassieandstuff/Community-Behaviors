@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharFacing.h"
+#include "CharMoveRules.h"
 #include "CharSprint.h"
 
 #include <core/debug/Settings.h>
@@ -346,6 +347,19 @@ namespace CB::feature::controller::hud {
             if (sprint::State st; sprint::Current(st))
                 ImGui::Text("sprint %s%s%s%s", st.sprinting ? "on" : "off", st.wanted ? "   wanted" : "", st.suspended ? "   suspended" : "",
                             *st.why ? (std::string("   (") + st.why + ")").c_str() : "");
+            if (rules::Hud r; rules::Current(r)) {
+                using hky::locomotion::Modifier;
+                const auto  v = [&](Modifier k) { return r.state.value[static_cast<std::size_t>(k)]; };
+                std::string ids;
+                for (const std::string& id : r.active) ids += (ids.empty() ? "" : ", ") + id;
+                ImGui::Text("rules %d   holding %s", r.loaded, ids.empty() ? "none" : ids.c_str());
+                static constexpr const char* kGaitNames[4] = { "none", "walk", "run", "sprint" };
+                const float cap = v(Modifier::MaxSpeed);
+                ImGui::Text("speed x%.2f   cap %s   gait up to %s   accel x%.2f   friction x%.2f   braking x%.2f   turn x%.2f", v(Modifier::Speed),
+                            std::isinf(cap) ? "-" : std::to_string(static_cast<int>(cap)).c_str(), kGaitNames[static_cast<int>(r.state.maxGait) & 3],
+                            v(Modifier::Accel), v(Modifier::Friction), v(Modifier::Braking), v(Modifier::TurnRate));
+                for (const std::string& e : r.errors) ImGui::Text("rule error: %s", e.c_str());
+            }
             if (haveMatch) {
                 ImGui::Text("matching %s @%d [%s]   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.database,
                             m.rate, m.cost, m.searchMs, m.switches, m.blend);

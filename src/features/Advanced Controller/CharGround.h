@@ -221,6 +221,15 @@ namespace CB::feature::controller {
     ///        fSlopeSpeedUp (defaults 1.0 and 0.5), read once.
     float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY);
 
+    /// @brief settings.ini [Character] fSlopeSpeedDown and fSlopeSpeedUp, read once.
+    const hky::locomotion::Tuning& SlopeTuning();
+
+    /// @brief locomotion::SlopeSpeedScale on the ground of `g` with `tuning` (SlopeTuning, reshaped by the movement rules).
+    inline float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY, const hky::locomotion::Tuning& tuning)
+    {
+        return hky::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
+    }
+
     /// @brief The verdict last published for the player's controller; false when none is. For readers outside the
     ///        physics step (the player's frame movement).
     bool LatestVerdict(FloorVerdict& out);

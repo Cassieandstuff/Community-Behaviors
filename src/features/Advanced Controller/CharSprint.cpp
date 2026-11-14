@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharMovementModel.h"
+#include "CharMoveRules.h"
 #include "CharSprint.h"
 
 #include <features/Advanced Dodge/Dodge.h>
@@ -112,6 +113,8 @@ namespace CB::feature::controller::sprint {
             if (!move::SprintDirectionAllowed(snap.state, snap.input, snap.profile)) return "lock beyond 50 deg";
             if (player->IsBlocking()) return "blocking";
             if (InAir(player, snap)) return "airborne";
+            /// @note A movement rule capping the gait below a sprint (a home's walk lock) holds the toggle until it lifts.
+            if (rules::GaitCap(player->GetFormID()) < Gait::Sprint) return "gait cap";
             return "";
         }
 
