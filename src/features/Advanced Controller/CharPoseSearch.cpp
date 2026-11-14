@@ -168,7 +168,8 @@ namespace CB::feature::controller::motion {
         m_speed(other.m_speed)
     {
         m_children = other.m_children;
-        for (int i = 0; i < m_children.getSize(); i++) m_children[i].m_generator->addReference();
+        for (int i = 0; i < m_children.getSize(); i++)
+            if (m_children[i].m_generator) m_children[i].m_generator->addReference();
     }
 
     PoseSearchGenerator::~PoseSearchGenerator()
@@ -193,6 +194,15 @@ namespace CB::feature::controller::motion {
             if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.activated = true;
         }
         m_currentIndex = computeCurrentIndex();
+        /// @note A node with no children (a unit written before the schema keyed its rows `children:`, whose rows the
+        ///       reader cannot see) plays nothing and searches nothing: every path below indexes a child.
+        if (m_children.isEmpty()) {
+            static std::atomic_bool warned{ false };
+            if (!warned.exchange(true))
+                LOG_ERROR("motion matching: '{}' has no children - it plays nothing (a stale bundle?)",
+                          m_name.cString() ? m_name.cString() : "");
+            return;
+        }
         if (const int next = RunMatcher(context, *this, 0.0f, true); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
     }
 
@@ -203,6 +213,7 @@ namespace CB::feature::controller::motion {
             std::scoped_lock lock(table.lock);
             if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.blend.dt = timestep;
         }
+        if (m_children.isEmpty()) return;
         const int previous = m_currentIndex;
         m_currentIndex     = computeCurrentIndex();
         if (previous != m_currentIndex && m_children[previous].m_generator != m_children[m_currentIndex].m_generator) {
@@ -221,6 +232,7 @@ namespace CB::feature::controller::motion {
 
     void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
     {
+        if (index < 0 || index >= m_children.getSize()) return;
         m_selectedIndex = index;
         ::hkbGenerator* child = m_children[index].m_generator;
         if (!child || child->getClassType() != &::hkbClipGenerator::staticClass()) return;
@@ -320,6 +332,7 @@ namespace CB::feature::controller::motion {
     {
         const int n = m_children.getSize();
         childrenInfo.m_childInfos.setSize(n);
+        if (n == 0) return;
         if (!(flags & FLAG_ACTIVE_ONLY)) {
             for (int i = 0; i < n; i++) childrenInfo.m_childInfos[i].m_node = m_children[i].m_generator;
             return;
@@ -456,6 +469,7 @@ namespace CB::feature::controller::motion {
 
     void PoseSearchGenerator::updateSync(const ::hkbContext& context, ::hkbNodeInfo& info)
     {
+        if (m_currentIndex < 0 || m_currentIndex >= m_children.getSize() || !m_children[m_currentIndex].m_generator) return;
         ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
         const ::hkbNode*    child        = m_children[m_currentIndex].m_generator;
         if (child->m_cloneState == CLONE_STATE_CLONE) child = rootBehavior->getNodeTemplate(child);
@@ -467,7 +481,7 @@ namespace CB::feature::controller::motion {
     int PoseSearchGenerator::computeCurrentIndex() const
     {
         const int last = m_children.getSize() - 1;
-        if (m_selectedIndex < 0) return 0;
+        if (m_selectedIndex < 0 || last < 0) return 0;
         return m_selectedIndex > last ? last : m_selectedIndex;
     }
 

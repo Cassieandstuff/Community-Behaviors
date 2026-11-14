@@ -13,6 +13,7 @@
 #include <Common/Base/Container/hkContainerAllocators.h>
 #include <Common/Base/Reflection/hkClassAccess.h>
 #include <Common/Base/Reflection/hkClassMemberAccess.h>
+#include <Common/Base/Reflection/hkClassEnum.h>
 #include <Common/Serialize/Util/hkBuiltinTypeRegistry.h>
 
 #include <atomic>
@@ -22,6 +23,21 @@
 #include <mutex>
 #include <string>
 #include <vector>
+
+namespace CB::platform::classes {
+    struct EnumAccess;
+}
+
+/// @brief The enum pointers of a host-built hkClass record: a member's enum and the class's declared enums. The engine's
+///        signature hashes both, so a class with an `enum:` field registered without them computes another signature
+///        than the schema writes, and every file holding it is refused at load.
+/// @note  CB's own specialization: hkClass and hkClassMember befriend the whole hkExtensionAccess family.
+template <>
+struct hkExtensionAccess<CB::platform::classes::EnumAccess> {
+    static const ::hkClassEnum*& memberEnum(::hkClassMember& m) { return m.m_enum; }
+    static const ::hkClassEnum*& declaredEnums(::hkClass& c) { return c.m_declaredEnums; }
+    static int&                   numDeclaredEnums(::hkClass& c) { return c.m_numDeclaredEnums; }
+};
 
 namespace CB::platform::classes {
 
@@ -53,6 +69,7 @@ namespace CB::platform::classes {
             std::string                   name, scopedName;
             std::vector<std::string>      memberNames;
             std::vector<::hkClassMember> members;
+            std::vector<::hkClassEnum>   declaredEnums;   ///< the schema's `enums:`, in the signature's order
             /// @note Zeroed storage: every field is written before use, and hkClass's constructor is the exe's.
             alignas(::hkClass) unsigned char clsStorage[sizeof(::hkClass)]{};
             ::hkClass&                  cls = *reinterpret_cast<::hkClass*>(clsStorage);
@@ -64,9 +81,18 @@ namespace CB::platform::classes {
         };
 
         /// @note A deque, so an entry never moves once the game holds pointers into it.
+        /// @brief One schema enum as the hkClassEnum the engine hashes; shared by every member and class naming it.
+        struct BuiltEnum {
+            std::string                       name;
+            std::vector<std::string>          itemNames;
+            std::vector<::hkClassEnum::Item>  items;   ///< points into itemNames, built after it is complete
+            ::hkClassEnum                     cls{ nullptr, nullptr, 0 };
+        };
+
         struct State {
-            std::mutex        lock;
-            std::deque<Entry> entries;
+            std::mutex            lock;
+            std::deque<Entry>     entries;
+            std::deque<BuiltEnum> enums;   ///< a deque, so an enum never moves once a member points at it
         };
         State& S()
         {
@@ -122,6 +148,28 @@ namespace CB::platform::classes {
             return &entry->cls;
         }
 
+        /// @brief The engine-facing hkClassEnum for the schema enum `name`, built once; null with `why` set when the
+        ///        schema has none.
+        const ::hkClassEnum* EnumFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
+        {
+            for (const BuiltEnum& b : S().enums)
+                if (b.name == name) return &b.cls;
+            const sc::EnumDef* def = schema.FindEnum(name);
+            if (!def) {
+                why = "no schema enum '" + name + "'";
+                return nullptr;
+            }
+            BuiltEnum& b = S().enums.emplace_back();
+            b.name       = name;
+            b.itemNames.reserve(def->items.size());
+            for (const sc::EnumItem& it : def->items) b.itemNames.push_back(it.name);
+            b.items.reserve(def->items.size());
+            for (std::size_t i = 0; i < def->items.size(); ++i)
+                b.items.emplace_back(static_cast<int>(def->items[i].value), b.itemNames[i].c_str());
+            b.cls = ::hkClassEnum(b.name.c_str(), b.items.data(), static_cast<int>(b.items.size()));
+            return &b.cls;
+        }
+
         bool ScalarType(sc::Scalar s, ::hkClassMember::Type& out)
         {
             using M = ::hkClassMember;
@@ -147,10 +195,26 @@ namespace CB::platform::classes {
             using M = ::hkClassMember;
             M::Type t{};
             switch (f.kind) {
-            case sc::FieldKind::Scalar:
+            case sc::FieldKind::Scalar: {
                 if (!ScalarType(f.scalar, t)) break;
-                MemberAccess::type(m) = t;
+                /// @note The schema's reflection (HavokSchema.cpp Reflect): an `enum:` field, or `hktype: enum|flags`, is
+                ///       an ENUM/FLAGS member over its scalar storage, as the exe's static tables declare theirs
+                ///       (hkbBehaviorGraph's variableMode: TYPE_ENUM, TYPE_INT8, flags 0). An `hkyenum:` field is not.
+                const bool named = !f.enumName.empty() && !f.enumHkyOnly;
+                if (!named && f.hkType != "enum" && f.hkType != "flags") {
+                    MemberAccess::type(m) = t;
+                    return true;
+                }
+                const bool flags = f.hkType == "flags" || (f.hkType != "enum" && f.isFlags);
+                MemberAccess::type(m)    = flags ? M::TYPE_FLAGS : M::TYPE_ENUM;
+                MemberAccess::subtype(m) = t;
+                if (named) {
+                    const ::hkClassEnum* en = EnumFor(f.enumName, schema, why);
+                    if (!en) return false;
+                    hkExtensionAccess<EnumAccess>::memberEnum(m) = en;
+                }
                 return true;
+            }
             case sc::FieldKind::String:      MemberAccess::type(m) = M::TYPE_STRINGPTR; return true;
             case sc::FieldKind::Vector4:     MemberAccess::type(m) = M::TYPE_VECTOR4; return true;
             case sc::FieldKind::Quaternion:  MemberAccess::type(m) = M::TYPE_QUATERNION; return true;
@@ -240,6 +304,14 @@ namespace CB::platform::classes {
             }
             e.building = false;
 
+            e.declaredEnums.clear();
+            e.declaredEnums.reserve(cs->enums.size());
+            for (const std::string& en : cs->enums) {
+                const ::hkClassEnum* built = EnumFor(en, schema, why);
+                if (!built) { why = "declared enum: " + why; return false; }
+                e.declaredEnums.push_back(*built);
+            }
+
             ClassAccess::name(e.cls)               = e.name.c_str();
             ClassAccess::parent(e.cls)             = parent;
             ClassAccess::objectSize(e.cls)         = size;
@@ -247,6 +319,8 @@ namespace CB::platform::classes {
             ClassAccess::numDeclaredMembers(e.cls) = static_cast<int>(e.members.size());
             ClassAccess::describedVersion(e.cls)   = 1;
             ClassAccess::numImplementedInterfaces(e.cls) = cs->interfaces;
+            hkExtensionAccess<EnumAccess>::declaredEnums(e.cls)    = e.declaredEnums.empty() ? nullptr : e.declaredEnums.data();
+            hkExtensionAccess<EnumAccess>::numDeclaredEnums(e.cls) = static_cast<int>(e.declaredEnums.size());
 
             /// @note A struct class has no C++ type behind it (no finish, cleanup or vtable): it is never registered, so
             ///       it needs no type info.
