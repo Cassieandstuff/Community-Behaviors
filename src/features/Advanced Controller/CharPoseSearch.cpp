@@ -5,8 +5,6 @@
 #include "CharGround.h"
 #include "CharMotionMatching.h"
 #include "CharSkeletonWatch.h"
-#include "features/Animation 64/BindingIndex.h"
-#include "features/Animation 64/Loader.h"
 
 #include <hky/locomotion/DeadBlend.h>
 #include <platform/classes/ClassRegistry.h>
@@ -23,7 +21,6 @@
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
-#include <core/debug/Settings.h>
 
 #include <algorithm>
 #include <atomic>
@@ -36,7 +33,6 @@
 #include <numbers>
 #include <optional>
 #include <string>
-#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -209,104 +205,6 @@ namespace CB::feature::controller::motion {
             return !player ? "unknown" : *player ? "player" : "npc";
         }
 
-        namespace widen = CB::feature::widen;
-
-        /// @return whether children are pinned: through Animation 64's loader port, the only path that reports a bind
-        ///         (AE, [Animation64] bLoader). Without it every child stays active, as before pinning.
-        bool Pinning()
-        {
-            static const bool on = core::debug::FlagOn("animation64_loader");
-            return on;
-        }
-
-        /// @brief A node's children held loaded without being active: one bind count per clip child, taken through the
-        ///        clip loader as a clip's activate takes one, so a child that becomes the playing one finds its
-        ///        animation bound and plays at once, and its own deactivate releases only its own count.
-        struct PinSet {
-            enum : std::uint8_t { kNone, kPending, kBound };
-            std::vector<std::uint8_t>  state;
-            std::vector<std::uint16_t> tries;
-            int                        pending   = 0;
-            int                        cursor    = 0;
-            const void*                character = nullptr;   ///< whose loader table the counts were taken in
-        };
-
-        /// @note Keyed by node: each character runs its own clone. The lock guards the map only; a set is touched by its
-        ///       own node's activate, update and deactivate, which never overlap.
-        struct PinTable {
-            std::mutex                                                  lock;
-            std::unordered_map<const void*, std::unique_ptr<PinSet>>    sets;
-        };
-        PinTable& Pins()
-        {
-            static PinTable table;
-            return table;
-        }
-
-        /// @brief Pending polls before a child is given up (a slot another entry holds never binds).
-        constexpr std::uint16_t kMaxPinTries = 600;
-        /// @brief Pending children polled per update.
-        constexpr int kPinPollsPerUpdate = 32;
-
-        /// @return the child's 64-bit binding index when it is a clip, -1 otherwise
-        std::int64_t ClipIndexOf(::hkbGenerator* child)
-        {
-            if (!child || child->getClassType() != &::hkbClipGenerator::staticClass()) return -1;
-            return widen::BindingIndex(static_cast<::hkbClipGenerator*>(child));
-        }
-
-        /// @brief Polls up to `budget` of `set`'s pending children, from its cursor on.
-        void PollPins(PinSet& set, const ::hkArray<PoseSearchChild>& children, const ::hkbContext& context, int budget)
-        {
-            ::IAnimationClipLoader* loader = ::g_animationClipLoader;
-            const int               n      = static_cast<int>(set.state.size());
-            if (!loader || n == 0) return;
-            for (int seen = 0; seen < n && budget > 0 && set.pending > 0; ++seen) {
-                const int i = set.cursor;
-                set.cursor  = (set.cursor + 1) % n;
-                if (set.state[i] != PinSet::kPending) continue;
-                --budget;
-                const std::int64_t index = ClipIndexOf(children[i].m_generator);
-                const widen::Pin   pin   = index < 0 ? widen::Pin::Nothing : widen::PinAnimation(loader, context, index);
-                if (pin == widen::Pin::Pending && ++set.tries[i] < kMaxPinTries) continue;
-                set.state[i] = pin == widen::Pin::Bound ? PinSet::kBound : PinSet::kNone;
-                --set.pending;
-            }
-        }
-
-        /// @brief Releases every count `set` holds.
-        void ReleasePins(PinSet& set, const ::hkArray<PoseSearchChild>& children, const ::hkbContext& context)
-        {
-            ::IAnimationClipLoader* loader = ::g_animationClipLoader;
-            for (int i = 0; i < static_cast<int>(set.state.size()); ++i) {
-                if (set.state[i] != PinSet::kBound) continue;
-                if (loader && i < children.getSize())
-                    if (const std::int64_t index = ClipIndexOf(children[i].m_generator); index >= 0) widen::UnloadAnimation(loader, context, index);
-                set.state[i] = PinSet::kNone;
-            }
-            set.pending = 0;
-        }
-
-        /// @return the node's pin set, or null when it has none
-        PinSet* PinsOf(const void* node)
-        {
-            PinTable&        t = Pins();
-            std::scoped_lock lock(t.lock);
-            const auto       it = t.sets.find(node);
-            return it == t.sets.end() ? nullptr : it->second.get();
-        }
-
-        /// @brief The pin set's counts per state, for the log.
-        struct PinCounts {
-            int bound = 0, pending = 0;
-        };
-        PinCounts CountPins(const PinSet& set)
-        {
-            PinCounts c;
-            for (const std::uint8_t s : set.state) c.bound += s == PinSet::kBound, c.pending += s == PinSet::kPending;
-            return c;
-        }
-
         const char* NameOf(const ::hkbNode& node) { return node.m_name.cString() ? node.m_name.cString() : ""; }
 
         double Seconds() { return std::chrono::duration<double>(Clock::now().time_since_epoch()).count(); }
@@ -395,33 +293,6 @@ namespace CB::feature::controller::motion {
                           m_name.cString() ? m_name.cString() : "");
             return;
         }
-        if (Pinning()) {
-            PinTable& t = Pins();
-            PinSet*   set;
-            {
-                std::scoped_lock lock(t.lock);
-                auto&            slot = t.sets[this];
-                if (!slot) slot = std::make_unique<PinSet>();
-                set = slot.get();
-            }
-            /// @note A set left by a clone torn down without deactivating, whose address this one reuses: its counts
-            ///       belong to that character's table, so they are dropped, never released through this one's.
-            if (set->character == context.m_character) ReleasePins(*set, m_children, context);
-            set->character = context.m_character;
-            const int n = m_children.getSize();
-            set->state.assign(static_cast<std::size_t>(n), PinSet::kPending);
-            set->tries.assign(static_cast<std::size_t>(n), 0);
-            set->pending = n;
-            set->cursor  = 0;
-            PollPins(*set, m_children, context, n);
-            const PinCounts c = CountPins(*set);
-            CB_MESSAGE("MM pins '{}' node {} ({}) - {} bound, {} streaming, of {} children", NameOf(*this), static_cast<const void*>(this),
-                       Whose(context), c.bound, c.pending, n);
-            static std::atomic<int> logged{ 0 };
-            if (logged.fetch_add(1, std::memory_order_relaxed) < 10)
-                LOG_INFO("motion matching: '{}' pinned {} of {} children's animations on activate ({} still streaming in)", NameOf(*this),
-                         c.bound, n, c.pending);
-        }
         if (const int next = RunMatcher(context, *this, 0.0f, true); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
         CB_MESSAGE("MM activate '{}' node {} ({}) - {} children, selected {} -> child {} (matcher at dt 0), last output child {}, #{} at {:.3f} s",
                    NameOf(*this), static_cast<const void*>(this), Whose(context), m_children.getSize(), selected, m_currentIndex, lastShown,
@@ -435,16 +306,6 @@ namespace CB::feature::controller::motion {
         CB_PLOT("MM deactivate", deactivation);
         CB_MESSAGE("MM deactivate '{}' node {} ({}) - {} children, playing child {}, #{} at {:.3f} s", NameOf(*this),
                    static_cast<const void*>(this), Whose(context), m_children.getSize(), m_currentIndex, deactivation, Seconds());
-        std::unique_ptr<PinSet> set;
-        {
-            PinTable&        t = Pins();
-            std::scoped_lock lock(t.lock);
-            if (const auto it = t.sets.find(this); it != t.sets.end()) {
-                set = std::move(it->second);
-                t.sets.erase(it);
-            }
-        }
-        if (set && set->character == context.m_character) ReleasePins(*set, m_children, context);
         hkbGenerator::deactivate(context);
     }
 
@@ -457,18 +318,6 @@ namespace CB::feature::controller::motion {
             if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.blend.dt = timestep;
         }
         if (m_children.isEmpty()) return;
-        if (PinSet* set = PinsOf(this); set && set->pending > 0) {
-            PollPins(*set, m_children, context, kPinPollsPerUpdate);
-            if (set->pending == 0) {
-                const PinCounts c = CountPins(*set);
-                CB_MESSAGE("MM pins '{}' node {} settled - {} of {} bound", NameOf(*this), static_cast<const void*>(this), c.bound,
-                           m_children.getSize());
-                static std::atomic<int> logged{ 0 };
-                if (logged.fetch_add(1, std::memory_order_relaxed) < 10)
-                    LOG_INFO("motion matching: '{}' pins settled - {} of {} children's animations held", NameOf(*this), c.bound,
-                             m_children.getSize());
-            }
-        }
         const int previous = m_currentIndex;
         m_currentIndex     = computeCurrentIndex();
         if (previous != m_currentIndex && m_children[previous].m_generator != m_children[m_currentIndex].m_generator) {
@@ -579,13 +428,10 @@ namespace CB::feature::controller::motion {
         return m_children.getSize();
     }
 
-    /// @note With pinning, only the playing child is active: the engine samples every active child each frame (its
-    ///       generate walk ignores skip-generate), so 740 active children cost 740 samples a frame. The pins keep every
-    ///       child's animation bound, so the child a switch activates plays at once instead of streaming its file in.
-    /// @note Without pinning, every child stays active, so a switch activates and deactivates nothing: a clip requests
-    ///       its animation on activate and releases it on deactivate, and the stock selector's one active child made
-    ///       every switch stream a file in (the A-pose until it landed). The playing child is reported first, so it is
-    ///       activeChildrenOutput[0].
+    /// @note Every child stays active, so a switch activates and deactivates nothing: a clip requests its animation on
+    ///       activate and releases it on deactivate, and the stock selector's one active child made every switch stream a
+    ///       file in (the A-pose until it landed). The playing child is reported first, so it is activeChildrenOutput[0];
+    ///       the rest skip generate and events, as hkbGeneratorTransitionEffect keeps its to-generator warm.
     void PoseSearchGenerator::getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo)
     {
         const int n = m_children.getSize();
@@ -593,16 +439,6 @@ namespace CB::feature::controller::motion {
         if (n == 0) return;
         if (!(flags & FLAG_ACTIVE_ONLY)) {
             for (int i = 0; i < n; i++) childrenInfo.m_childInfos[i].m_node = m_children[i].m_generator;
-            return;
-        }
-        if (Pinning()) {
-            childrenInfo.m_childInfos.setSize(1);
-            ChildInfo& ci     = childrenInfo.m_childInfos[0];
-            ci.m_node         = m_children[m_currentIndex].m_generator;
-            ci.m_ignoreEvents = false;
-            ci.m_reactivate   = false;
-            ci.m_isActive     = false;
-            ci.m_skipGenerate = false;
             return;
         }
         childrenInfo.m_anyIgnoreEvents = true;

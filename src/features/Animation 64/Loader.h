@@ -16,19 +16,6 @@ namespace CB::feature::widen {
     /// @return false while it is still loading.
     bool LoadAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index);
 
-    /// @brief What PinAnimation did.
-    enum class Pin {
-        Bound,     ///< it took one of the index's bind counts: release it with UnloadAnimation
-        Pending,   ///< nothing taken: the file is streaming in (or another entry holds the slot); ask again later
-        Nothing,   ///< nothing to hold: the index names no file, or the context has no character data
-    };
-
-    /// @brief LoadAnimation that says whether it took a reference, for a caller holding animations loaded without a
-    ///        clip (CBPoseSearchGenerator's children).
-    /// @note  LoadAnimation's true also covers an index with no file and a stream request, neither of which binds, so an
-    ///        UnloadAnimation paired with it could release a count some clip holds.
-    Pin PinAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index);
-
     /// @brief IAnimationClipLoader::unloadAnimation with a 64-bit index: releases what LoadAnimation loaded.
     void UnloadAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index);
 
