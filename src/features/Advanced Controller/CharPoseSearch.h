@@ -118,6 +118,8 @@ namespace CB::feature::controller::motion {
 
         const ::hkClass*          getClassType() const override;
         void                 activate(const ::hkbContext& context) override;
+        /// @note Overridden only to trace it (Tracy): hkbNode's is empty, and is still called.
+        void                 deactivate(const ::hkbContext& context) override;
         /// @brief Follows the selected index; a switch to another child asks the root graph to recompute its active nodes.
         void                 update(const ::hkbContext& context, ::hkReal timestep) override;
         int                  getMaxNumChildren(GetChildrenFlags flags) override;

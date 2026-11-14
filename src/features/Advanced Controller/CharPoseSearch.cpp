@@ -30,6 +30,8 @@
 #include <cstring>
 #include <mutex>
 #include <new>
+#include <numbers>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -79,6 +81,14 @@ namespace CB::feature::controller::motion {
         bool                                  jumpPending = false, jumpNow = false;
         bool                                  activated = false;   ///< the node (re)activated: its last outputs are not the pose shown since
         std::chrono::steady_clock::time_point used{};
+        /// @brief The player's arm bones as the last traced output had them, live (the child's) and shown (blended), for
+        ///        Tracy's frame-to-frame rotation plots; written only while the profiler runs.
+        struct ArmWatch {
+            const void* skeleton = nullptr;   ///< the skeleton `bone` was resolved on
+            int         bone[2]  = { -1, -1 };
+            loco::Quat  live[2]{}, shown[2]{};
+            bool        have = false;
+        }                                     arm;
     };
     struct BlendTable {
         std::mutex                                     lock;
@@ -184,16 +194,96 @@ namespace CB::feature::controller::motion {
         return cls;
     }
 
+    namespace {
+
+        /// @brief Every node's activations, deactivations and reactivation resets, for Tracy's counters.
+        std::atomic<std::uint64_t> g_activates{ 0 }, g_deactivates{ 0 }, g_blendResets{ 0 };
+
+        const char* Whose(const ::hkbContext& context)
+        {
+            const std::optional<bool> player = IsPlayerCharacter(context.m_character);
+            return !player ? "unknown" : *player ? "player" : "npc";
+        }
+
+        const char* NameOf(const ::hkbNode& node) { return node.m_name.cString() ? node.m_name.cString() : ""; }
+
+        double Seconds() { return std::chrono::duration<double>(Clock::now().time_since_epoch()).count(); }
+
+        /// @brief The arm bones traced, by their exact names in the skeleton.
+        constexpr const char* kArmBones[2] = { "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]" };
+        /// @note Tracy keys a plot by its name's address: one literal per plot.
+        constexpr const char* kArmLiveDot[2]   = { "MM RUpperArm live dot", "MM RForearm live dot" };
+        constexpr const char* kArmLiveDeg[2]   = { "MM RUpperArm live deg", "MM RForearm live deg" };
+        constexpr const char* kArmShownDot[2]  = { "MM RUpperArm shown dot", "MM RForearm shown dot" };
+        constexpr const char* kArmShownDeg[2]  = { "MM RUpperArm shown deg", "MM RForearm shown deg" };
+
+        /// @return the 4D dot of `a` and `b`, normalized; negative = the other hemisphere (q vs -q)
+        float QuatDot(const loco::Quat& a, const loco::Quat& b)
+        {
+            const float n = std::sqrt((a.x * a.x + a.y * a.y + a.z * a.z + a.w * a.w) * (b.x * b.x + b.y * b.y + b.z * b.z + b.w * b.w));
+            return n > 0.0f ? (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) / n : 0.0f;
+        }
+
+        /// @return the rotation between two unit quaternions of dot `dot`, in degrees, whichever hemisphere each is on
+        float QuatDegrees(float dot) { return 2.0f * std::acos((std::min)(1.0f, std::fabs(dot))) * (180.0f / std::numbers::pi_v<float>); }
+
+        /// @brief Finds the arm bones in `context`'s animation skeleton when it is not the one last resolved.
+        void ResolveArm(BlendSlot::ArmWatch& arm, const ::hkbContext& context, int bones)
+        {
+            const ::hkbCharacterSetup* setup    = context.m_character ? context.m_character->m_setup.val() : nullptr;
+            const ::hkaSkeleton*       skeleton = setup ? setup->m_animationSkeleton.val() : nullptr;
+            if (skeleton == arm.skeleton) return;
+            arm          = {};
+            arm.skeleton = skeleton;
+            if (!skeleton) return;
+            for (int b = 0; b < skeleton->m_bones.getSize(); ++b)
+                if (const char* name = skeleton->m_bones[b].m_name.cString())
+                    for (int k = 0; k < 2; ++k)
+                        if (std::strcmp(name, kArmBones[k]) == 0) arm.bone[k] = b;
+            CB_MESSAGE("MM arm watch: '{}' bone {}, '{}' bone {} (skeleton {} bones, pose {})", kArmBones[0], arm.bone[0], kArmBones[1],
+                       arm.bone[1], skeleton->m_bones.getSize(), bones);
+        }
+
+        /// @brief Plots each arm bone's rotation against the last traced output's, live (the child's) and shown (blended).
+        void PlotArm(BlendSlot::ArmWatch& arm, const loco::Quat (&live)[2], const loco::Bone* shown, int bones)
+        {
+            for (int k = 0; k < 2; ++k) {
+                const int i = arm.bone[k];
+                if (i < 0 || i >= bones) continue;
+                if (arm.have) {
+                    const float liveDot  = QuatDot(arm.live[k], live[k]);
+                    const float shownDot = QuatDot(arm.shown[k], shown[i].q);
+                    CB_PLOT(kArmLiveDot[k], liveDot);
+                    CB_PLOT(kArmLiveDeg[k], QuatDegrees(liveDot));
+                    CB_PLOT(kArmShownDot[k], shownDot);
+                    CB_PLOT(kArmShownDeg[k], QuatDegrees(shownDot));
+                }
+                arm.live[k]  = live[k];
+                arm.shown[k] = shown[i].q;
+            }
+            arm.have = true;
+        }
+
+    }  // namespace
+
     /// @note A parent activates before its children, and each child copies its bindings as it does: what the first search
     ///       writes here reaches the child that first plays.
     void PoseSearchGenerator::activate(const ::hkbContext& context)
     {
+        CB_ZONE(zone, "MM activate");
+        int lastShown = -1;
         {
             BlendTable&      table = Blends();
             std::scoped_lock lock(table.lock);
-            if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.activated = true;
+            if (const auto it = table.slots.find(this); it != table.slots.end()) {
+                it->second.activated = true;
+                lastShown            = it->second.blend.child;
+            }
         }
+        const std::uint64_t activation = g_activates.fetch_add(1, std::memory_order_relaxed) + 1;
+        CB_PLOT("MM activate", activation);
         m_currentIndex = computeCurrentIndex();
+        const int selected = m_currentIndex;
         /// @note A node with no children (a unit written before the schema keyed its rows `children:`, whose rows the
         ///       reader cannot see) plays nothing and searches nothing: every path below indexes a child.
         if (m_children.isEmpty()) {
@@ -204,10 +294,24 @@ namespace CB::feature::controller::motion {
             return;
         }
         if (const int next = RunMatcher(context, *this, 0.0f, true); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
+        CB_MESSAGE("MM activate '{}' node {} ({}) - {} children, selected {} -> child {} (matcher at dt 0), last output child {}, #{} at {:.3f} s",
+                   NameOf(*this), static_cast<const void*>(this), Whose(context), m_children.getSize(), selected, m_currentIndex, lastShown,
+                   activation, Seconds());
+    }
+
+    void PoseSearchGenerator::deactivate(const ::hkbContext& context)
+    {
+        CB_ZONE(zone, "MM deactivate");
+        const std::uint64_t deactivation = g_deactivates.fetch_add(1, std::memory_order_relaxed) + 1;
+        CB_PLOT("MM deactivate", deactivation);
+        CB_MESSAGE("MM deactivate '{}' node {} ({}) - {} children, playing child {}, #{} at {:.3f} s", NameOf(*this),
+                   static_cast<const void*>(this), Whose(context), m_children.getSize(), m_currentIndex, deactivation, Seconds());
+        hkbGenerator::deactivate(context);
     }
 
     void PoseSearchGenerator::update(const ::hkbContext& context, ::hkReal timestep)
     {
+        CB_ZONE(zone, "MM update");
         if (timestep > 0.0f) {
             BlendTable& table = Blends();
             std::scoped_lock lock(table.lock);
@@ -413,7 +517,14 @@ namespace CB::feature::controller::motion {
         /// @note A node that (re)activated since its last output starts over: the graph showed another generator meanwhile,
         ///       and a blend from this node's last pose (however recent) snaps back to it. No clock decides it, since a
         ///       pause or a menu stops the graph too.
-        if (std::exchange(slot.activated, false)) slot.blend.Reset(0, m_currentIndex);
+        if (std::exchange(slot.activated, false)) {
+            if (platform::profile::On()) {
+                CB_PLOT("MM blend resets", g_blendResets.fetch_add(1, std::memory_order_relaxed) + 1);
+                CB_MESSAGE("MM blend reset (reactivated) - index {}, last output child {}, {:.3f} s of blend dropped ({})", m_currentIndex,
+                           slot.blend.child, slot.blend.Remaining(Tuning()), Whose(context));
+            }
+            slot.blend.Reset(0, m_currentIndex);
+        }
         slot.used = now;
         if (++table.calls % kPruneEvery == 0)
             std::erase_if(table.slots, [&](const auto& kv) { return std::chrono::duration<double>(now - kv.second.used).count() > kDropAfter; });
@@ -426,6 +537,14 @@ namespace CB::feature::controller::motion {
         std::vector<loco::Bone>& pose = slot.pose;
         pose.resize(static_cast<std::size_t>(bones));
         std::memcpy(pose.data(), out, sizeof(loco::Bone) * static_cast<std::size_t>(bones));
+        const bool player      = IsPlayerCharacter(context.m_character).value_or(false);
+        const bool tracePlayer = player && platform::profile::On();
+        loco::Quat armLive[2]{};
+        if (tracePlayer) {
+            ResolveArm(slot.arm, context, bones);
+            for (int k = 0; k < 2; ++k)
+                if (const int i = slot.arm.bone[k]; i >= 0 && i < bones) armLive[k] = pose[static_cast<std::size_t>(i)].q;
+        }
         /// @note The input guard: the live child's pose is not ours to fix, but a broken one must not be blamed on the blend.
         if (!g_inputLogged.load(std::memory_order_relaxed)) {
             for (int i = 0; i < bones; i++) {
@@ -453,8 +572,12 @@ namespace CB::feature::controller::motion {
         }
         std::memcpy(out, pose.data(), sizeof(loco::Bone) * static_cast<std::size_t>(bones));
         /// @note For the player's HUD and Describe: an NPC's blend isn't the one they show.
-        if (IsPlayerCharacter(context.m_character).value_or(false)) g_blendRemaining.store(b.Remaining(s), std::memory_order_relaxed);
+        if (player) g_blendRemaining.store(b.Remaining(s), std::memory_order_relaxed);
         CB_PLOT("MM blend left", b.Remaining(s));
+        if (tracePlayer) {
+            CB_PLOT("MM player blend left", b.Remaining(s));
+            PlotArm(slot.arm, armLive, pose.data(), bones);
+        }
     }
 
     float BlendRemaining()

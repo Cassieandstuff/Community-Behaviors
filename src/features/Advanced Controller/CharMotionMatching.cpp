@@ -1000,6 +1000,17 @@ namespace CB::feature {
         }
         s.playingClip            = step.clip;
         s.playingTime            = step.time;
+        if (isPlayer && ::CB::platform::profile::On()) {
+            CB_PLOT("MM index", step.nextClip);
+            CB_PLOT("MM time", step.nextTime);
+            if (step.switched || step.nextClip != wasClip)
+                CB_MESSAGE("MM pick clip {} at {:.3f} s -> clip {} at {:.3f} s ({}, cost {:.2f}, was {:.2f}; last update played clip {} at {:.3f} s; "
+                           "dt {:.4f}{}) node {}",
+                           step.clip, step.time, step.nextClip, step.nextTime, step.switched ? step.trigger : "no search",
+                           step.searched ? step.result.best : std::numeric_limits<float>::quiet_NaN(),
+                           step.searched ? step.result.playing : std::numeric_limits<float>::quiet_NaN(), wasClip, wasTime, timestep,
+                           restart ? ", restarted by activate" : "", static_cast<const void*>(&node));
+        }
         /// @note The wind-up launches once the clip switched to for it (a search made with the chooser airborne) reaches
         ///       its takeoff; a clip that never takes off (an in-air one) launches at once, since waiting shows nothing.
         if (isPlayer) {

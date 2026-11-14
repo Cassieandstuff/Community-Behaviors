@@ -4,6 +4,7 @@
 
 #include <platform/classes/ClassRegistry.h>
 #include <platform/hooks/hookslib.h>
+#include <platform/profile/Profile.h>
 
 #include <Common/Base/hkBase.h>
 #include <Animation/Animation/Animation/hkaAnimationBinding.h>
@@ -102,7 +103,10 @@ namespace CB::feature::widen {
 
         void OnClipActivate(ClipActivate::Next, ::hkbClipGenerator* clip, const ::hkbContext& context)
         {
-            if (clip->m_userData == 0 && Loader()) Loader()->queue(context, clip, HK_NULL);
+            if (clip->m_userData == 0 && Loader()) {
+                CB_ZONE(zone, "Clip loader queue");
+                Loader()->queue(context, clip, HK_NULL);
+            }
 
             if (clip->m_userData == 8) {
                 clip->m_animationControl.setAndDontIncrementRefCount(new hkaDefaultAnimationControl(HK_NULL, true, 2));
@@ -199,7 +203,10 @@ namespace CB::feature::widen {
             clip->m_binding = HK_NULL;
             if (clip->m_animationControl) clip->m_animationControl->setAnimationBinding(HK_NULL);
 
-            if (clip->m_userData != 0 && Loader()) Loader()->unload(context, clip, HK_NULL);
+            if (clip->m_userData != 0 && Loader()) {
+                CB_ZONE(zone, "Clip loader unload");
+                Loader()->unload(context, clip, HK_NULL);
+            }
         }
 
         /// @note BindingIndex() takes a mutable clip (it adopts a mirror an unconverted writer changed); isValid is
