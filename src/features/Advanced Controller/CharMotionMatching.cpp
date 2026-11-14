@@ -782,14 +782,13 @@ namespace CB::feature {
         [[maybe_unused]] const bool s_subscribed =
             Frame::Subscribe(&OnFrame, hooks::Priority::Normal, "CharMotionMatching", "char_motion_matching");
 
-        /// @brief How often clips are sampled: the proof that CBPoseSearchGenerator's skipped children are not.
-        /// @note  Kept every child active, so a skip the engine ignored would sample all 252 add-on clips every frame.
+        /// @brief How often clips are sampled, every character's: the engine samples every active clip each frame (its
+        ///        generate walk ignores a child's skip-generate flag), so this is what keeping a node's children active costs.
         using ClipGenerate = hooks::Override<&::hkbClipGenerator::generate>;
-        constexpr std::string_view kClipPrefix = "animations\\MotionMatching\\";   ///< the add-on's clips, as authored
-        constexpr double           kReportEvery = 5.0;   ///< seconds
+        constexpr double kReportEvery = 5.0;   ///< seconds
         struct GenerateCount {
-            std::atomic<std::uint64_t> ours{ 0 }, all{ 0 }, frames{ 0 };
-            std::atomic<std::uint64_t> oursThisFrame{ 0 };   ///< add-on clip samples since the last player frame (the plot)
+            std::atomic<std::uint64_t> all{ 0 }, frames{ 0 };
+            std::atomic<std::uint64_t> allThisFrame{ 0 };   ///< clip samples since the last player frame (the plot)
         };
         GenerateCount g_generates;
 
@@ -798,10 +797,7 @@ namespace CB::feature {
                             ::hkReal timeOffset)
         {
             g_generates.all.fetch_add(1, std::memory_order_relaxed);
-            if (const char* name = clip->m_animationName.cString(); name && std::string_view(name).starts_with(kClipPrefix)) {
-                g_generates.ours.fetch_add(1, std::memory_order_relaxed);
-                g_generates.oursThisFrame.fetch_add(1, std::memory_order_relaxed);
-            }
+            g_generates.allThisFrame.fetch_add(1, std::memory_order_relaxed);
             next(clip, context, activeChildrenOutput, output, timeOffset);
         }
 
@@ -821,13 +817,12 @@ namespace CB::feature {
         void CountFrame()
         {
             g_generates.frames.fetch_add(1, std::memory_order_relaxed);
-            CB_PLOT("MM add-on clip samples", g_generates.oursThisFrame.exchange(0, std::memory_order_relaxed));
+            CB_PLOT("Clip samples / frame", g_generates.allThisFrame.exchange(0, std::memory_order_relaxed));
             static Clock::time_point last = Clock::now();
             const auto               now  = Clock::now();
             if (std::chrono::duration<double>(now - last).count() < kReportEvery) return;
             last               = now;
             const auto frames  = g_generates.frames.exchange(0);
-            const auto ours    = g_generates.ours.exchange(0);
             const auto all     = g_generates.all.exchange(0);
             std::vector<float> winning, playing;
             {
@@ -841,9 +836,9 @@ namespace CB::feature {
                          "units/s or 30 deg, database LOD {}",
                          ReselectTime(), ps::kForceSpeed, DatabaseLod());
             if (frames > 0 && reports++ < 60)
-                LOG_INFO("motion matching: clip samples per frame - add-on clips {:.2f}, every clip {:.1f} (over {} frames); "
+                LOG_INFO("motion matching: clip samples per frame (every character) {:.1f} (over {} frames); "
                          "biased cost min / median / max - best candidate {}, playing {}",
-                         static_cast<double>(ours) / frames, static_cast<double>(all) / frames, frames, Range(winning), Range(playing));
+                         static_cast<double>(all) / frames, frames, Range(winning), Range(playing));
         }
 
     }  // namespace

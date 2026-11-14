@@ -428,6 +428,16 @@ namespace CB::feature::widen {
         return Resolve(loader, context, index, nullptr, &triple, &state);
     }
 
+    /// @note Resolve sets state 0xc on a non-empty triple only when Bind took the count.
+    Pin PinAnimation(::IAnimationClipLoader* loader, const ::hkbContext& context, std::int64_t index)
+    {
+        CrcTriple    triple{};
+        std::int32_t state = 0;
+        const bool   ok    = Resolve(loader, context, index, nullptr, &triple, &state);
+        if (triple.Empty()) return Pin::Nothing;
+        return ok && state == 0xc ? Pin::Bound : Pin::Pending;
+    }
+
     /// @note Slot 5 (0x140bcc090).
     void UnloadAnimation(::IAnimationClipLoader*, const ::hkbContext& context, std::int64_t index)
     {
