@@ -164,6 +164,12 @@ namespace CB::core::debug {
           "AD_Dodge with AD_Direction (int, 0 = N, 1-8 = F, FR, R, BR, B, BL, L, FL) and AD_Angle (degrees clockwise "
           "from the facing); it waits while the graph's AD_IsDodging is true. Nothing plays until a graph answers "
           "AD_Dodge. Needs bAdvancedInput; the sprint tap needs bMovementModel. AE only. Unproven in game." },
+        { "camera_rules", FlagKind::IniBool, "Camera", "bCameraRules", true, true,
+          "Camera rules",
+          "The rule files in SKSE/Plugins/Community Behaviors/Camera/*.json reshape CB's camera while their Animation Relay "
+          "condition holds: the boom's length (scaled, capped, its wheel range remapped or forced), the field of view, the "
+          "shoulder offset and the anchor's lag, eased in and out. The wheel's own zoom is never changed. Inert with no rule "
+          "files. Needs bCamera. Unproven in game." },
         { "camera_collide_thin", FlagKind::IniBool, "Camera", "bCollideThinObjects", false, false,
           "Camera: thin objects block",
           "Trees, poles and other thin objects pull the camera in like walls. Off, the camera passes them and only "

@@ -207,14 +207,14 @@ namespace CB::feature::controller::rules {
 
     ModifierState Step(RE::Actor& actor, float dt)
     {
-        if (!On()) return {};
+        if (!On()) return ModifierState{};
         Table&                               t = T();
         std::shared_ptr<const loco::RuleSet> rules;
         {
             std::scoped_lock guard(t.lock);
             rules = t.rules;
         }
-        if (!rules) return {};
+        if (!rules) return ModifierState{};
 
         hky::relay::EvalContext ctx;
         ctx.Reset(&actor);

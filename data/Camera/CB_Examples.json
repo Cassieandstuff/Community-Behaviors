@@ -1,0 +1,13 @@
+// Community Behaviors' example camera rules. Every *.json in this folder is read, in name order; a later file stating a
+// rule's id merges into it field by field, and "disabled": true switches it off. Material groups come from the movement
+// rules (Movement/*.json).
+{
+  "rules": [
+    {
+      "id": "CB.CloserIndoors",
+      "condition": "LocationHasKeyword(LocTypePlayerHouse) || LocationHasKeyword(LocTypeInn)",
+      "maxDistance": 300,
+      "shoulderScale": 0.6
+    }
+  ]
+}

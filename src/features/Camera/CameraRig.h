@@ -84,12 +84,15 @@ namespace CB::feature::camera::rig {
         float zoom      = 0;  ///< vanilla's current zoom: 0 = nearest, 1 = farthest, below 0 heading to first person
         float pitchZoom = 0;  ///< extra distance from looking down or up
         Basis rotation;
+        float distance = -1;  ///< the boom's length when at least 0 (the camera rules' reshaping of BoomDistance), else BoomDistance's
     };
     struct BoomOut {
         Vec3 pivot;  ///< the anchor plus the shoulder's sideways and vertical part: where the boom starts
         Vec3 eye;    ///< where the camera wants to be
     };
     BoomOut StepBoom(const BoomParams& p, const BoomIn& in);
+    /// @brief The boom's length vanilla's numbers give: lerp(minDistance, maxDistance, zoom) plus the pitch zoom.
+    float BoomDistance(const BoomParams& p, const BoomIn& in);
 
     /// @brief Keeps the eye in front of whatever the boom's sphere hit: in at once, held briefly, back out over a
     ///        halflife. A thin object only ever counts when the eye would end up in it, and eases in, so orbiting past a

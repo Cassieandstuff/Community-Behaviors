@@ -2,6 +2,7 @@
 
 #include "Camera.h"
 #include "CameraRig.h"
+#include "CameraRules.h"
 
 #include "features/Advanced Controller/CharSweep.h"
 
@@ -165,6 +166,8 @@ namespace CB::feature::camera {
             bool                  comInit = false;
             bool                  seeded = false;
             int                   seeds  = 0;
+            float                 fovBase  = 0.0f;    ///< the world FOV before a camera rule took it
+            bool                  fovOwned = false;   ///< a camera rule holds the world FOV
             int                   diags  = 0;
             Clock::time_point     last{};
             Clock::time_point     lastDiag{};
@@ -316,6 +319,9 @@ namespace CB::feature::camera {
             dt     = (std::min)(dt, 0.1f);
             const float mounted = rig::StepEase(profile.mounted.ease, l.mounted, mountTarget, dt);
             const float body    = rig::StepEase(profile.mounted.body, l.body, bodyTarget, dt);
+            /// @note The camera rules (CameraRules): each output laid on the rig's own number where the stage reads it.
+            const rules::ModifierState cam   = rules::Step(*player, dt);
+            const auto                 shape = [&](rules::Output o, float base) { return cam.Shape(rules::Index(o), base); };
 
             /// @note CB turns the view by the look input itself (the rig's Orientation stage, by time), so the view
             ///       is the camera's own rather than vanilla's free-rotation offset; vanilla's HandleLookInput is fed no
@@ -406,7 +412,10 @@ namespace CB::feature::camera {
                          static_cast<int>(sit), body, mounted, at.z, height, comZ, l.comOffset.z, rider.x, rider.y, rider.z, l.mountPivot.x,
                          l.mountPivot.y, l.mountPivot.z, pivot.x, pivot.y, pivot.z);
             }
-            const rig::Vec3 anchor = rig::StepAnchor(profile.anchor, l.rig.anchor, { pivot, dt });
+            rig::AnchorParams anchorParams = profile.anchor;
+            anchorParams.halflifeXY        = shape(rules::Output::AnchorLag, anchorParams.halflifeXY);
+            anchorParams.halflifeZ         = shape(rules::Output::AnchorLag, anchorParams.halflifeZ);
+            const rig::Vec3 anchor = rig::StepAnchor(anchorParams, l.rig.anchor, { pivot, dt });
             rig::BoomIn     boomIn;
             boomIn.anchor    = anchor;
             boomIn.shoulder  = { tps->posOffsetActual.x, tps->posOffsetActual.y, tps->posOffsetActual.z };
@@ -427,7 +436,16 @@ namespace CB::feature::camera {
             boomIn.zoom      = tps->currentZoomOffset;
             boomIn.pitchZoom = tps->pitchZoomOffset;
             boomIn.rotation  = basis;
-            const rig::BoomOut boom = rig::StepBoom(profile.boom, boomIn);
+            rig::BoomParams boomParams = profile.boom;
+            boomParams.minDistance     = shape(rules::Output::ZoomMinDistance, boomParams.minDistance);
+            boomParams.maxDistance     = shape(rules::Output::ZoomMaxDistance, boomParams.maxDistance);
+            boomIn.shoulder.x          = shape(rules::Output::ShoulderX, shape(rules::Output::ShoulderScale, boomIn.shoulder.x));
+            boomIn.shoulder.z          = shape(rules::Output::ShoulderZ, shape(rules::Output::ShoulderScale, boomIn.shoulder.z));
+            /// @note The wheel's own zoom is never written: the rules reshape the length it gives.
+            float distance             = shape(rules::Output::Distance, rig::BoomDistance(boomParams, boomIn));
+            distance                   = shape(rules::Output::MaxDistance, distance);
+            boomIn.distance            = (std::max)(0.0f, shape(rules::Output::ForcedDistance, distance));
+            const rig::BoomOut boom = rig::StepBoom(boomParams, boomIn);
 
             /// @note Two legs: the shoulder can reach through a wall the player stands against, where a sweep starting at
             ///       the pivot would miss it from behind. So the pivot is swept out from the anchor first.
@@ -501,6 +519,18 @@ namespace CB::feature::camera {
                 node->local.translate = tps->translation;
                 RE::NiUpdateData update;
                 node->Update(update);
+            }
+
+            /// @note A rule's FOV is laid on the FOV it found when it took hold, and that FOV is put back once every FOV rule
+            ///       has eased out.
+            float&     worldFov = camera->GetRuntimeData2().worldFOV;
+            const bool fovRule  = cam.weight[rules::Index(rules::Output::Fov)] > 0.0f || cam.value[rules::Index(rules::Output::FovScale)] != 1.0f;
+            if (fovRule) {
+                if (!l.fovOwned) l.fovBase = worldFov, l.fovOwned = true;
+                worldFov = shape(rules::Output::FovScale, shape(rules::Output::Fov, l.fovBase));
+            } else if (l.fovOwned) {
+                worldFov   = l.fovBase;
+                l.fovOwned = false;
             }
 
             g_yaw.store(l.view.yaw, std::memory_order_relaxed);

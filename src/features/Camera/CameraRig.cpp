@@ -27,9 +27,11 @@ namespace CB::feature::camera::rig {
         return s.pos;
     }
 
+    float BoomDistance(const BoomParams& p, const BoomIn& in) { return p.minDistance + (p.maxDistance - p.minDistance) * in.zoom + in.pitchZoom; }
+
     BoomOut StepBoom(const BoomParams& p, const BoomIn& in)
     {
-        const float distance = p.minDistance + (p.maxDistance - p.minDistance) * in.zoom + in.pitchZoom;
+        const float distance = in.distance >= 0.0f ? in.distance : BoomDistance(p, in);
         BoomOut     out;
         out.pivot = in.anchor + in.rotation.Apply({ in.shoulder.x, 0.0f, in.shoulder.z });
         out.eye   = in.anchor + in.rotation.Apply({ in.shoulder.x, in.shoulder.y - distance, in.shoulder.z });

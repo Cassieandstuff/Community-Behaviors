@@ -349,14 +349,15 @@ namespace CB::feature::controller::hud {
                             *st.why ? (std::string("   (") + st.why + ")").c_str() : "");
             if (rules::Hud r; rules::Current(r)) {
                 using hky::locomotion::Modifier;
-                const auto  v = [&](Modifier k) { return r.state.value[static_cast<std::size_t>(k)]; };
+                const auto  v = [&](Modifier k) { return r.state.Factor(k); };
                 std::string ids;
                 for (const std::string& id : r.active) ids += (ids.empty() ? "" : ", ") + id;
                 ImGui::Text("rules %d   holding %s", r.loaded, ids.empty() ? "none" : ids.c_str());
                 static constexpr const char* kGaitNames[4] = { "none", "walk", "run", "sprint" };
-                const float cap = v(Modifier::MaxSpeed);
+                const std::size_t capAt = hky::locomotion::Index(Modifier::MaxSpeed);
+                const bool        capOn = r.state.weight[capAt] > 0.01f;
                 ImGui::Text("speed x%.2f   cap %s   gait up to %s   accel x%.2f   friction x%.2f   braking x%.2f   turn x%.2f", v(Modifier::Speed),
-                            std::isinf(cap) ? "-" : std::to_string(static_cast<int>(cap)).c_str(), kGaitNames[static_cast<int>(r.state.maxGait) & 3],
+                            capOn ? std::to_string(static_cast<int>(r.state.value[capAt])).c_str() : "-", kGaitNames[static_cast<int>(r.state.maxGait) & 3],
                             v(Modifier::Accel), v(Modifier::Friction), v(Modifier::Braking), v(Modifier::TurnRate));
                 for (const std::string& e : r.errors) ImGui::Text("rule error: %s", e.c_str());
             }
