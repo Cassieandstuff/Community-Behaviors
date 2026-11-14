@@ -590,15 +590,15 @@ namespace CB::feature::controller::motion {
         return true;
     }
 
+    /// @note The node is no sync source and no proxy: the matcher owns its clip's time. As a proxy of the playing clip
+    ///       (MODE_USER_CONTROLLED, its time re-derived from the bound fraction every update), a FLAG_SYNC transition
+    ///       above it (Sprint/SneakSyncBlendTransition) handed it the effect's phase error modulo the clip's period as
+    ///       its timestep: 0.5-3.1 s in one frame on the long sprint transitions, which leapt the clip forward. A base
+    ///       frequency of 0 makes the graph pass the frame's timestep straight through (playback speed 1: 0 freezes it).
     void PoseSearchGenerator::updateSync(const ::hkbContext& context, ::hkbNodeInfo& info)
     {
-        if (m_currentIndex < 0 || m_currentIndex >= m_children.getSize() || !m_children[m_currentIndex].m_generator) return;
-        ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
-        const ::hkbNode*    child        = m_children[m_currentIndex].m_generator;
-        if (child->m_cloneState == CLONE_STATE_CLONE) child = rootBehavior->getNodeTemplate(child);
-        const int index   = rootBehavior->m_activeNodeTemplateToIndexMap->getWithDefault(child, 0);
-        info.m_isProxy    = true;
-        info.m_proxyIndex = (*rootBehavior->m_activeNodes)[index].m_isProxy ? (*rootBehavior->m_activeNodes)[index].m_proxyIndex : index;
+        ::hkbGenerator::updateSync(context, info);
+        info.m_isProxy = false;
     }
 
     int PoseSearchGenerator::computeCurrentIndex() const
