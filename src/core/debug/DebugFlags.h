@@ -251,6 +251,12 @@ namespace CB::core::debug {
           "there). Replaces bPogo's float, the constraint planes and the stick/crest rules for the player while on. Tuning: "
           "[Character] fMoverMass (80), fMoverGroundForce (6000), fMoverAirForce (1500), fMoverPogoHertz (3), "
           "fMoverPogoDamping (0.8), fMoverSlideTime (0.2). Read once at launch. Experimental, AE only." },
+        { "char_leg_collision", FlagKind::IniBool, "Character", "bLegCollision", false, false,
+          "Legs push clutter",
+          "While the player is on foot, the thigh, calf and foot bodies of their ragdoll go on BipedNoCC and into the "
+          "physics world, still following the animation, so the feet kick buckets, baskets, bones and props as vanilla does "
+          "for races with Allow Ragdoll Collision. NPC controllers, arrows and spells meet the legs too. Ragdoll, mounts, "
+          "swimming and sitting hand the legs back to vanilla. Read once at launch. Experimental, AE only." },
         { "char_collision_hud", FlagKind::IniBool, "Character", "bCollisionHud", false, false,
           "Collision overlay",
           "With bDebugHud on, also draws what the player's collision queries see: the proxy's contacts (a dot per point, "
