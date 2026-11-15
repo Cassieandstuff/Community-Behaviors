@@ -130,11 +130,9 @@ namespace CB::feature {
             float    sx = 0, sy = 0;   ///< the slide velocity (horizontal, Havok units/s), added to the spring's on the ground
             float    grip = 1.0f;      ///< the support the slide and the uphill clip read: the verdict's, faded over kGripFade
             ch::Ground lastVerdict = ch::Ground::Airborne;
-            bool     variableJump = false;   ///< this jump was pressed by the player, so its release shapes it
-            bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
-            bool     released     = false;   ///< Jump came up during this jump's rise
-            float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
-            float    jumpHeight   = 0.0f;    ///< Havok units, this jump's height above the slope it left
+            bool     variableJump = false;   ///< under the dynamic mover: this jump may still stop at the short hop
+            bool     released     = false;   ///< Jump is up while variableJump
+            std::uint32_t jumpPresses = 0;   ///< JumpInput::Presses() as of the last dynamic mover step
             float    windup       = -1.0f;   ///< seconds left on a pending ground jump's wind-up, -1 for none
             bool     steep       = false;    ///< Grounded on ground that does not hold the character up (GroundMode::Steep)
             float    support     = 0.0f;     ///< the last Grounded step's decided support (GroundDecision::support)
@@ -236,6 +234,8 @@ namespace CB::feature {
             }
 
             bool Held() const { return m_held.load(std::memory_order_relaxed); }
+            /// @brief How many times Jump has gone down.
+            std::uint32_t Presses() const { return m_presses.load(std::memory_order_relaxed); }
 
             /// @brief Seconds since Jump last went down; huge before the first press.
             float SincePress() const
@@ -254,6 +254,7 @@ namespace CB::feature {
                     if (b->IsDown()) {
                         m_pressNs.store(Now(), std::memory_order_relaxed);
                         m_held.store(true, std::memory_order_relaxed);
+                        m_presses.fetch_add(1, std::memory_order_relaxed);
                     } else if (b->IsUp()) {
                         m_held.store(false, std::memory_order_relaxed);
                     }
@@ -270,70 +271,17 @@ namespace CB::feature {
             std::atomic<bool>         m_registered{ false };
             std::atomic<bool>         m_held{ false };
             std::atomic<std::int64_t> m_pressNs{ 0 };
+            std::atomic<std::uint32_t> m_presses{ 0 };
         };
 
-        /// @brief settings.ini [Character] tunables for char_variable_jump, read once.
-        struct JumpTunables {
-            int   mode             = 1;      ///< 1 = release gravity (continuous), 2 = short / full hop
-            float releaseGravity   = 3.0f;   ///< mode 1: gravity multiplier while rising after release
-            float shortHopFraction = 0.5f;   ///< mode 2: a short hop's height as a fraction of the full jump
-            float shortHopWindow   = 0.1f;   ///< mode 2: release within this many seconds of the press = short hop
-            float pressMemory      = 0.5f;   ///< a launch this long after a press still belongs to it (animation lead-in)
-        };
-
-        using ch::SettingFloat;
-
-        const JumpTunables& Jump()
-        {
-            static const JumpTunables t = [] {
-                JumpTunables j;
-                j.mode             = static_cast<int>(SettingFloat("iJumpMode", 1.0f));
-                j.releaseGravity   = (std::max)(1.0f, SettingFloat("fJumpReleaseGravity", j.releaseGravity));
-                j.shortHopFraction = std::clamp(SettingFloat("fShortHopFraction", j.shortHopFraction), 0.05f, 1.0f);
-                j.shortHopWindow   = (std::max)(0.0f, SettingFloat("fShortHopWindow", j.shortHopWindow));
-                LOG_INFO("variable jump: mode {} release gravity {:.2f} short hop {:.2f} within {:.3f} s", j.mode, j.releaseGravity,
-                         j.shortHopFraction, j.shortHopWindow);
-                return j;
-            }();
-            return t;
-        }
+        /// @brief A launch this long after a press still belongs to it (the game's own lead-in to the jump request);
+        ///        later, the jump is full whatever the button does.
+        constexpr float kPressMemory = 0.5f;
 
         bool VariableJumpOn()
         {
             static const bool on = core::debug::FlagOn("char_variable_jump");
             return on;
-        }
-
-        /// @brief A player jump's rising step: returns the gravity multiplier and may lower `oz` (Havok units/s).
-        /// @note Full height is vanilla's whenever Jump stays held, so jump-height settings and NPC path jumps (never
-        ///       variable: player only) keep their meaning; releasing only ever shortens the rise.
-        float VariableRise(::bhkCharacterController& c, Track& t, float& oz, float height, float g)
-        {
-            const JumpTunables& j    = Jump();
-            JumpInput&          in   = JumpInput::Get();
-            const bool          held = in.Held();
-            if (!held && !t.released) {
-                t.released = true;
-                if (LogBudget())
-                    LOG_INFO("variable jump: released {:.3f} s after the press, risen {:.1f} game units", in.SincePress(), height - t.launchHeight);
-            }
-            if (j.mode == 2) {
-                if (t.hopDecided) return 1.0f;
-                const float since = in.SincePress();
-                if (!held && since <= j.shortHopWindow) {
-                    const float target = t.jumpHeight * j.shortHopFraction;
-                    const float risen  = (height - t.launchHeight) / kGameUnitsPerHavok;
-                    const float left   = (std::max)(0.0f, target - risen);
-                    oz                 = (std::min)(oz, std::sqrt(2.0f * g * left));
-                    t.hopDecided       = true;
-                    if (LogBudget()) LOG_INFO("variable jump: short hop ({:.2f} of {:.2f} Havok units), vz -> {:.2f}", target, t.jumpHeight, oz);
-                } else if (since > j.shortHopWindow) {
-                    t.hopDecided = true;
-                    if (LogBudget()) LOG_INFO("variable jump: full hop");
-                }
-                return 1.0f;
-            }
-            return held ? 1.0f : j.releaseGravity;
         }
 
         /// @brief G7 + G6: one Airborne step. Gravity 1x while rising (above m_fallStartHeight, which it raises),
@@ -366,17 +314,6 @@ namespace CB::feature {
             }
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
-            if (t.variableJump) {
-                if (oz > 0.0f) {
-                    const float g = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
-                    gravityMult   = (std::max)(gravityMult, VariableRise(c, t, oz, height, g));
-                } else {
-                    t.variableJump = false;
-                    if (LogBudget())
-                        LOG_INFO("variable jump: apex {:.1f} game units above the launch (full {:.1f}){}", height - t.launchHeight,
-                                 t.jumpHeight * kGameUnitsPerHavok, t.released ? "" : ", held throughout");
-                }
-            }
             const float k = gravityMult * c.m_gravity * dt;
             c.m_outVelocity.set(ox + gx * k, oy + gy * k, oz + gz * k, 0.0f);
             t.airVz = oz + gz * k;
@@ -558,17 +495,6 @@ namespace CB::feature {
             c.m_flags &= ~ch::kSupport;
             c.m_fallStartHeight = HeightGame(c);
             EnterAirborne(c, t, entry, fv, oz);
-            t.launchHeight = c.m_fallStartHeight;
-            t.jumpHeight   = std::fabs(c.m_jumpHeight);
-            t.hopDecided   = false;
-            t.released     = false;
-            if (entry == AirEntry::Jumped && VariableJumpOn() && ch::IsPlayer(&c)) {
-                const float since = JumpInput::Get().SincePress();
-                t.variableJump    = since <= Jump().pressMemory;
-                if (LogBudget())
-                    LOG_INFO("variable jump: launch {:.3f} s after the press, held {}{}", since, JumpInput::Get().Held(),
-                             t.variableJump ? "" : " - no recent press, full jump");
-            }
             AirStep(c, t, dt, false);
         }
 
@@ -685,8 +611,16 @@ namespace CB::feature {
         {
             ch::dynamic::In in;
             DesiredHorizontal(c, in.dx, in.dy);
-            in.jump      = want == ::HK_CHARACTER_JUMPING || id == ::HK_CHARACTER_JUMPING;
-            in.jumpSpeed = LaunchSpeed(c);
+            in.jump       = want == ::HK_CHARACTER_JUMPING || id == ::HK_CHARACTER_JUMPING;
+            in.jumpHeight = std::fabs(c.m_jumpHeight);
+            /// @note The game asks for no jump in the air, so an air jump is a fresh press of CB's own Jump listener
+            ///       there; a press on the ground is the game's request's, and is spent.
+            JumpInput&          button  = JumpInput::Get();
+            const std::uint32_t presses = button.Presses();
+            in.airJump    = t.mode == Mode::Airborne && presses != t.jumpPresses;
+            t.jumpPresses = presses;
+            in.variable   = VariableJumpOn();
+            in.jumpHeld   = !in.variable || button.Held() || button.SincePress() > kPressMemory;
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             in.gravity   = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
@@ -705,8 +639,12 @@ namespace CB::feature {
                 c.m_flags |= ch::kJumping;
                 c.m_fallStartHeight = HeightGame(c);
                 EnterAirborne(c, t, AirEntry::Jumped, fv, vz);
-                t.launchHeight = c.m_fallStartHeight;
-                t.jumpHeight   = std::fabs(c.m_jumpHeight);
+                if (LogBudget())
+                    LOG_INFO("ground states: jump (dynamic mover) - full {:.1f} game units, {}, vz {:.2f}", o.fullHeight * kGameUnitsPerHavok,
+                             !in.variable ? "short hops off" : in.jumpHeld ? "held" : "released: short hop", vz);
+            } else if (o.airJumped) {
+                c.m_flags |= ch::kJumping;
+                if (LogBudget()) LOG_INFO("ground states: air jump (dynamic mover) - {} left, vz {:.2f}", o.airJumpsLeft, vz);
             } else if (t.mode != Mode::Airborne && !o.onGround) {
                 EnterAirborne(c, t, o.jumping ? AirEntry::Jumped : AirEntry::WalkedOff, fv, vz);
             } else if (t.mode == Mode::Airborne && o.onGround) {
@@ -728,6 +666,8 @@ namespace CB::feature {
             if (walking) c.m_flags |= ch::kCanJump | ch::kSupport;
             else         c.m_flags &= ~(ch::kCanJump | ch::kSupport);
             if (!o.jumping) c.m_flags &= ~ch::kJumping;
+            t.variableJump = o.hopPending;
+            t.released     = !in.jumpHeld;
             ch::FloorVerdict decided = fv;
             if (t.mode == Mode::Airborne) decided.ground = ch::Ground::Airborne, decided.support = 0.0f;
             ch::PublishVerdict(c, decided);

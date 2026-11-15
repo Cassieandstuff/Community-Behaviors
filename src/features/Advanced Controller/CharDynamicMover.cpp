@@ -20,7 +20,9 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <format>
 #include <mutex>
+#include <string>
 
 /// @file
 /// @brief The player's dynamic mover's body, listener and per-step glue (CharDynamicMover.h).
@@ -46,11 +48,27 @@ namespace CB::feature::controller::dynamic {
             float pogoHertz   = SettingFloat("fMoverPogoHertz", 3.0f);
             float pogoDamping = SettingFloat("fMoverPogoDamping", 0.8f);
             float slideTime   = SettingFloat("fMoverSlideTime", 0.2f);
+            /// @brief The jump (game units, seconds): fJumpHeight 0 keeps the controller's own height (m_jumpHeight);
+            ///        fShortHopHeight below 0 is half the full height; a time of 0 leaves that half of the flight to the
+            ///        world's gravity.
+            float jumpHeight    = (std::max)(0.0f, SettingFloat("fJumpHeight", 0.0f));
+            float shortHop      = SettingFloat("fShortHopHeight", -1.0f);
+            float riseTime      = (std::max)(0.0f, SettingFloat("fJumpRiseTime", 0.35f));
+            float fallTime      = (std::max)(0.0f, SettingFloat("fJumpFallTime", 0.3f));
+            int   airJumps      = (std::max)(0, static_cast<int>(SettingFloat("iAirJumps", 1.0f)));
+            float airJumpHeight = (std::max)(0.0f, SettingFloat("fAirJumpHeight", 0.0f));
         };
 
         const Tuning& Tune()
         {
-            static const Tuning t;
+            static const Tuning t = [] {
+                Tuning v;
+                LOG_INFO("dynamic mover: jump height {} game units, short hop {}, rise {:.3f} s, fall {:.3f} s, {} air jumps of {}",
+                         v.jumpHeight > 0.0f ? std::format("{:.1f}", v.jumpHeight) : std::string("the controller's"),
+                         v.shortHop >= 0.0f ? std::format("{:.1f}", v.shortHop) : std::string("half"), v.riseTime, v.fallTime, v.airJumps,
+                         v.airJumpHeight > 0.0f ? std::format("{:.1f}", v.airJumpHeight) : std::string("the full height"));
+                return v;
+            }();
             return t;
         }
 
@@ -67,7 +85,7 @@ namespace CB::feature::controller::dynamic {
             lc::MoverState              state;
             lc::MoverGround             ground;
             float                       dx = 0, dy = 0;
-            bool                        jumped = false;   ///< latched by the listener when a substep launched
+            std::uint32_t               seenLaunches = 0;   ///< MoverState::launches as of the last controller step
             std::atomic<bool>           claimed{ false };
             /// @brief Diagnostics: the listener's calls (for our world, for another, with no step time) and the last step
             ///        time, since the last report.
@@ -105,9 +123,7 @@ namespace CB::feature::controller::dynamic {
                 const ::hkVector4& v = s.body->getLinearVelocity();
                 const float        half = s.settings.HalfSegment();
                 float              vx = v(0), vy = v(1), vz = v(2);
-                const bool         was = s.state.jumping;
                 lc::MoverSubstep(s.settings, s.state, s.ground, s.dx, s.dy, p(0), p(1), p(2) - half, vx, vy, vz, h);
-                if (!was && s.state.jumping) s.jumped = true;
                 ::hkVector4 out;
                 out.set(vx, vy, vz, 0.0f);
                 s.body->setLinearVelocity(out);
@@ -134,7 +150,7 @@ namespace CB::feature::controller::dynamic {
                 std::scoped_lock lock(s.lock);
                 body = s.body, hk = s.hk, world = s.world;
                 s.body = nullptr, s.hk = nullptr, s.world = nullptr, s.ctrl = nullptr;
-                s.state = {}, s.ground = {}, s.jumped = false;
+                s.state = {}, s.ground = {}, s.seenLaunches = 0;
             }
             if (!body) return;
             {
@@ -211,7 +227,7 @@ namespace CB::feature::controller::dynamic {
                 std::scoped_lock lock(s.lock);
                 s.ctrl = &ctrl, s.world = hull.world, s.hk = hk, s.body = body;
                 s.settings = std::move(set);
-                s.state = {}, s.ground = {}, s.jumped = false;
+                s.state = {}, s.ground = {}, s.seenLaunches = 0;
             }
             if (LogBudget())
                 LOG_INFO("dynamic mover: body made - radius {:.3f}, capsule from {:.3f} to {:.3f} above the feet, float {:.3f}, mass {:.0f}",
@@ -277,7 +293,18 @@ namespace CB::feature::controller::dynamic {
             out.capsuleA[2] = p(2) - half, out.capsuleB[2] = p(2) + half;
             out.radius = s.settings.radius;
             s.settings.gravity   = in.gravity;
-            s.settings.jumpSpeed = in.jumpSpeed;
+            {
+                constexpr float k    = hky::physics::kHavokToGame;
+                const Tuning&   tune = Tune();
+                const float     full = tune.jumpHeight > 0.0f ? tune.jumpHeight / k : in.jumpHeight;
+                s.settings.jumpHeight     = full;
+                s.settings.riseTime       = tune.riseTime;
+                s.settings.fallTime       = tune.fallTime;
+                s.settings.shortHopHeight = !in.variable ? 0.0f : tune.shortHop >= 0.0f ? tune.shortHop / k : 0.5f * full;
+                s.settings.airJumps       = tune.airJumps;
+                s.settings.airJumpHeight  = tune.airJumpHeight / k;
+                out.fullHeight            = full;
+            }
             s.settings.walkableZ = in.walkableZ;
             settings = s.settings;
             state    = s.state;
@@ -292,9 +319,15 @@ namespace CB::feature::controller::dynamic {
             s.state.headingX = state.headingX, s.state.headingY = state.headingY;
             s.dx = in.dx, s.dy = in.dy;
             if (in.jump) s.state.jumpWanted = true;
+            if (in.airJump) s.state.airJumpWanted = true;
+            s.state.jumpHeld = in.jumpHeld;
             out.onGround = s.state.onGround, out.walkable = s.state.walkable, out.jumping = s.state.jumping;
-            out.jumped   = s.jumped;
-            s.jumped     = false;
+            const bool launched = s.state.launches != s.seenLaunches;
+            s.seenLaunches      = s.state.launches;
+            out.jumped          = launched && !s.state.lastAirJump;
+            out.airJumped       = launched && s.state.lastAirJump;
+            out.airJumpsLeft    = s.state.airJumpsLeft;
+            out.hopPending      = s.state.hopPending;
             out.pogoLength = s.state.pogoLength;
         }
         out.nx = ground.nx, out.ny = ground.ny, out.nz = ground.nz;
