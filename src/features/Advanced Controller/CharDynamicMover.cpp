@@ -171,6 +171,11 @@ namespace CB::feature::controller::dynamic {
             set.mass = t.mass, set.maxGroundForce = t.groundForce, set.maxAirForce = t.airForce;
             set.pogoHertz = t.pogoHertz, set.pogoDamping = t.pogoDamping, set.slideDuration = t.slideTime;
             set.control          = lc::MoverControl::Spring;
+            /// @note The mover integrates gravity itself: Skyrim's world never moved this MOTION_CHARACTER body by its
+            ///       gravity (a jump's vz held +4.68 into the sky with the world's gravity at -9.81). Falling is heavier,
+            ///       as vanilla InAir's (fInAirFallingCharGravityMult).
+            set.applyGravity     = true;
+            set.fallGravityScale = IniFloat("fInAirFallingCharGravityMult:HAVOK", 1.35f);
             set.nativeFilter     = hull.collidable->getCollisionFilterInfo();
             set.walkableMaterial = [](std::uint32_t id) { return StairsMaterial(id); };
             const float half = set.HalfSegment();
@@ -187,7 +192,7 @@ namespace CB::feature::controller::dynamic {
             ci.m_friction            = 0.0f;
             ci.m_restitution         = 0.0f;
             ci.m_linearDamping       = 0.0f;
-            ci.m_gravityFactor       = 1.0f;
+            ci.m_gravityFactor       = 0.0f;
             ci.m_collisionFilterInfo = hull.collidable->getCollisionFilterInfo();
             ci.m_enableDeactivation  = false;
             ci.m_qualityType         = ::HK_COLLIDABLE_QUALITY_CHARACTER;
