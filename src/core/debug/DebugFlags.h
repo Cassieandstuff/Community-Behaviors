@@ -253,6 +253,12 @@ namespace CB::core::debug {
           "holds, orange slides, blue airborne), falls "
           "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, the movement model's "
           "speed and cap, the sprint state, iState). Hidden while the game is paused." },
+        { "char_stairs_survey", FlagKind::IniBool, "Character", "bStairsSurvey", false, false,
+          "Stairs survey",
+          "Runs the stairs detector for the player even when no movement rule asks about stairs, logs a line per flight it "
+          "finds (up or down, risers, rise and tread, ramp-collision or stepped, confidence, material, where), and with "
+          "bDebugHud on draws its rays along the predicted path (green tread, red riser, violet ramp, grey other, dark miss) "
+          "and its verdict in the text panel. Needs bPredictorObserve. Unproven in game." },
         { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
           "Trajectory predictor (observe)",
           "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "

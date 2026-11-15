@@ -27,8 +27,10 @@ namespace CB::feature::controller::surface {
         constexpr int kLogBudget = 400;
 
         struct Entry {
-            std::uint32_t     now = 0, ahead = 0;
-            Clock::time_point nowAt{}, aheadAt{};
+            std::uint32_t              now = 0, ahead = 0;
+            Clock::time_point          nowAt{}, aheadAt{};
+            hky::relay::StairsReading  stairs;
+            Clock::time_point          stairsAt{};
         };
 
         struct Table {
@@ -62,7 +64,9 @@ namespace CB::feature::controller::surface {
         void Prune(Table& t, Clock::time_point now)
         {
             if (t.byActor.size() < 256) return;
-            std::erase_if(t.byActor, [now](const auto& kv) { return now - kv.second.nowAt > kStale && now - kv.second.aheadAt > kStale; });
+            std::erase_if(t.byActor, [now](const auto& kv) {
+                return now - kv.second.nowAt > kStale && now - kv.second.aheadAt > kStale && now - kv.second.stairsAt > kStale;
+            });
         }
 
         hky::relay::SurfaceReading Read(const hky::relay::EvalContext& ctx)
@@ -77,6 +81,14 @@ namespace CB::feature::controller::surface {
             hky::relay::SurfaceReading r;
             if (now - it->second.nowAt <= kStale) r.now = it->second.now;
             if (now - it->second.aheadAt <= kStale) r.ahead = it->second.ahead;
+            return r;
+        }
+
+        hky::relay::StairsReading ReadStairs(const hky::relay::EvalContext& ctx)
+        {
+            const auto* actor = static_cast<const RE::Actor*>(ctx.actor);
+            hky::relay::StairsReading r;
+            if (actor) Stairs(actor->GetFormID(), r);
             return r;
         }
 
@@ -114,6 +126,32 @@ namespace CB::feature::controller::surface {
         LogChange(actor, "ahead", before, material);
     }
 
-    void Bind() { hky::relay::SetSurfaceSource(&Read); }
+    void SetStairs(std::uint32_t actor, const hky::relay::StairsReading& stairs)
+    {
+        const auto now = Clock::now();
+        Table&     t   = T();
+        std::unique_lock guard(t.lock);
+        Prune(t, now);
+        Entry& e   = t.byActor[actor];
+        e.stairs   = stairs;
+        e.stairsAt = now;
+    }
+
+    bool Stairs(std::uint32_t actor, hky::relay::StairsReading& out)
+    {
+        const auto now = Clock::now();
+        Table&     t   = T();
+        std::shared_lock guard(t.lock);
+        const auto it = t.byActor.find(actor);
+        if (it == t.byActor.end() || now - it->second.stairsAt > kStale) return false;
+        out = it->second.stairs;
+        return true;
+    }
+
+    void Bind()
+    {
+        hky::relay::SetSurfaceSource(&Read);
+        hky::relay::SetStairsSource(&ReadStairs);
+    }
 
 }  // namespace CB::feature::controller::surface

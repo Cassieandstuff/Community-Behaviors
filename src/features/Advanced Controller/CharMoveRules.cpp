@@ -4,6 +4,7 @@
 
 #include "CharComponents.h"
 #include "CharSpeedProfile.h"
+#include "CharStairs.h"
 #include "CharSurface.h"
 
 #include <config/Config.h>
@@ -92,15 +93,17 @@ namespace CB::feature::controller::rules {
             };
             auto set = std::make_shared<loco::RuleSet>(loco::LoadRules(docs, options));
             for (const std::string& e : set->errors) LOG_WARN("movement rules: {}", e);
-            int live = 0;
+            int  live = 0;
+            bool stairsAsked = false;
             for (const loco::Rule& r : set->rules) {
                 if (!r.error.empty()) LOG_WARN("movement rules: '{}' ({}) never applies: {}", r.id, r.sources.back(), r.error);
-                else if (r.Live()) ++live;
+                else if (r.Live()) ++live, stairsAsked |= hky::relay::CallsStairs(r.condition);
             }
-            LOG_INFO("movement rules: {} rules from {} files ({} live), {} material groups", set->rules.size(), docs.size(), live,
-                     set->groups->size());
+            LOG_INFO("movement rules: {} rules from {} files ({} live), {} material groups{}", set->rules.size(), docs.size(), live,
+                     set->groups->size(), stairsAsked ? ", stairs detection on" : "");
             hky::relay::SetMaterialGroups(set->groups);
             surface::Bind();
+            stairs::SetRulesAsk(stairsAsked);
             return set;
         }
 

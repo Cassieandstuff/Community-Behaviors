@@ -113,6 +113,22 @@ namespace CB::feature::controller::hud {
         float blend    = 0;   ///< seconds left in the dead blend across the last switch, 0 when none runs
     };
 
+    /// @brief The stairs survey (char_stairs_survey): the march's rays along the path and the detector's verdict.
+    struct Stairs {
+        /// @brief How DetectStairs read a ray (hky::locomotion::SampleKind's values).
+        enum class Kind : std::uint8_t { None, Tread, Riser, Ramp, Other };
+        static constexpr int kSamples = 48;
+        std::array<Point, kSamples> at{};      ///< each ray's floor (a miss: where the ray ended)
+        std::array<Kind, kSamples>  kind{};
+        int   count = 0;
+        bool  on = false, ahead = false, ramp = false;   ///< the held verdict
+        int   direction = 0, steps = 0;
+        float distance = 0, rise = 0, tread = 0, confidence = 0;
+        bool  rawOn = false, rawAhead = false;           ///< this step's own reading, before the hold
+        int   rays = 0;                                  ///< cast this step
+        char  material[32] = {};                         ///< the flight's commonest material, by name
+    };
+
     /// @brief Whether the HUD runs (char_debug_hud at launch, then SetOn); publishers skip their work when it does not.
     bool On();
 
@@ -124,5 +140,6 @@ namespace CB::feature::controller::hud {
     void Publish(const Prediction& p);
     void Publish(const Movement& m);
     void Publish(const Matching& m);
+    void Publish(const Stairs& s);
 
 }  // namespace CB::feature::controller::hud
