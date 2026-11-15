@@ -369,9 +369,24 @@ namespace CB::feature::controller::motion {
                     }
                     desc.rig.bones.push_back(std::move(bone));
                 }
+        const auto* names        = context.m_behavior && context.m_behavior->m_data ? context.m_behavior->m_data->m_stringData.val() : nullptr;
+        const auto  variableOf   = [&](const ::hkbVariableBindingSet* set, const char* member) -> std::string {
+            if (!set || !names) return {};
+            for (int b = 0; b < set->m_bindings.getSize(); ++b) {
+                const auto& bind = set->m_bindings[b];
+                const char* path = bind.m_memberPath.cString();
+                if (!path || std::strcmp(path, member) != 0 || bind.m_bindingType != ::hkbVariableBindingSet::Binding::BINDING_TYPE_VARIABLE) continue;
+                if (bind.m_variableIndex >= 0 && bind.m_variableIndex < names->m_variableNames.getSize()) return name(names->m_variableNames[bind.m_variableIndex]);
+            }
+            return {};
+        };
         if (const ::hkbVariableBindingSet* set = m_variableBindingSet.val())
             for (int b = 0; b < set->m_bindings.getSize(); ++b)
                 if (const char* path = set->m_bindings[b].m_memberPath.cString(); path && std::strcmp(path, "speed") == 0) desc.speedBound = true;
+        desc.clipVariable = variableOf(m_variableBindingSet.val(), "selectedIndex");
+        for (int i = 0; i < from->m_children.getSize() && desc.timeVariable.empty(); ++i)
+            if (const ::hkbGenerator* g = from->m_children[i].m_generator; g && std::strcmp(g->getClassType()->getName(), "hkbClipGenerator") == 0)
+                desc.timeVariable = variableOf(g->m_variableBindingSet.val(), "userControlledTimeFraction");
         /// @note A schema shared by several databases is read once.
         std::vector<const PoseSearchSchema*> schemas;
         for (int i = 0; i < from->m_databases.getSize(); ++i) {
@@ -387,6 +402,7 @@ namespace CB::feature::controller::motion {
                 if (const std::string tag = name(d.m_tags[t]); tag == "Pivots") out.pivots = true;
                 else if (tag == "Stops") out.stops = true;
                 else if (tag == "TurnInPlace") out.rootTurns = true;
+                else if (tag == "Traversal") out.traversal = desc.traversal = true;
             if (const auto* schema = static_cast<const PoseSearchSchema*>(d.m_schema)) {
                 const auto it = std::find(schemas.begin(), schemas.end(), schema);
                 out.schema    = static_cast<int>(it - schemas.begin());

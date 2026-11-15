@@ -364,9 +364,9 @@ namespace CB::feature {
         }
 
         /// @brief Build every pose search database the load order holds, during the warm-up: each behavior a mod adds whose
-        ///        root is a CBPoseSearchGenerator, once per rig of the characters that run it (male and female skeletons
-        ///        differ, and the node keys its database by the live skeleton). A node then finds its database built when
-        ///        the game first runs it.
+        ///        graph holds CBPoseSearchGenerators (its root, or nested: a traversal montage state beside it), each once
+        ///        per rig of the characters that run it (male and female skeletons differ, and the node keys its database by
+        ///        the live skeleton). A node then finds its database built when the game first runs it.
         void BuildAll(const core::resolve::LoadOrderReader& reader, const core::resolve::WarmUpExecutor* exec)
         {
             if (!reader.addedBehaviors) return;
@@ -374,28 +374,28 @@ namespace CB::feature {
             for (const std::string& key : reader.addedBehaviors()) {
                 hky::decompile::ParsedHky graph;
                 if (!reader.mergedGraph(key, graph)) continue;
-                const auto* selector = ps::RootSelector(graph);
-                if (!selector) continue;
-                const ps::DatabaseSpec   spec    = ps::SpecOf(*selector);
-                std::vector<std::string> rigKeys = reader.rigUnitsOf ? reader.rigUnitsOf(key) : std::vector<std::string>{};
-                if (rigKeys.empty()) rigKeys.emplace_back();
-                for (const std::string& rigKey : rigKeys) {
-                    ea::Rig                          rig;
-                    hky::decompile::ParsedHky skeleton;
-                    if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
-                        if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
-                    if (rig.bones.empty() && !spec.schemas.empty())
-                        LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
-                    const std::string storeKey = StoreKey(spec, rig);
-                    {
-                        std::scoped_lock lock(g_store.lock);
-                        if (g_store.entries.contains(storeKey)) continue;
-                        g_store.entries.emplace(storeKey, nullptr);
+                for (const auto* selector : ps::Selectors(graph)) {
+                    const ps::DatabaseSpec   spec    = ps::SpecOf(*selector);
+                    std::vector<std::string> rigKeys = reader.rigUnitsOf ? reader.rigUnitsOf(key) : std::vector<std::string>{};
+                    if (rigKeys.empty()) rigKeys.emplace_back();
+                    for (const std::string& rigKey : rigKeys) {
+                        ea::Rig                          rig;
+                        hky::decompile::ParsedHky skeleton;
+                        if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
+                            if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
+                        if (rig.bones.empty() && !spec.schemas.empty())
+                            LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
+                        const std::string storeKey = StoreKey(spec, rig);
+                        {
+                            std::scoped_lock lock(g_store.lock);
+                            if (g_store.entries.contains(storeKey)) continue;
+                            g_store.entries.emplace(storeKey, nullptr);
+                        }
+                        LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}', {} bone(s))", key, spec.children.size(), rigKey,
+                                 rig.bones.size());
+                        Build(reader, storeKey, spec, rig, exec);
+                        ++built;
                     }
-                    LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}', {} bone(s))", key, spec.children.size(), rigKey,
-                             rig.bones.size());
-                    Build(reader, storeKey, spec, rig, exec);
-                    ++built;
                 }
             }
             LOG_INFO("motion matching: {} database(s) built in the warm-up", built);
@@ -426,6 +426,8 @@ namespace CB::feature {
             Clock::time_point  used{};
             std::vector<std::vector<ch::motion::BoundInput>> bound;   ///< per schema of the node: the query values its features bind
             bool               speedBound = false;
+            std::string        clipVariable, timeVariable;   ///< what the node's selection and its children's time are bound to
+            bool               traversal = false;            ///< a database is tagged "Traversal": the search reads the ledge distance
             float              rate = 1.0f, rateVelocity = 0.0f;   ///< the node's own playback rate, while its speed is bound
             int                playingClip = -1;
             double             playingTime = 0;
@@ -986,6 +988,9 @@ namespace CB::feature {
             if (!s.db) return -1;
             s.bound      = std::move(desc->bound);
             s.speedBound = desc->speedBound;
+            s.clipVariable = desc->clipVariable.empty() ? kClipVar : desc->clipVariable;
+            s.timeVariable = desc->timeVariable.empty() ? kTimeVar : desc->timeVariable;
+            s.traversal    = desc->traversal;
             s.matcher.Restart();
             static std::atomic<int> searchers{ 0 };
             if (searchers.fetch_add(1, std::memory_order_relaxed) < 32)
@@ -1010,6 +1015,8 @@ namespace CB::feature {
         ps::MatchRequest request;
         ReadQuery(actor, request);
         ReadBound(actor, db, s.bound, request.given);
+        /// @note The traversal driver writes the measured ledge distance before it raises the traversal; 0 or less is none.
+        if (float ledge = 0.0f; s.traversal && ch::GetGraphFloat(actor, ps::kLedgeDistanceVariable, ledge) && ledge > 0.0f) request.ledgeDistance = ledge;
         if (s.speedBound) request.rate = ps::NodeRate(db, s.playingClip, s.playingTime, node.m_speed, s.rate, s.rateVelocity, timestep);
         request.inputsChanged = inputsChanged;
         request.reselectTime  = ReselectTime();
@@ -1144,9 +1151,8 @@ namespace CB::feature {
             node.PlayUnbound(context, step.nextClip, fraction);
             return step.nextClip;
         }
-        static const RE::BSFixedString clipName(kClipVar), timeName(kTimeVar);
-        ch::SetGraphInt(actor, clipName, step.nextClip);
-        ch::SetGraphFloat(actor, timeName, fraction);
+        ch::SetGraphInt(actor, s.clipVariable, step.nextClip);
+        ch::SetGraphFloat(actor, s.timeVariable, fraction);
         return step.nextClip;
     }
 
