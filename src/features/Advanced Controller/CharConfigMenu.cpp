@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "CharCollisionHud.h"
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharMoveRules.h"
