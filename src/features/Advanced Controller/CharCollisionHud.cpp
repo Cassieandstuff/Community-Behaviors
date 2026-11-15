@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharCollisionHud.h"
+#include "CharHudDraw.h"
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>

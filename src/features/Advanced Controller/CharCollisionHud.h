@@ -5,9 +5,6 @@
 #include <array>
 #include <cstdint>
 
-struct ImDrawList;
-struct ImVec2;
-
 /// @file
 /// @brief The collision overlay (char_collision_hud, drawn while the debug HUD is on): what the controlled character's
 ///        collision queries see each step. The proxy's contact manifold (points, normals, the planes the solve got,
@@ -82,14 +79,5 @@ namespace CB::feature::controller::hud {
     ///        otherwise. Keeps the newest kSweeps for a short while.
     void RecordSweep(const void* collidable, const Sweep& s);
 
-    /// @brief CharDebugHud's drawing helpers, shared with the collision overlay (world points in Havok units).
-    namespace draw {
-        /// @brief The point on screen through the world root camera; false when behind it or there is no camera.
-        bool ToScreen(const Point& p, ImVec2& out);
-        void Line(ImDrawList* dl, const Point& a, const Point& b, std::uint32_t color, float thickness);
-        void Capsule(ImDrawList* dl, const hud::Capsule& c, std::uint32_t color);
-        void Ring(ImDrawList* dl, const Point& c, float radius, std::uint32_t color);
-        void Arrow(ImDrawList* dl, const Point& from, const Point& delta, std::uint32_t color);
-    }  // namespace draw
 
 }  // namespace CB::feature::controller::hud
