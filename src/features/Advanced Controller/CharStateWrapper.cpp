@@ -2,6 +2,7 @@
 
 #include "CharCollisionHud.h"
 #include "CharDebugHud.h"
+#include "CharDynamicMover.h"
 #include "CharGround.h"
 #include "CharJumpTakeoff.h"
 
@@ -646,6 +647,9 @@ namespace CB::feature {
             h.pogo       = t.mode == Mode::Grounded && t.pogoHeld && t.pogoRay >= 0 && t.pogoRay < h.rayCount;
             h.pogoRay    = h.pogo ? t.pogoRay : -1;
             h.pogoRate   = t.pogoApplied;
+            /// @note Under the dynamic mover its body is drawn beside the passenger proxy's hull.
+            if (float a[3], b[3], r; h.capsuleCount < static_cast<int>(h.capsules.size()) && ch::dynamic::BodyCapsule(c, a, b, r))
+                h.capsules[h.capsuleCount++] = { { a[0], a[1], a[2] }, { b[0], b[1], b[2] }, r };
             ch::hud::Publish(h);
 
             if (!ch::hud::CollisionOn()) return;
@@ -671,6 +675,65 @@ namespace CB::feature {
                 vol.scale = actor->GetScale();
             }
             ch::hud::Publish(vol);
+        }
+
+        /// @brief The ground states' step under the dynamic mover (char_dynamic_mover): the body moves the player, so this
+        ///        only hands it the request and maps what its last Havok step left onto the contract (the mode and its
+        ///        transitions, the fall data, kCanJump, kSupport, kJumping, the support body, the published verdict).
+        /// @return false when the mover cannot run this step: the caller runs today's path.
+        bool DynamicStep(int id, ::bhkCharacterController& c, Track& t, const ch::Hull& hull, int want, float dt)
+        {
+            ch::dynamic::In in;
+            DesiredHorizontal(c, in.dx, in.dy);
+            in.jump      = want == ::HK_CHARACTER_JUMPING || id == ::HK_CHARACTER_JUMPING;
+            in.jumpSpeed = LaunchSpeed(c);
+            float gx, gy, gz;
+            WorldGravity(c, gx, gy, gz);
+            in.gravity   = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
+            in.walkableZ = ch::WalkableZ(c);
+            ch::dynamic::Out o;
+            if (!ch::dynamic::Step(c, hull, in, o)) return false;
+
+            ch::FloorVerdict fv;
+            fv.ground   = o.onGround ? ch::Ground::Grounded : ch::Ground::Airborne;
+            fv.support  = o.onGround && o.walkable ? 1.0f : 0.0f;
+            fv.groundNx = o.nx, fv.groundNy = o.ny, fv.groundNz = o.nz;
+            const float vz = o.vz;
+            if (o.jumped) {
+                if (ch::IsPlayer(&c)) ch::takeoff::End();
+                t.windup = -1.0f;
+                c.m_flags |= ch::kJumping;
+                c.m_fallStartHeight = HeightGame(c);
+                EnterAirborne(c, t, AirEntry::Jumped, fv, vz);
+                t.launchHeight = c.m_fallStartHeight;
+                t.jumpHeight   = std::fabs(c.m_jumpHeight);
+            } else if (t.mode != Mode::Airborne && !o.onGround) {
+                EnterAirborne(c, t, o.jumping ? AirEntry::Jumped : AirEntry::WalkedOff, fv, vz);
+            } else if (t.mode == Mode::Airborne && o.onGround) {
+                EnterGrounded(c, t, Mode::Grounded, "landed (dynamic mover)", fv, vz);
+            }
+            const bool walking = t.mode == Mode::Grounded && o.walkable;
+            if (t.steep != (t.mode == Mode::Grounded && !o.walkable) && LogBudget())
+                LOG_INFO("ground states: {} (dynamic mover, n.z {:.3f})", o.walkable ? "Walking" : "Steep", o.nz);
+            t.steep   = t.mode == Mode::Grounded && !o.walkable;
+            t.support = walking ? 1.0f : 0.0f;
+            if (t.mode == Mode::Airborne) {
+                const float height = HeightGame(c);
+                if (height > c.m_fallStartHeight) c.m_fallStartHeight = height;
+                c.AccumulateFallTime();
+                t.airTime += dt;
+            } else {
+                t.lastNx = o.nx, t.lastNy = o.ny, t.lastNz = o.nz;
+            }
+            if (walking) c.m_flags |= ch::kCanJump | ch::kSupport;
+            else         c.m_flags &= ~(ch::kCanJump | ch::kSupport);
+            if (!o.jumping) c.m_flags &= ~ch::kJumping;
+            ch::FloorVerdict decided = fv;
+            if (t.mode == Mode::Airborne) decided.ground = ch::Ground::Airborne, decided.support = 0.0f;
+            ch::PublishVerdict(c, decided);
+            if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, decided);
+            t.lastState = static_cast<int>(c.m_context.getState());
+            return true;
         }
 
         /// @brief CB's Simulate for the player in OnGround / Jumping / InAir.
@@ -729,6 +792,8 @@ namespace CB::feature {
             }
 
             ch::Hull hull = ch::GetHull(c);
+            /// @note The player under the dynamic mover: its body moves them, this step maps it (see DynamicStep).
+            if (ch::dynamic::On() && ch::IsPlayer(&c) && hull.valid && DynamicStep(id, c, t, hull, want, dt)) return;
             /// @note Every step CB runs claims the floating shape (or a step's integrate lowers it), in the air as well:
             ///       the shape floats through a jump, so landing needs no re-raise.
             const bool pogo = ch::PogoOn() && hull.valid;
