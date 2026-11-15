@@ -58,6 +58,9 @@ namespace CB::feature::controller::hud {
         /// @brief Part of the shape is no capsule (or there are more than `capsules` holds): the shape's box is drawn.
         bool                otherShape = false;
         Point               boxMin, boxMax;   ///< the shape's world AABB
+        std::array<Point, 32> hullPoints{};   ///< a convex-hull child's vertices (vanilla's step-shaped controller shape)
+        std::array<std::array<std::uint8_t, 2>, 64> hullEdges{};
+        int                 hullEdgeCount = 0;
         float               lift = 0;         ///< how far the shape floats above the feet (char_pogo)
         bool                pogo = false;     ///< the pogo held the feet this step
         int                 pogoRay  = -1;    ///< the ray it stands on (index into `rays`)

@@ -637,6 +637,9 @@ namespace CB::feature {
                 h.capsules[i] = { { s.a[0], s.a[1], s.a[2] }, { s.b[0], s.b[1], s.b[2] }, s.radius };
             }
             h.otherShape = shape.other || shape.count > h.capsuleCount;
+            for (int i = 0; i < shape.pointCount; i++) h.hullPoints[i] = { shape.points[i][0], shape.points[i][1], shape.points[i][2] };
+            h.hullEdgeCount = shape.edgeCount;
+            for (int e = 0; e < shape.edgeCount; e++) h.hullEdges[e] = shape.edges[e];
             h.boxMin     = { shape.min[0], shape.min[1], shape.min[2] };
             h.boxMax     = { shape.max[0], shape.max[1], shape.max[2] };
             h.lift       = hull.lift;
@@ -655,6 +658,9 @@ namespace CB::feature {
             vol.origin       = { origin(0), origin(1), origin(2) };
             vol.capsules     = h.capsules;
             vol.capsuleCount = h.capsuleCount;
+            vol.hullPoints    = h.hullPoints;
+            vol.hullEdges     = h.hullEdges;
+            vol.hullEdgeCount = h.hullEdgeCount;
             const auto bound = [](const ::NiPoint3& p) { return ch::hud::Point{ p.x, p.y, p.z }; };
             vol.boundCenter   = bound(c.m_collisionBound.m_center);
             vol.boundExtents  = bound(c.m_collisionBound.m_extents);

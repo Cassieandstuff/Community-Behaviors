@@ -12,6 +12,7 @@
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
+#include <Physics/Collide/Shape/Convex/ConvexVertices/hkpConvexVerticesShape.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
@@ -21,6 +22,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
@@ -270,6 +272,40 @@ namespace CB::feature::controller {
     namespace {
 
         /// @note List children carry no transform of their own (hkpListShape), so every capsule is in the shape's frame.
+        /// @brief A convex hull's vertices (read from its packed rotated vertices, as the shape stores them) and its edges:
+        ///        two vertices on two common face planes.
+        void CollectHull(const ::hkpConvexVerticesShape* hull, const ::hkTransform& world, HullShape& out)
+        {
+            const int first = out.pointCount;
+            const int n     = hull->m_numVertices;
+            if (n <= 0 || first + n > HullShape::kPoints || hull->m_rotatedVertices.getSize() * 4 < n) {
+                out.other = true;
+                return;
+            }
+            std::array<::hkVector4, HullShape::kPoints> local{};
+            for (int i = 0; i < n; i++) {
+                const auto& four = hull->m_rotatedVertices[i >> 2];
+                local[i].set(four.m_x(i & 3), four.m_y(i & 3), four.m_z(i & 3), 0.0f);
+                ::hkVector4 w;
+                w._setTransformedPos(world, local[i]);
+                for (int k = 0; k < 3; k++) out.points[first + i][k] = w(k);
+            }
+            out.pointCount = first + n;
+            const ::hkArray<::hkVector4>& planes = hull->m_planeEquations;
+            constexpr float               kOnPlane = 1.0e-3f;
+            for (int a = 0; a < n; a++)
+                for (int b = a + 1; b < n && out.edgeCount < HullShape::kEdges; b++) {
+                    int shared = 0;
+                    for (int p = 0; p < planes.getSize() && shared < 2; p++) {
+                        const ::hkVector4& e  = planes[p];
+                        const float          da = e(0) * local[a](0) + e(1) * local[a](1) + e(2) * local[a](2) + e(3);
+                        const float          db = e(0) * local[b](0) + e(1) * local[b](1) + e(2) * local[b](2) + e(3);
+                        if (std::fabs(da) < kOnPlane && std::fabs(db) < kOnPlane) ++shared;
+                    }
+                    if (shared >= 2) out.edges[out.edgeCount++] = { static_cast<std::uint8_t>(first + a), static_cast<std::uint8_t>(first + b) };
+                }
+        }
+
         void CollectCapsules(const ::hkpShape* shape, const ::hkTransform& world, HullShape& out, int depth)
         {
             if (!shape || depth > 4) return;
@@ -285,6 +321,10 @@ namespace CB::feature::controller {
                 b._setTransformedPos(world, capsule->getVertex(1));
                 for (int i = 0; i < 3; i++) c.a[i] = a(i), c.b[i] = b(i);
                 c.radius = capsule->getRadius();
+                return;
+            }
+            if (shape->getType() == ::HK_SHAPE_CONVEX_VERTICES) {
+                CollectHull(static_cast<const ::hkpConvexVerticesShape*>(shape), world, out);
                 return;
             }
             /// @note Only enabled children collide: the player's list holds a disabled clone of the skeleton's own capsule

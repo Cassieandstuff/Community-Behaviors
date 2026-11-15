@@ -271,6 +271,8 @@ namespace CB::feature::controller::hud {
 
             if (haveCtrl) {
                 for (int i = 0; i < c.capsuleCount; i++) DrawCapsule(dl, proj, c.capsules[i], kShape);
+                for (int e = 0; e < c.hullEdgeCount; e++)
+                    Line(dl, proj, c.hullPoints[c.hullEdges[e][0]], c.hullPoints[c.hullEdges[e][1]], kShape, 1.5f);
                 if (c.otherShape) DrawBox(dl, proj, c.boxMin, c.boxMax, kShape);
                 if (c.pogo) DrawPogo(dl, proj, c);
                 Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict, c.support));

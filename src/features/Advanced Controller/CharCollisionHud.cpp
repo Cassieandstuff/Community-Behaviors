@@ -84,11 +84,11 @@ namespace CB::feature::controller::hud {
         }
 
         /// @brief A BSBound box in the actor's frame (its heading turns it about z), drawn round the feet.
-        /// @note BSBound's centre and extents are game units; the box's corners are centre ± extents.
+        /// @note BSBound's centre and extents are game units, already scaled; the box's corners are centre ± extents.
         void DrawBound(ImDrawList* dl, const Volumes& v, const Point& center, const Point& extents, ImU32 color)
         {
             if (extents.x <= 0.0f && extents.y <= 0.0f && extents.z <= 0.0f) return;
-            const float k = v.scale / kGameUnitsPerHavok;
+            const float k = 1.0f / kGameUnitsPerHavok;
             const float s = std::sin(v.yaw), c = std::cos(v.yaw);
             const auto  world = [&](float lx, float ly, float lz) {
                 /// @note Skyrim's heading turns clockwise from +y: local +y is (sin, cos), local +x is (cos, -sin).
@@ -155,6 +155,9 @@ namespace CB::feature::controller::hud {
                         c.b            = Add(c.b, shift, 1.0f);
                         draw::Capsule(dl, c, w.hit ? kSweepHit : kSweepMiss);
                     }
+                    for (int e = 0; e < v->hullEdgeCount; e++)
+                        draw::Line(dl, Add(v->hullPoints[v->hullEdges[e][0]], shift, 1.0f), Add(v->hullPoints[v->hullEdges[e][1]], shift, 1.0f),
+                                   w.hit ? kSweepHit : kSweepMiss, 1.0f);
                 }
                 if (w.hit) {
                     ++hits;

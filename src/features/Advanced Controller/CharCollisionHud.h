@@ -55,13 +55,17 @@ namespace CB::feature::controller::hud {
         Point feet;
         float radius = 0, lift = 0, yaw = 0;   ///< yaw: the actor's heading (radians clockwise from +y)
         /// @brief bhkCharacterController::m_collisionBound / m_bumperCollisionBound (BSBound: centre and half extents,
-        ///        game units, in the actor's frame, unscaled), as the controller holds them.
+        ///        game units, relative to the feet): the built controller shape's box without and with the bumper child
+        ///        (InitBounds, 0x140ea1990). Neither is ever a physics volume.
         Point boundCenter, boundExtents, bumperCenter, bumperExtents;
         float scale = 1;
         const void* collidable = nullptr;   ///< the hull's phantom collidable: the sweeps recorded are this one's
         Point origin;                       ///< its translation: a sweep's shape is drawn as `capsules` moved by (stop - origin)
         std::array<hud::Capsule, 6> capsules{};
         int capsuleCount = 0;
+        std::array<Point, 32> hullPoints{};   ///< as hud::Controller's
+        std::array<std::array<std::uint8_t, 2>, 64> hullEdges{};
+        int hullEdgeCount = 0;
     };
 
     /// @brief Whether the collision overlay runs: the debug HUD is on and char_collision_hud is set.
