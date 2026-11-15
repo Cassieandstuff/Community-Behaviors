@@ -5,6 +5,7 @@
 #include <hky/layout/CBPoseSearchHeading.h>
 #include <hky/layout/CBPoseSearchPosition.h>
 #include <hky/layout/CBPoseSearchSchema.h>
+#include <hky/layout/CBPoseSearchTag.h>
 #include <hky/layout/CBPoseSearchTrajectory.h>
 #include <hky/layout/CBPoseSearchTrajectorySample.h>
 #include <hky/layout/CBPoseSearchVelocity.h>
