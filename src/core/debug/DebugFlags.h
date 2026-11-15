@@ -243,6 +243,23 @@ namespace CB::core::debug {
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
           "unaffected. AE only. Unproven in game." },
+        { "char_dynamic_mover", FlagKind::IniBool, "Character", "bDynamicMover", false, false,
+          "Dynamic mover (Box3D)",
+          "Under bGroundStates, for the player on foot: a dynamic capsule of CB's own floats on Box3D's pogo joint and is "
+          "driven by its mover joint after every Havok step, so walls, slopes, pushes and props are the physics engine's "
+          "own contacts; Bethesda's controller rides along at its feet (the actor, the camera and floor triggers see it "
+          "there). Replaces bPogo's float, the constraint planes and the stick/crest rules for the player while on. Tuning: "
+          "[Character] fMoverMass (80), fMoverGroundForce (6000), fMoverAirForce (1500), fMoverPogoHertz (3), "
+          "fMoverPogoDamping (0.8), fMoverSlideTime (0.2). Read once at launch. Experimental, AE only." },
+        { "char_collision_hud", FlagKind::IniBool, "Character", "bCollisionHud", false, false,
+          "Collision overlay",
+          "With bDebugHud on, also draws what the player's collision queries see: the proxy's contacts (a dot per point, "
+          "larger when penetrating; green walkable, orange steep, red flattened to a wall or another character, grey "
+          "dropped) with their normals and, in white, the plane the solve got when CB's planes changed it; the wall planes "
+          "added (red arrows); the hull's shape sweeps of the last 0.2 s (blue path, the shape where it stopped, orange "
+          "with the hit point and normal when it hit); under bPogo the band between the feet and the floating hull's bottom "
+          "that no contact reaches (magenta); the controller's collision and bumper bounds (yellow, pink boxes); and a text "
+          "panel at the right. The contacts need it on at launch." },
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the collision shape's capsules (cyan; its box when part of "

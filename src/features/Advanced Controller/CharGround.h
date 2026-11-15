@@ -102,10 +102,16 @@ namespace CB::feature::controller {
         };
         std::array<Capsule, 6> capsules{};
         int                    count = 0;
-        bool                   other = false;   ///< part of it is no capsule, or more capsules than fit
+        bool                   other = false;   ///< part of it is neither a capsule nor a convex hull, or more than fits
         float                  min[3]{}, max[3]{};   ///< its world AABB
+        static constexpr int   kPoints = 32, kEdges = 64;
+        std::array<std::array<float, 3>, kPoints> points{};   ///< convex-hull children's vertices, world space
+        int                    pointCount = 0;
+        std::array<std::array<std::uint8_t, 2>, kEdges> edges{};   ///< pairs of `points` that share two face planes
+        int                    edgeCount = 0;
     };
-    /// @brief Reads `hull`'s shape: a capsule, or a list shape's capsule children (nested lists walked).
+    /// @brief Reads `hull`'s shape: a capsule, a convex hull (vanilla's step-shaped hkCharControllerShape), or a list
+    ///        shape's enabled children (nested lists walked).
     HullShape ReadHullShape(const Hull& hull);
 
     /// @brief The squared horizontal distance from (x, y) to the hull's supporting axis: its centre, or for a long body
