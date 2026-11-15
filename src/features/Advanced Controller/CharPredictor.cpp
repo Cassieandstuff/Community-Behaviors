@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include "CharMotionMatching.h"
 #include "CharMovementModel.h"
+#include "CharStairs.h"
 #include "CharSurface.h"
 #include "CharSweep.h"
 
@@ -895,6 +896,19 @@ namespace CB::feature {
                     if (n > best) best = n, ahead = path.material[i];
                 }
                 ch::surface::SetAhead(actorId, ahead);
+            }
+            /// @note Stairs along the resolved path; standing still, along the movement frame's forward. The ridden horse
+            ///       has no rules or matching of its own, so it never asks.
+            if (matches && ch::stairs::Wanted(ch::IsPlayer(self))) {
+                ch::stairs::Step st;
+                st.actor        = actorId;
+                st.player       = ch::IsPlayer(self);
+                st.path         = active ? std::span<const ch::hud::Point>(path.at) : std::span<const ch::hud::Point>();
+                st.dirX         = tangent.x;
+                st.dirY         = tangent.y;
+                st.speed        = speed;
+                st.ignoreLayers = SweepIgnoreLayers();
+                ch::stairs::Update(ctrl, hull, st);
             }
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).

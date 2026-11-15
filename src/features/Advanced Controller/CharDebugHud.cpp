@@ -38,7 +38,8 @@ namespace CB::feature::controller::hud {
             Prediction pred;
             Movement   move;
             Matching   match;
-            double     ctrlAt = -1.0e9, predAt = -1.0e9, moveAt = -1.0e9, matchAt = -1.0e9;
+            Stairs     stairs;
+            double     ctrlAt = -1.0e9, predAt = -1.0e9, moveAt = -1.0e9, matchAt = -1.0e9, stairsAt = -1.0e9;
         };
 
         Store& S()
@@ -63,6 +64,11 @@ namespace CB::feature::controller::hud {
         const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
         const ImU32 kWantFacing = IM_COL32(230, 90, 230, 255);   ///< the desired facing (locomotion::State::desiredYaw)
         const ImU32 kPast       = IM_COL32(210, 30, 30, 255);   ///< where the player was (the query's past)
+        const ImU32 kStairTread = IM_COL32(80, 230, 80, 255);
+        const ImU32 kStairRiser = IM_COL32(240, 60, 60, 255);
+        const ImU32 kStairRamp  = IM_COL32(190, 90, 255, 255);
+        const ImU32 kStairOther = IM_COL32(190, 190, 190, 200);
+        const ImU32 kStairMiss  = IM_COL32(60, 60, 60, 200);
         constexpr float kRadToDeg = 57.29578f;
 
         /// @brief Airborne blue; on the ground, orange (holds nothing) through green (full support).
@@ -254,15 +260,17 @@ namespace CB::feature::controller::hud {
             Prediction p;
             Movement   mv;
             Matching   m;
-            bool       haveCtrl, havePred, haveMove, haveMatch;
+            Stairs     st;
+            bool       haveCtrl, havePred, haveMove, haveMatch, haveStairs;
             {
                 const double now = Now();
                 std::scoped_lock lock(s.lock);
-                c = s.ctrl, p = s.pred, mv = s.move, m = s.match;
+                c = s.ctrl, p = s.pred, mv = s.move, m = s.match, st = s.stairs;
                 haveCtrl = now - s.ctrlAt < kStale;
                 havePred = now - s.predAt < kStale;
                 haveMove = now - s.moveAt < kStale;
                 haveMatch = now - s.matchAt < kStale;
+                haveStairs = now - s.stairsAt < kStale;
             }
             const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
             if (!proj.camera) return;
@@ -317,6 +325,23 @@ namespace CB::feature::controller::hud {
                     if (proj(p.pastAt[k], at)) dl->AddCircleFilled(at, 5.0f, kPast);
             }
 
+            /// @note The survey: each ray's floor as a dot by its reading, a riser's rise as a red line up from its lower tread.
+            if (haveStairs) {
+                ImVec2 at;
+                for (int i = 0; i < st.count && i < Stairs::kSamples; i++) {
+                    const Stairs::Kind k = st.kind[i];
+                    const ImU32 color = k == Stairs::Kind::Tread ? kStairTread : k == Stairs::Kind::Riser ? kStairRiser : k == Stairs::Kind::Ramp ? kStairRamp
+                                      : k == Stairs::Kind::Other ? kStairOther : kStairMiss;
+                    if (proj(st.at[i], at)) dl->AddCircleFilled(at, k == Stairs::Kind::None ? 2.0f : 3.5f, color);
+                    if (i > 0 && st.kind[i] != Stairs::Kind::None && st.kind[i - 1] != Stairs::Kind::None &&
+                        std::fabs(st.at[i].z - st.at[i - 1].z) * kGameUnitsPerHavok >= 6.0f) {
+                        const Point& lo = st.at[i].z < st.at[i - 1].z ? st.at[i] : st.at[i - 1];
+                        const Point& hi = st.at[i].z < st.at[i - 1].z ? st.at[i - 1] : st.at[i];
+                        Line(dl, proj, lo, Point{ lo.x, lo.y, hi.z }, kStairRiser, 2.0f);
+                    }
+                }
+            }
+
             ImGui::SetNextWindowPos(ImVec2(24.0f, 180.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.55f);
             ImGui::Begin("##CBCharacterDebug", nullptr,
@@ -365,6 +390,16 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("matching %s @%d [%s]   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.database,
                             m.rate, m.cost, m.searchMs, m.switches, m.blend);
                 ImGui::Text("chooser %s   searching %s", m.chooser, m.active);
+            }
+            if (haveStairs) {
+                const char* dir = st.direction > 0 ? "up" : st.direction < 0 ? "down" : "-";
+                if (st.on || st.ahead)
+                    ImGui::Text("stairs %s %s%s   %d risers   rise %.1f   tread %.1f   %s   conf %.2f   %s", st.on ? "ON" : "ahead", dir,
+                                st.on ? "" : (std::string(" in ") + std::to_string(static_cast<int>(st.distance))).c_str(), st.steps, st.rise,
+                                st.tread, st.ramp ? "ramp" : "stepped", st.confidence, st.material[0] ? st.material : "-");
+                else
+                    ImGui::Text("stairs none");
+                ImGui::Text("stairs raw %s   rays %d   samples %d", st.rawOn ? "on" : st.rawAhead ? "ahead" : "none", st.rays, st.count);
             }
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);
@@ -427,6 +462,14 @@ namespace CB::feature::controller::hud {
         std::scoped_lock lock(s.lock);
         s.match   = m;
         s.matchAt = Now();
+    }
+
+    void Publish(const Stairs& st)
+    {
+        Store& s = S();
+        std::scoped_lock lock(s.lock);
+        s.stairs   = st;
+        s.stairsAt = Now();
     }
 
 }  // namespace CB::feature::controller::hud

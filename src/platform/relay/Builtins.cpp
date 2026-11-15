@@ -17,6 +17,7 @@
 #include <PluginLogger.h>
 
 #include <hky/relay/DynamicClip.h>
+#include <hky/relay/Stairs.h>
 #include <hky/relay/Surface.h>
 
 #include <Common/Base/hkBase.h>
@@ -738,6 +739,7 @@ namespace CB::platform::relay {
         bind("LocationHasKeyword", &Fn_LocationHasKeyword);
 
         RegisterSurfaceBuiltins();
+        RegisterStairsBuiltins();
         SetArgResolver(&ResolveArg);
 
         for (const std::string_view name : Unbound()) LOG_ERROR("[relay] catalog function '{}' has no implementation: it never compiles", name);

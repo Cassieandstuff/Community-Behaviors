@@ -1,5 +1,7 @@
 #pragma once
 
+#include <hky/relay/Stairs.h>
+
 #include <cstdint>
 
 /// @file
@@ -18,7 +20,14 @@ namespace CB::feature::controller::surface {
     ///        (0 when it predicts no movement).
     void SetAhead(std::uint32_t actor, std::uint32_t material);
 
-    /// @brief Makes these readings the relay's surface source (relay::SetSurfaceSource). Idempotent.
+    /// @brief Records `actor`'s stairs (CharStairs, held), as the relay's stairs functions read them.
+    void SetStairs(std::uint32_t actor, const hky::relay::StairsReading& stairs);
+
+    /// @return whether `actor` has a fresh stairs reading, into `out`
+    bool Stairs(std::uint32_t actor, hky::relay::StairsReading& out);
+
+    /// @brief Makes these readings the relay's surface and stairs sources (relay::SetSurfaceSource,
+    ///        relay::SetStairsSource). Idempotent.
     void Bind();
 
 }  // namespace CB::feature::controller::surface

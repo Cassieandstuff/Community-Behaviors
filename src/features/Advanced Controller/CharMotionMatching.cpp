@@ -10,6 +10,7 @@
 #include "CharMovementModel.h"
 #include "CharPoseSearch.h"
 #include "CharSkeletonWatch.h"
+#include "CharStairs.h"
 
 #include <core/debug/Settings.h>
 #include <core/resolve/LoadOrderReader.h>
@@ -645,6 +646,7 @@ namespace CB::feature {
         ///       0-4 are MM_Future0-4 and MM_FutureMotion0-4, at kAhead's times; 5-9 MM_Past0-4 and MM_PastMotion0-4.
         struct QueryNames {
             RE::BSFixedString have{ "MM_HaveQuery" }, rate{ "MM_PlayRate" }, desired{ "MM_Desired" };
+            RE::BSFixedString stairsRise{ "MM_StairsRise" };
             std::array<RE::BSFixedString, hky::anim::features::kSamples> where, how;
             QueryNames()
             {
@@ -676,6 +678,8 @@ namespace CB::feature {
                 q    = match.query;
             }
             ch::SetGraphBool(player, names.have, have);
+            /// @note A graph whose bundle predates MM_StairsRise does not declare it: the write is then a no-op.
+            ch::SetGraphFloat(player, names.stairsRise, ch::stairs::SignedRise(player->GetFormID()));
             if (!have) return false;
             RE::NiPoint3 p;
             for (std::size_t s = 0; s < q.samples.size(); ++s) {
