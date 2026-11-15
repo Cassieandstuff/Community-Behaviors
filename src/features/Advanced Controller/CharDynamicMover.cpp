@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 
@@ -68,6 +69,11 @@ namespace CB::feature::controller::dynamic {
             float                       dx = 0, dy = 0;
             bool                        jumped = false;   ///< latched by the listener when a substep launched
             std::atomic<bool>           claimed{ false };
+            /// @brief Diagnostics: the listener's calls (for our world, for another, with no step time) and the last step
+            ///        time, since the last report.
+            int                         calls = 0, otherWorld = 0, noTime = 0;
+            float                       lastH = 0;
+            double                      reportAt = 0;
         };
 
         Slot& S()
@@ -83,9 +89,18 @@ namespace CB::feature::controller::dynamic {
             {
                 Slot&            s = S();
                 std::scoped_lock lock(s.lock);
-                if (!s.body || world != s.hk) return;
+                if (!s.body) return;
+                if (world != s.hk) {
+                    ++s.otherWorld;
+                    return;
+                }
                 const float h = world->m_dynamicsStepInfo.m_stepInfo.m_deltaTime;
-                if (!(h > 0.0f)) return;
+                ++s.calls;
+                s.lastH = h;
+                if (!(h > 0.0f)) {
+                    ++s.noTime;
+                    return;
+                }
                 const ::hkVector4& p = s.body->getPosition();
                 const ::hkVector4& v = s.body->getLinearVelocity();
                 const float        half = s.settings.HalfSegment();
@@ -279,6 +294,27 @@ namespace CB::feature::controller::dynamic {
         }
         out.nx = ground.nx, out.ny = ground.ny, out.nz = ground.nz;
         out.feetX = x, out.feetY = y, out.feetZ = originZ - settings.RestLength();
+
+        /// @note Diagnostics, once a second: whether Havok steps the body and calls the listener, and what the mover saw.
+        {
+            const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            const ::bhkWorldLock wl(s.hk, 0);
+            std::scoped_lock     lock(s.lock);
+            if (s.body && now - s.reportAt >= 1.0) {
+                s.reportAt = now;
+                int probeHits = 0;
+                for (int i = 0; i < out.probes.count; i++) probeHits += out.probes.probe[i].hit ? 1 : 0;
+                const ::hkVector4& v = s.body->getLinearVelocity();
+                const ::hkVector4& g = s.hk->getGravity();
+                LOG_INFO("dynamic mover: feet ({:.2f}, {:.2f}, {:.2f}) v ({:.2f}, {:.2f}, {:.2f}) in its world {} island {} motion {} | listener "
+                         "{} calls (dt {:.4f}, {} without time, {} for another world) | gravity ({:.2f}, {:.2f}, {:.2f}) | ground {} z {:.2f} "
+                         "walkable {} probes {}/{} | on ground {} walkable {} jumping {} | request ({:.2f}, {:.2f})",
+                         out.feetX, out.feetY, out.feetZ, v(0), v(1), v(2), s.body->getWorld() == s.hk, s.body->getSimulationIsland() != nullptr,
+                         static_cast<int>(s.body->getMotionType()), s.calls, s.lastH, s.noTime, s.otherWorld, g(0), g(1), g(2), ground.hit,
+                         ground.z, ground.walkable, probeHits, out.probes.count, s.state.onGround, s.state.walkable, s.state.jumping, s.dx, s.dy);
+                s.calls = s.otherWorld = s.noTime = 0;
+            }
+        }
 
         /// @note The passenger proxy: at the body's feet, asked for no motion of its own.
         ::hkVector4 feet;
