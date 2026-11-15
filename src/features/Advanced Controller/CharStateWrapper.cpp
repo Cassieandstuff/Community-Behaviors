@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "CharCollisionHud.h"
 #include "CharDebugHud.h"
 #include "CharGround.h"
 #include "CharJumpTakeoff.h"
@@ -627,6 +628,7 @@ namespace CB::feature {
                 r.hitZ     = hull.feetZ + hit.dz;
                 r.walkable = hit.walkable;
                 r.wall     = hit.hit && !hit.floorLike;
+                r.normal   = { hit.nx, hit.ny, hit.nz };
             }
             const ch::HullShape shape = ch::ReadHullShape(hull);
             h.capsuleCount            = (std::min)(shape.count, static_cast<int>(h.capsules.size()));
@@ -642,6 +644,27 @@ namespace CB::feature {
             h.pogoRay    = h.pogo ? t.pogoRay : -1;
             h.pogoRate   = t.pogoApplied;
             ch::hud::Publish(h);
+
+            if (!ch::hud::CollisionOn()) return;
+            ch::hud::Volumes vol;
+            vol.feet       = h.feet;
+            vol.radius     = hull.radius;
+            vol.lift       = hull.lift;
+            vol.collidable = hull.collidable;
+            const ::hkVector4& origin = hull.collidable->getTransform().getTranslation();
+            vol.origin       = { origin(0), origin(1), origin(2) };
+            vol.capsules     = h.capsules;
+            vol.capsuleCount = h.capsuleCount;
+            const auto bound = [](const ::NiPoint3& p) { return ch::hud::Point{ p.x, p.y, p.z }; };
+            vol.boundCenter   = bound(c.m_collisionBound.m_center);
+            vol.boundExtents  = bound(c.m_collisionBound.m_extents);
+            vol.bumperCenter  = bound(c.m_bumperCollisionBound.m_center);
+            vol.bumperExtents = bound(c.m_bumperCollisionBound.m_extents);
+            if (const auto actor = ch::ManagedActor(c)) {
+                vol.yaw   = actor->GetHeading(false);
+                vol.scale = actor->GetScale();
+            }
+            ch::hud::Publish(vol);
         }
 
         /// @brief CB's Simulate for the player in OnGround / Jumping / InAir.

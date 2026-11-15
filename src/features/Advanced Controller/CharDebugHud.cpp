@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharDebugHud.h"
+#include "CharCollisionHud.h"
 #include "CharFacing.h"
 #include "CharMoveRules.h"
 #include "CharSprint.h"
@@ -282,6 +283,8 @@ namespace CB::feature::controller::hud {
                     Line(dl, proj, ray.top, end, color, 1.5f);
                     ImVec2 at;
                     if (ray.hit && proj(end, at)) dl->AddCircleFilled(at, 3.0f, color);
+                    /// @note The hit's face normal as a short tick (0.15 H, about 10 game units).
+                    if (ray.hit) Line(dl, proj, end, Add(end, ray.normal, 0.15f), color, 1.0f);
                 }
                 const Point chest{ c.feet.x, c.feet.y, c.feet.z + c.height * 0.5f };
                 Arrow(dl, proj, chest, c.desired, kDesired);
@@ -396,6 +399,40 @@ namespace CB::feature::controller::hud {
         core::debug::SetValue("Character", "bDebugHud", on ? "true" : "false");
         LOG_INFO("config: the character debug HUD is {}", on ? "on" : "off");
     }
+
+    namespace draw {
+
+        bool ToScreen(const Point& p, ImVec2& out)
+        {
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            return proj.camera && proj(p, out);
+        }
+
+        void Line(ImDrawList* dl, const Point& a, const Point& b, std::uint32_t color, float thickness)
+        {
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            if (proj.camera) hud::Line(dl, proj, a, b, color, thickness);
+        }
+
+        void Capsule(ImDrawList* dl, const hud::Capsule& c, std::uint32_t color)
+        {
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            if (proj.camera) DrawCapsule(dl, proj, c, color);
+        }
+
+        void Ring(ImDrawList* dl, const Point& c, float radius, std::uint32_t color)
+        {
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            if (proj.camera) hud::Ring(dl, proj, c, radius, color);
+        }
+
+        void Arrow(ImDrawList* dl, const Point& from, const Point& delta, std::uint32_t color)
+        {
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            if (proj.camera) hud::Arrow(dl, proj, from, { delta.x / kArrowSeconds, delta.y / kArrowSeconds, delta.z / kArrowSeconds }, color);
+        }
+
+    }  // namespace draw
 
     void Publish(const Controller& c)
     {

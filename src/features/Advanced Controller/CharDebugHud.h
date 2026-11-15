@@ -26,6 +26,7 @@ namespace CB::feature::controller::hud {
         float hitZ     = 0;
         bool  walkable = false;
         bool  wall     = false;   ///< steeper than wallNormalZ, or another character: never support
+        Point normal{ 0.0f, 0.0f, 1.0f };   ///< the hit face's normal
     };
 
     /// @brief One capsule of the collision shape, in world space: the segment between `a` and `b`, swept by `radius`.

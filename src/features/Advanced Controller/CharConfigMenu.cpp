@@ -205,6 +205,10 @@ namespace CB::feature::controller::config {
             if (ImGuiMCP::Checkbox("Character controller debug HUD", &on)) hud::SetOn(on);
             ImGuiMCP::TextDisabled("Draws the player's capsule, floor rays, velocities, predicted path and motion matching state.");
             ImGuiMCP::TextDisabled("Saved to settings.ini [Character] bDebugHud.");
+            bool collision = hud::CollisionFlag();
+            if (ImGuiMCP::Checkbox("Collision overlay", &collision)) hud::SetCollisionOn(collision);
+            ImGuiMCP::TextDisabled("Contacts, sweeps, the floating band and the bounds. Saved to [Character] bCollisionHud;");
+            ImGuiMCP::TextDisabled("the contacts need it on at launch.");
         }
 
         /// @brief CB's camera zoom and the rule files, live; Save writes settings.ini [Camera].

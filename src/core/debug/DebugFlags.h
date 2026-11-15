@@ -243,6 +243,15 @@ namespace CB::core::debug {
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
           "unaffected. AE only. Unproven in game." },
+        { "char_collision_hud", FlagKind::IniBool, "Character", "bCollisionHud", false, false,
+          "Collision overlay",
+          "With bDebugHud on, also draws what the player's collision queries see: the proxy's contacts (a dot per point, "
+          "larger when penetrating; green walkable, orange steep, red flattened to a wall or another character, grey "
+          "dropped) with their normals and, in white, the plane the solve got when CB's planes changed it; the wall planes "
+          "added (red arrows); the hull's shape sweeps of the last 0.2 s (blue path, the shape where it stopped, orange "
+          "with the hit point and normal when it hit); under bPogo the band between the feet and the floating hull's bottom "
+          "that no contact reaches (magenta); the controller's collision and bumper bounds (yellow, pink boxes); and a text "
+          "panel at the right. The contacts need it on at launch." },
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the collision shape's capsules (cyan; its box when part of "
