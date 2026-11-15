@@ -91,6 +91,12 @@ namespace CB::feature::controller::motion {
         anim::Rig                             rig;        ///< the character's animation skeleton, as its graph runs
         std::vector<std::vector<BoundInput>>  bound;      ///< per spec.schemas entry: the query values its features bind
         bool                                  speedBound = false;   ///< m_speed is bound: the node trims its own rate
+        /// @brief The variables the node's selectedIndex and its first clip child's userControlledTimeFraction are bound
+        ///        to, in the node's own graph; empty where unbound (the matcher then writes MM_Clip / MM_Time).
+        /// @note  Why read: two nodes of one graph (the motion matching state and the traversal state) must never write
+        ///        each other's clip and time through a state's transition.
+        std::string                           clipVariable, timeVariable;
+        bool                                  traversal = false;    ///< a database is tagged "Traversal"
     };
 
     class PoseSearchGenerator : public ::hkbGenerator {
