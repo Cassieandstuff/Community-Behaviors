@@ -76,6 +76,15 @@ namespace CB::feature::controller::motion {
     std::shared_ptr<const hky::locomotion::DistanceCurve> DistanceCurveOf(const std::string& animationName,
                                                                                  hky::locomotion::DistanceMarker marker);
 
+    /// @brief The turn the playing clip's root made since the last call, while that clip is from a database tagged
+    ///        TurnInPlace (PoseDatabase::rootTurns): the clip turns the character as it turns its feet.
+    /// @param delta radians, the actor heading's convention (increasing turns right); 0 on the first frame of a clip, after
+    ///        a jump in its time, or when the call is the first since the node last played
+    /// @return whether such a clip plays now (the node published it within the last kRootTurnStale): the caller's facing
+    ///         spring then waits
+    /// @note  The frame hook's alone (one caller per actor): it keeps what it read last.
+    bool RootTurn(RE::FormID actor, float& delta);
+
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
     std::string Describe();

@@ -8,6 +8,7 @@
 #include "CharGround.h"
 #include "CharComponents.h"
 #include "CharMovementModel.h"
+#include "CharMotionMatching.h"
 #include "CharMoveRules.h"
 #include "CharSpeedProfile.h"
 
@@ -584,6 +585,14 @@ namespace CB::feature::controller {
             in   = cf.input;
             caps = cf.caps;
             move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
+            /// @note GASP's turn in place: a TurnInPlace clip turns the body by its own root, which its feet step to.
+            ///       Standing, the clip's root yaw since the last frame is this frame's turn and the model's facing spring
+            ///       waits; the desired facing stays, so the query still asks for the rest of the turn.
+            if (float rootTurn = 0.0f; !in.airborne && std::hypot(s.vx, s.vy) < cf.profile.facingMinSpeed &&
+                                       motion::RootTurn(player->GetFormID(), rootTurn)) {
+                s.yaw     = heading + rootTurn;
+                s.yawRate = deltaTime > 0.0f ? rootTurn / deltaTime : 0.0f;
+            }
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;

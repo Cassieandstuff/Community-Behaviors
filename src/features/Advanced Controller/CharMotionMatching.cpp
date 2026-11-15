@@ -145,6 +145,9 @@ namespace CB::feature {
             double time = 0;
         };
         constexpr double kQueryStale = 0.25;   ///< seconds without a query from the predictor before there is none
+        constexpr double kRootTurnStale = 0.25;   ///< seconds since the node last published its clip before RootTurn holds none
+        /// @brief The longest step in a clip's time RootTurn turns through; a longer one is the matcher jumping within the clip.
+        constexpr double kRootTurnStep = 0.2;
         /// @brief When the last switch was chosen (steady_clock ticks; 0 = none yet), for Describe.
         std::atomic<Clock::rep> g_lastSwitch{ 0 };
         std::atomic<int>   g_logs{ 0 };
@@ -483,6 +486,14 @@ namespace CB::feature {
             Playback          shown;
             /// @note `shown.clip` indexes this and no other: characters run different nodes, and g_db is whichever the player ran last.
             const Database*   shownDb = nullptr;
+            Clock::time_point shownAt{};
+            /// @brief RootTurn's alone (the frame hook): the clip and root yaw it read last.
+            struct TurnRead {
+                const Database* db   = nullptr;
+                int             clip = -1;
+                double          time = 0;
+                float           yaw  = 0;
+            } turnRead;
             /// @brief The predictor's latest query, which the frame hook turns into graph variables.
             std::mutex        queryLock;
             ch::motion::Query query;
@@ -872,6 +883,35 @@ namespace CB::feature {
     }
 
 
+    bool controller::motion::RootTurn(RE::FormID actor, float& delta)
+    {
+        delta = 0.0f;
+        if (!On()) return false;
+        CharacterMatch&   match = MatchOf(actor);
+        Playback          p;
+        const Database*   db = nullptr;
+        Clock::time_point at;
+        {
+            std::scoped_lock lock(match.shownLock);
+            p  = match.shown;
+            db = match.shownDb;
+            at = match.shownAt;
+        }
+        auto&       last  = match.turnRead;
+        const bool  fresh = db && p.clip >= 0 && p.clip < static_cast<int>(db->clips.size()) &&
+                           std::chrono::duration<double>(Clock::now() - at).count() < kRootTurnStale;
+        const Clip* c     = fresh ? &db->clips[p.clip] : nullptr;
+        const bool  turns = c && c->database >= 0 && db->databases[c->database].rootTurns;
+        const std::optional<float> yaw = turns ? ps::ClipRootYaw(*c, p.time) : std::nullopt;
+        if (!yaw) {
+            last = {};
+            return false;
+        }
+        if (last.db == db && last.clip == p.clip && p.time >= last.time && p.time - last.time <= kRootTurnStep) delta = *yaw - last.yaw;
+        last = { db, p.clip, p.time, *yaw };
+        return true;
+    }
+
     void controller::motion::Publish(RE::FormID actor, const Query& q)
     {
         CharacterMatch&  match = MatchOf(actor);
@@ -1092,6 +1132,7 @@ namespace CB::feature {
             std::scoped_lock lock(match.shownLock);
             match.shown   = { step.clip, step.time };
             match.shownDb = &db;
+            match.shownAt = Clock::now();
         }
         if (step.nextClip < 0) return -1;
         /// @note Through the graph's own bindings: the engine copies these into this node and every child before their

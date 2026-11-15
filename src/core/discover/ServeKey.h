@@ -44,7 +44,9 @@ namespace CB::core::discover {
     // Meshes\community_behaviors_cache\ (HKX) + community_behaviors\cache\ (txt) layout entirely.
     inline constexpr const char* kConsolidatedCacheDir = "community_behaviors_cache";
     /// @brief Motion matching's warm-up cache in kConsolidatedCacheDir (CBMotionMatchingCache), kept across warm-ups.
-    inline constexpr const char* kMotionMatchingCacheFile = "motionmatching.hkx";
+    /// @note Renamed with each change to the cache's class layout (CBMotionClip): the old file is never parsed under the new
+    ///       layout, and the resolver's sweep of the cache folder removes it.
+    inline constexpr const char* kMotionMatchingCacheFile = "motionmatching-v2.hkx";
 
     // A behavior/character serve key is "<folderRoot>/<subdir>/…/<file>.hkx" where folderRoot
     // is the actor's PROJECT folder root (dirname of the .hkx project the engine loads — every

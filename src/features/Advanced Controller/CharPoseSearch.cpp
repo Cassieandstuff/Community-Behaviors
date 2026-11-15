@@ -384,7 +384,9 @@ namespace CB::feature::controller::motion {
             out.standingCandidate      = name(d.m_standingCandidate);
             out.movingCandidate        = name(d.m_movingCandidate);
             for (int t = 0; t < d.m_tags.getSize(); ++t)
-                if (name(d.m_tags[t]) == "Pivots") out.pivots = true;
+                if (const std::string tag = name(d.m_tags[t]); tag == "Pivots") out.pivots = true;
+                else if (tag == "Stops") out.stops = true;
+                else if (tag == "TurnInPlace") out.rootTurns = true;
             if (const auto* schema = static_cast<const PoseSearchSchema*>(d.m_schema)) {
                 const auto it = std::find(schemas.begin(), schemas.end(), schema);
                 out.schema    = static_cast<int>(it - schemas.begin());
