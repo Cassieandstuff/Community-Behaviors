@@ -271,14 +271,13 @@ namespace CB::feature::controller {
 
     namespace {
 
-        /// @note List children carry no transform of their own (hkpListShape), so every capsule is in the shape's frame.
         /// @brief A convex hull's vertices (read from its packed rotated vertices, as the shape stores them) and its edges:
-        ///        two vertices on two common face planes.
+        ///        two vertices on two common face planes. Without plane equations it is left to the box.
         void CollectHull(const ::hkpConvexVerticesShape* hull, const ::hkTransform& world, HullShape& out)
         {
             const int first = out.pointCount;
             const int n     = hull->m_numVertices;
-            if (n <= 0 || first + n > HullShape::kPoints || hull->m_rotatedVertices.getSize() * 4 < n) {
+            if (n <= 0 || first + n > HullShape::kPoints || hull->m_rotatedVertices.getSize() * 4 < n || hull->m_planeEquations.isEmpty()) {
                 out.other = true;
                 return;
             }
@@ -306,6 +305,7 @@ namespace CB::feature::controller {
                 }
         }
 
+        /// @note List children carry no transform of their own (hkpListShape), so every capsule is in the shape's frame.
         void CollectCapsules(const ::hkpShape* shape, const ::hkTransform& world, HullShape& out, int depth)
         {
             if (!shape || depth > 4) return;

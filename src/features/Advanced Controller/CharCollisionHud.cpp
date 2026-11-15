@@ -179,11 +179,21 @@ namespace CB::feature::controller::hud {
             return now - s.volumesAt < kStale || now - s.contactsAt < kStale;
         }
 
+        /// @note Copies the store under its lock and draws the copy, so the physics thread's publishers never wait on ImGui.
         void Draw()
         {
-            Store&       s   = S();
             const double now = Now();
-            std::scoped_lock lock(s.lock);
+            Store        s;
+            {
+                Store&           live = S();
+                std::scoped_lock lock(live.lock);
+                s.contacts   = live.contacts;
+                s.volumes    = live.volumes;
+                s.sweeps     = live.sweeps;
+                s.sweepAt    = live.sweepAt;
+                s.contactsAt = live.contactsAt;
+                s.volumesAt  = live.volumesAt;
+            }
             const bool haveVolumes  = now - s.volumesAt < kStale;
             const bool haveContacts = now - s.contactsAt < kStale;
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
