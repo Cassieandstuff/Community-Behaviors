@@ -29,9 +29,10 @@ namespace CB::feature::controller::dynamic {
     namespace {
 
         namespace lc = hky::locomotion;
-        namespace ph = hky::physics;
 
         using Integrate = platform::hooks::Override<&::bhkCharProxyController::Unk_0B>;
+
+        constexpr float kTeleport = 1.0f;   ///< Havok units between the proxy and the body's feet that mean a teleport
 
         std::atomic<std::uint32_t> g_logs{ 0 };
         bool LogBudget() { return g_logs.fetch_add(1, std::memory_order_relaxed) < 300; }
@@ -123,12 +124,20 @@ namespace CB::feature::controller::dynamic {
             if (!body) return;
             {
                 const ::bhkWorldLock wl(hk, 1);
-                ::hkpEntity* e = body;
-                hk->removeEntityBatch(&e, 1);
+                /// @note A cell's teardown may have taken the body out already; removing it again would corrupt the world.
+                if (body->getWorld() == hk) {
+                    ::hkpEntity* e = body;
+                    hk->removeEntityBatch(&e, 1);
+                }
                 hk->removeWorldPostSimulationListener(&TheListener());
             }
             body->removeReference();
-            if (world) world->DecRefCount();
+            /// @note The world's last reference may be ours: it is let go on the main thread, never inside a controller's
+            ///       step.
+            if (world) {
+                if (auto* tasks = SKSE::GetTaskInterface()) tasks->AddTask([world] { world->DecRefCount(); });
+                else world->DecRefCount();
+            }
             if (LogBudget()) LOG_INFO("dynamic mover: body removed ({})", why);
         }
 
@@ -169,9 +178,8 @@ namespace CB::feature::controller::dynamic {
             ci.m_qualityType         = ::HK_COLLIDABLE_QUALITY_CHARACTER;
             auto* body = new ::hkpRigidBody(ci);
             shape->removeReference();
-            /// @note The phantom's owner data, so a hit on the body reads as the player's controller to Bethesda's code
-            ///       (another character's contact callback flattens it and pushes, as it does the proxy).
-            if (const auto* owner = static_cast<const ::hkpWorldObject*>(hull.collidable->getOwner())) body->setUserData(owner->getUserData());
+            /// @note No owner data (0): the phantom's would make Bethesda's rigid-body contact paths (IsHurtfulBody,
+            ///       ProcessHurtfulBody) read a phantom wrapper as a bhkRigidBody. Unproven either way; 0 is the safe side.
             {
                 const ::bhkWorldLock wl(hk, 1);
                 ::hkpEntity* e = body;
@@ -191,7 +199,7 @@ namespace CB::feature::controller::dynamic {
             return true;
         }
 
-        /// @note Priority::Early: before the pogo's (First) would not matter; the body goes as soon as a step's
+        /// @note Priority::Early: inside the pogo's subscriber (First is outermost). The body goes as soon as a step's
         ///       Simulate did not claim it (vanilla's states, a synced clip, ragdoll, the flag off).
         bool OnIntegrate(Integrate::Next next, ::bhkCharacterController* self)
         {
@@ -216,6 +224,19 @@ namespace CB::feature::controller::dynamic {
         if (!hull.valid || !hull.world) return false;
         Slot& s = S();
         if (s.body && (s.ctrl != &ctrl || s.world != hull.world)) Release(s, "the controller or its world changed");
+        /// @note The proxy rides at the body's feet, so a proxy far from them was moved by the game (a door, fast travel,
+        ///       MoveTo within one worldspace): the body is made again where the proxy now is.
+        if (s.body) {
+            float bx, by, bz;
+            {
+                const ::bhkWorldLock wl(s.hk, 0);
+                std::scoped_lock     lock(s.lock);
+                const ::hkVector4& p = s.body->getPosition();
+                bx = p(0), by = p(1), bz = p(2) - s.settings.HalfSegment() - s.settings.RestLength();
+            }
+            const float dx = hull.cx - bx, dy = hull.cy - by, dz = hull.feetZ - bz;
+            if (dx * dx + dy * dy + dz * dz > kTeleport * kTeleport) Release(s, "the game moved the player");
+        }
         if (!s.body && !Create(s, ctrl, hull)) return false;
         s.claimed.store(true, std::memory_order_release);
 

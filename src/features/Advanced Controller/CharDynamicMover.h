@@ -40,8 +40,6 @@ namespace CB::feature::controller::dynamic {
         float feetX = 0, feetY = 0, feetZ = 0;   ///< where the feet are with the pogo at rest
         float vx = 0, vy = 0, vz = 0;
         float pogoLength = 0;
-        const ::hkpCollidable* groundBody = nullptr;
-        std::uint32_t material = 0;
         hky::locomotion::MoverProbes probes;
         float capsuleA[3]{}, capsuleB[3]{}, radius = 0;   ///< the body's capsule in world space, for drawing
     };

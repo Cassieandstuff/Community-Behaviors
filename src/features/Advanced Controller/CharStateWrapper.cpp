@@ -679,7 +679,7 @@ namespace CB::feature {
 
         /// @brief The ground states' step under the dynamic mover (char_dynamic_mover): the body moves the player, so this
         ///        only hands it the request and maps what its last Havok step left onto the contract (the mode and its
-        ///        transitions, the fall data, kCanJump, kSupport, kJumping, the support body, the published verdict).
+        ///        transitions, the fall data, kCanJump, kSupport, kJumping, the published verdict; no support body yet).
         /// @return false when the mover cannot run this step: the caller runs today's path.
         bool DynamicStep(int id, ::bhkCharacterController& c, Track& t, const ch::Hull& hull, int want, float dt)
         {
