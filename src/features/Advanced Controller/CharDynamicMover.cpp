@@ -298,6 +298,7 @@ namespace CB::feature::controller::dynamic {
                 const Tuning&   tune = Tune();
                 const float     full = tune.jumpHeight > 0.0f ? tune.jumpHeight / k : in.jumpHeight;
                 s.settings.jumpHeight     = full;
+                s.settings.jumpSpeed      = std::sqrt(2.0f * in.gravity * full);
                 s.settings.riseTime       = tune.riseTime;
                 s.settings.fallTime       = tune.fallTime;
                 s.settings.shortHopHeight = !in.variable ? 0.0f : tune.shortHop >= 0.0f ? tune.shortHop / k : 0.5f * full;

@@ -277,6 +277,9 @@ namespace CB::feature {
         /// @brief A launch this long after a press still belongs to it (the game's own lead-in to the jump request);
         ///        later, the jump is full whatever the button does.
         constexpr float kPressMemory = 0.5f;
+        /// @brief An air jump's press counts only this soon after it went down, so a press from a stretch the mover did
+        ///        not run (riding, swimming, a scripted clip) never fires one later.
+        constexpr float kAirPressFresh = 0.2f;
 
         bool VariableJumpOn()
         {
@@ -617,7 +620,7 @@ namespace CB::feature {
             ///       there; a press on the ground is the game's request's, and is spent.
             JumpInput&          button  = JumpInput::Get();
             const std::uint32_t presses = button.Presses();
-            in.airJump    = t.mode == Mode::Airborne && presses != t.jumpPresses;
+            in.airJump    = t.mode == Mode::Airborne && presses != t.jumpPresses && button.SincePress() < kAirPressFresh;
             t.jumpPresses = presses;
             in.variable   = VariableJumpOn();
             in.jumpHeld   = !in.variable || button.Held() || button.SincePress() > kPressMemory;
@@ -633,7 +636,8 @@ namespace CB::feature {
             fv.support  = o.onGround && o.walkable ? 1.0f : 0.0f;
             fv.groundNx = o.nx, fv.groundNy = o.ny, fv.groundNz = o.nz;
             const float vz = o.vz;
-            if (o.jumped) {
+            /// @note An air jump the substep took while this mapping still read Grounded is mapped as a launch.
+            if (o.jumped || (o.airJumped && t.mode != Mode::Airborne)) {
                 if (ch::IsPlayer(&c)) ch::takeoff::End();
                 t.windup = -1.0f;
                 c.m_flags |= ch::kJumping;
@@ -713,7 +717,8 @@ namespace CB::feature {
                 t.airVz      = c.m_outVelocity(2);
                 if (LogBudget())
                     LOG_INFO("ground states: resync to vanilla state {} ({} -> {}{})", cur, Name(before), Name(t.mode), t.init ? "" : ", first step");
-                t.init = true;
+                t.init        = true;
+                t.jumpPresses = JumpInput::Get().Presses();
             }
 
             int want = static_cast<int>(c.m_wantState);
