@@ -42,6 +42,7 @@ namespace CB::feature::controller::motion {
         ::hkReal        m_rangeEnd;             ///< +0x14
         ::hkBool        m_disableReselection;   ///< +0x18
         ::hkBool        m_looping;              ///< +0x19
+        ::hkArray<::hkStringPtr> m_tags;        ///< +0x20, membership tags (StairsUp...), the file's
     };
     HKY_LAYOUT_CHECK(PoseSearchChild, hky::layout::CBPoseSearchChild);
 

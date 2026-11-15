@@ -506,6 +506,10 @@ namespace CB::feature {
             Clock::time_point queryAt{};
             /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
             std::atomic<float> timeToLand{ controller::motion::kNoLanding };
+            /// @brief The frame's tags (SetTags), read by the node for its search's tag channels.
+            std::mutex        tagsLock;
+            std::vector<std::pair<std::string, float>> tags;
+            Clock::time_point tagsAt{};
             /// @brief The movement model's distances for distance matching (DistancesOf).
             std::mutex        distancesLock;
             ch::motion::Distances distances;
@@ -716,6 +720,22 @@ namespace CB::feature {
             out.haveQuery = true;
         }
 
+        /// @return the search's tag intensities and `row`'s tag terms ("Stairs 1.00 StairsUp 1.00 | StairsUp +0.00"); empty when
+        ///         the database's schemas name no tag
+        std::string TagsText(const Database& db, const ps::Query& q, int row)
+        {
+            if (db.tags.empty()) return {};
+            std::string out;
+            for (std::size_t t = 0; t < db.tags.size(); ++t) out += std::format("{}{} {:.2f}", t ? " " : "", db.tags[t], q.tagIntensity[t]);
+            if (row < 0) return out;
+            const ps::Candidate c        = ps::ScoreRow(db, q, row);
+            const int           database = db.clips[c.clip].database;
+            const auto&         space    = db.spaces[database >= 0 ? db.databases[database].space : 0];
+            for (std::size_t k = 0; k < space.tagOf.size() && k < c.featureCost.size(); ++k)
+                if (space.tagOf[k] >= 0) out += std::format(" | {} +{:.2f}", db.tags[space.tagOf[k]], c.featureCost[k]);
+            return out;
+        }
+
         std::string ActiveNames(const Database& db, const std::vector<char>& active)
         {
             std::string out;
@@ -872,6 +892,14 @@ namespace CB::feature {
     }
 
     void controller::motion::SetTimeToLand(RE::FormID actor, float seconds) { MatchOf(actor).timeToLand.store(seconds, std::memory_order_relaxed); }
+
+    void controller::motion::SetTags(RE::FormID actor, std::vector<std::pair<std::string, float>> tags)
+    {
+        CharacterMatch&  match = MatchOf(actor);
+        std::scoped_lock lock(match.tagsLock);
+        match.tags   = std::move(tags);
+        match.tagsAt = Clock::now();
+    }
 
     std::string controller::motion::Describe()
     {
@@ -1034,6 +1062,12 @@ namespace CB::feature {
         s.ctx.variables = &vars;
         request.active  = ps::Choose(db, s.ctx);
         request.biases  = ps::EvaluateBiases(db, s.ctx);
+        /// @note Only a database whose schemas name tags reads them; the copy is skipped for the rest.
+        if (!db.tags.empty()) {
+            CharacterMatch&  match = MatchOf(actor->GetFormID());
+            std::scoped_lock lock(match.tagsLock);
+            if (std::chrono::duration<double>(Clock::now() - match.tagsAt).count() < kQueryStale) request.tags = match.tags;
+        }
 
         const double  wasTime = s.playingTime;
         const int     wasClip = s.playingClip;
@@ -1114,10 +1148,10 @@ namespace CB::feature {
                     ///       several behaviors (mt_behavior's locomotion and Sprint_State blend into each other), so two nodes
                     ///       of one actor can run at once, each writing the clip and time variables.
                     LOG_INFO("motion matching: -> clip {} '{}' in '{}' frame {} x{:.2f} (cost {:.2f}, was {:.2f}; {}; gait {} / frame {}; "
-                             "{} of {} rows in {:.2f} ms; node {} played clip {} at {:.3f} s, dt {:.4f})",
+                             "{} of {} rows in {:.2f} ms; node {} played clip {} at {:.3f} s, dt {:.4f}){}",
                              step.nextClip, c.name, dbName, frame, request.rate, r.best, r.playing, step.trigger, kGaits[std::clamp(in[kGait], 0, 2)],
                              kFrameGaits[db.rowGait[r.bestRow] & 3], r.searched, db.clipOf.size(), step.searchMs, static_cast<const void*>(&node),
-                             step.clip, step.time, timestep);
+                             step.clip, step.time, timestep, db.tags.empty() ? std::string() : " tags " + TagsText(db, step.query, r.bestRow));
             }
             if (!isPlayer || !ch::hud::On()) return;
             ch::hud::Matching h;
@@ -1134,6 +1168,7 @@ namespace CB::feature {
             }
             std::snprintf(h.active, sizeof(h.active), "%s", ActiveNames(db, step.searchedActive).c_str());
             std::snprintf(h.chooser, sizeof(h.chooser), "%s", InputsText(in).c_str());
+            std::snprintf(h.tags, sizeof(h.tags), "%s", TagsText(db, step.query, bestRow).c_str());
             h.cost     = best;
             h.searchMs = step.searchMs;
             h.switches = switches.load(std::memory_order_relaxed);

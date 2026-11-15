@@ -47,10 +47,12 @@ namespace CB::feature::controller::motion {
         constexpr const char* kVelocity   = "CBPoseSearchVelocity";
         constexpr const char* kHeading    = "CBPoseSearchHeading";
         constexpr const char* kCurve      = "CBPoseSearchCurve";
+        constexpr const char* kTag        = "CBPoseSearchTag";
 
         [[maybe_unused]] const bool s_declared = DeclareClass<PoseSearchSchema>(kSchema) && DeclareClass<PoseSearchTrajectory>(kTrajectory) &&
                                                  DeclareClass<PoseSearchPosition>(kPosition) && DeclareClass<PoseSearchVelocity>(kVelocity) &&
-                                                 DeclareClass<PoseSearchHeading>(kHeading) && DeclareClass<PoseSearchCurve>(kCurve);
+                                                 DeclareClass<PoseSearchHeading>(kHeading) && DeclareClass<PoseSearchCurve>(kCurve) &&
+                                                 DeclareClass<PoseSearchTag>(kTag);
 
         const ::hkClass* ClassNamed(const char* name) { return static_cast<const ::hkClass*>(platform::classes::ClassOf(name)); }
 
@@ -76,6 +78,7 @@ namespace CB::feature::controller::motion {
     PoseSearchBoneFeature::PoseSearchBoneFeature(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_bone(flag), m_origin(flag) {}
     PoseSearchHeading::PoseSearchHeading(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_bone(flag) {}
     PoseSearchCurve::PoseSearchCurve(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_curve(flag) {}
+    PoseSearchTag::PoseSearchTag(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_tag(flag) {}
     PoseSearchSchema::PoseSearchSchema(::hkFinishLoadedObjectFlag flag) : ::hkReferencedObject(flag), m_name(flag), m_rootBone(flag), m_features(flag) {}
 
     const ::hkClass* PoseSearchTrajectory::getClassType() const { static const auto* c = ClassNamed(kTrajectory); return c; }
@@ -83,6 +86,7 @@ namespace CB::feature::controller::motion {
     const ::hkClass* PoseSearchVelocity::getClassType() const { static const auto* c = ClassNamed(kVelocity); return c; }
     const ::hkClass* PoseSearchHeading::getClassType() const { static const auto* c = ClassNamed(kHeading); return c; }
     const ::hkClass* PoseSearchCurve::getClassType() const { static const auto* c = ClassNamed(kCurve); return c; }
+    const ::hkClass* PoseSearchTag::getClassType() const { static const auto* c = ClassNamed(kTag); return c; }
     const ::hkClass* PoseSearchSchema::getClassType() const { static const auto* c = ClassNamed(kSchema); return c; }
 
     anim::SchemaSpec SpecOfSchema(const PoseSearchSchema& schema, const ::hkbContext& context, std::vector<BoundInput>& bound)
@@ -105,7 +109,8 @@ namespace CB::feature::controller::motion {
             if (!cls) continue;
             const std::string_view type = cls->getName();
             anim::FeatureSpec      spec;
-            spec.weight = f->m_weight;
+            spec.weight    = f->m_weight;
+            spec.weightTag = Text(f->m_weightTag);
             if (type == kTrajectory) {
                 const auto& t = static_cast<const PoseSearchTrajectory&>(*f);
                 spec.kind     = anim::FeatureKind::Trajectory;
@@ -126,6 +131,9 @@ namespace CB::feature::controller::motion {
             } else if (type == kCurve) {
                 spec.kind  = anim::FeatureKind::Curve;
                 spec.curve = Text(static_cast<const PoseSearchCurve&>(*f).m_curve);
+            } else if (type == kTag) {
+                spec.kind = anim::FeatureKind::Tag;
+                spec.tag  = Text(static_cast<const PoseSearchTag&>(*f).m_tag);
             } else {
                 continue;
             }
@@ -145,7 +153,7 @@ namespace CB::feature::controller::motion {
                         const int base = dim + sample * anim::features::kPerSample;
                         if (part == "pose") bound.push_back({ base + anim::features::kSamplePos, 4, BoundInput::How::PoseXY, variable });
                         if (part == "motion") bound.push_back({ base + anim::features::kSampleVelocity, 3, BoundInput::How::MotionXYZ, variable });
-                    } else if (spec.kind != anim::FeatureKind::Trajectory && std::strcmp(path, "query") == 0) {
+                    } else if (spec.kind != anim::FeatureKind::Trajectory && anim::FeatureDims(spec) > 0 && std::strcmp(path, "query") == 0) {
                         const int width = anim::FeatureDims(spec);
                         bound.push_back({ dim, width, width == 1 ? BoundInput::How::Float : BoundInput::How::Vector, variable });
                     }

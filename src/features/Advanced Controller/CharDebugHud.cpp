@@ -390,6 +390,7 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("matching %s @%d [%s]   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.database,
                             m.rate, m.cost, m.searchMs, m.switches, m.blend);
                 ImGui::Text("chooser %s   searching %s", m.chooser, m.active);
+                if (m.tags[0]) ImGui::Text("tags %s", m.tags);
             }
             if (haveStairs) {
                 const char* dir = st.direction > 0 ? "up" : st.direction < 0 ? "down" : "-";

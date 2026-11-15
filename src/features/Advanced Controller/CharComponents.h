@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 /// @file
@@ -26,9 +27,10 @@ namespace CB::feature::controller::component {
 
     /// @brief A motion-matching tag a component prefers, and how strongly (0-1).
     /// @note Names compared byte-exact, as autotag writes clip tags.
+    /// @note Owns its name: a component's tags (the rules' eased state) are copies that die when it returns.
     struct TagWeight {
-        std::string_view tag;
-        float            weight = 0.0f;
+        std::string tag;
+        float       weight = 0.0f;
     };
 
     /// @brief One frame of the controller as the components see it: the profile's numbers, the caps and input the model
@@ -40,14 +42,14 @@ namespace CB::feature::controller::component {
         move::Input    input;
         Support        support      = Support::Ground;
         bool           verticalAxis = false;   ///< the character moves vertically under its own control (diving)
-        std::array<TagWeight, 4> tags{};
+        std::array<TagWeight, 8> tags{};
         int            tagCount = 0;
         std::array<const char*, 4> active{};   ///< the components applied, by name
         int            activeCount = 0;
 
         void AddTag(std::string_view tag, float weight)
         {
-            if (tagCount < static_cast<int>(tags.size())) tags[tagCount++] = TagWeight{ tag, weight };
+            if (tagCount < static_cast<int>(tags.size())) tags[tagCount++] = TagWeight{ std::string(tag), weight };
         }
     };
 

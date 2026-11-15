@@ -425,6 +425,7 @@ namespace CB::feature::controller::motion {
             out.rangeEnd   = row.m_rangeEnd;
             out.flags      = static_cast<std::uint8_t>((row.m_disableReselection ? loco::kFlagDisableReselection : 0) |
                                                        (row.m_looping ? loco::kFlagLooping : 0));
+            for (int t = 0; t < row.m_tags.getSize(); ++t) out.tags.push_back(name(row.m_tags[t]));
             spec.children.push_back(std::move(out));
         }
         if (const PoseSearchChooser* chooser = from->m_chooser) {

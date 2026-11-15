@@ -106,6 +106,7 @@ namespace CB::feature::controller::hud {
         char  database[32] = {};   ///< the chosen clip's database
         char  active[96]   = {};   ///< the databases the chooser picked, comma-separated
         char  chooser[96]  = {};   ///< the chooser's inputs (movement mode, rotation, state, gait, stance, raised flags)
+        char  tags[128]    = {};   ///< the tag intensities searched and the shown frame's tag terms; empty without tag channels
         int   frame        = 0;
         float cost = 0, searchMs = 0;
         int   switches = 0;

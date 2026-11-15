@@ -29,11 +29,12 @@ namespace CB::feature::controller::motion {
 
     namespace anim = hky::anim;
 
-    /// @brief CBPoseSearchFeature, the abstract base: a bindable with a weight.
+    /// @brief CBPoseSearchFeature, the abstract base: a bindable with a weight, scaled by its weightTag's intensity.
     class PoseSearchFeature : public ::hkbBindable {
     public:
-        ::hkReal m_weight;   ///< +0x30
-        explicit PoseSearchFeature(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag) {}
+        ::hkReal      m_weight;      ///< +0x30
+        ::hkStringPtr m_weightTag;   ///< +0x38, empty = full weight
+        explicit PoseSearchFeature(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag), m_weightTag(flag) {}
     };
     HKY_LAYOUT_CHECK(PoseSearchFeature, hky::layout::CBPoseSearchFeature);
 
@@ -54,7 +55,7 @@ namespace CB::feature::controller::motion {
 
     class PoseSearchTrajectory : public PoseSearchFeature {
     public:
-        ::hkArray<PoseSearchTrajectorySample> m_samples;   ///< +0x38
+        ::hkArray<PoseSearchTrajectorySample> m_samples;   ///< +0x40
         explicit PoseSearchTrajectory(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
@@ -63,14 +64,15 @@ namespace CB::feature::controller::motion {
     /// @brief CBPoseSearchPosition and CBPoseSearchVelocity share a layout.
     class PoseSearchBoneFeature : public PoseSearchFeature {
     public:
-        ::hkStringPtr m_bone;     ///< +0x38
-        ::hkStringPtr m_origin;   ///< +0x40
-        ::hkUint8     m_pad48[0x50 - 0x48];
+        ::hkStringPtr m_bone;     ///< +0x40
+        ::hkStringPtr m_origin;   ///< +0x48
         ::hkVector4   m_query;    ///< +0x50
         explicit PoseSearchBoneFeature(::hkFinishLoadedObjectFlag flag);
     };
     HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchPosition);
     HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchVelocity);
+    /// @note The size checks cannot see a member moved within an unchanged size (these three stayed 0x60 when the base grew).
+    static_assert(offsetof(PoseSearchBoneFeature, m_bone) == 0x40 && offsetof(PoseSearchBoneFeature, m_query) == 0x50);
     class PoseSearchPosition : public PoseSearchBoneFeature {
     public:
         using PoseSearchBoneFeature::PoseSearchBoneFeature;
@@ -84,23 +86,33 @@ namespace CB::feature::controller::motion {
 
     class PoseSearchHeading : public PoseSearchFeature {
     public:
-        ::hkStringPtr m_bone;    ///< +0x38
-        ::hkInt32     m_axis;    ///< +0x40
-        ::hkUint8     m_pad44[0x50 - 0x44];
+        ::hkStringPtr m_bone;    ///< +0x40
+        ::hkInt32     m_axis;    ///< +0x48
+        ::hkUint8     m_pad4c[0x50 - 0x4c];
         ::hkVector4   m_query;   ///< +0x50
         explicit PoseSearchHeading(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
     HKY_LAYOUT_CHECK(PoseSearchHeading, hky::layout::CBPoseSearchHeading);
+    static_assert(offsetof(PoseSearchHeading, m_axis) == 0x48 && offsetof(PoseSearchHeading, m_query) == 0x50);
 
     class PoseSearchCurve : public PoseSearchFeature {
     public:
-        ::hkStringPtr m_curve;   ///< +0x38
-        ::hkReal      m_query;   ///< +0x40
+        ::hkStringPtr m_curve;   ///< +0x40
+        ::hkReal      m_query;   ///< +0x48
         explicit PoseSearchCurve(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
     HKY_LAYOUT_CHECK(PoseSearchCurve, hky::layout::CBPoseSearchCurve);
+
+    /// @brief CBPoseSearchTag: a clip tag the situation asks for (a per-clip cost term, no row dims).
+    class PoseSearchTag : public PoseSearchFeature {
+    public:
+        ::hkStringPtr m_tag;   ///< +0x40
+        explicit PoseSearchTag(::hkFinishLoadedObjectFlag flag);
+        const ::hkClass* getClassType() const override;
+    };
+    HKY_LAYOUT_CHECK(PoseSearchTag, hky::layout::CBPoseSearchTag);
 
     /// @brief CBPoseSearchSchema: shared by the databases pointing at it.
     class PoseSearchSchema : public ::hkReferencedObject {

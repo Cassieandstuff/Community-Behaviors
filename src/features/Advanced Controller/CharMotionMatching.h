@@ -6,6 +6,8 @@
 
 #include <array>
 #include <string>
+#include <utility>
+#include <vector>
 
 /// @file
 /// @brief Motion matching: the character's side, which sets the graph variables CBPoseSearchGenerator reads, and the node's
@@ -58,6 +60,12 @@ namespace CB::feature::controller::motion {
     ///        ground), so the predictor may publish it every step.
     /// @note  Thread-safe: the predictor (physics thread) writes it, the frame hook (update thread) reads it.
     void SetTimeToLand(RE::FormID actor, float seconds);
+
+    /// @brief `actor`'s motion-matching tags this frame (the controller components' Frame::tags, by name, 0-1): what its
+    ///        pose search's tag channels read (CBPoseSearchTag, a feature's weightTag).
+    /// @note  Thread-safe: the frame hook writes them, the graph's node reads them; older than the query's lifetime they
+    ///        read as none.
+    void SetTags(RE::FormID actor, std::vector<std::pair<std::string, float>> tags);
 
     /// @brief What distance matching reads of a character, as of its latest movement frame.
     /// @brief The movement model's distances distance matching plays by (the engine's).

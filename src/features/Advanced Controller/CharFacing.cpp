@@ -657,6 +657,11 @@ namespace CB::feature::controller {
             component::Apply(*player, cf);
             in   = cf.input;
             caps = cf.caps;
+            {
+                std::vector<std::pair<std::string, float>> tags;
+                for (int t = 0; t < cf.tagCount; ++t) tags.emplace_back(cf.tags[t].tag, cf.tags[t].weight);
+                motion::SetTags(player->GetFormID(), std::move(tags));
+            }
             move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
             /// @note GASP's turn in place: a TurnInPlace clip turns the body by its own root, which its feet step to.
             ///       Standing, the clip's root yaw since the last frame is this frame's turn and the model's facing spring
