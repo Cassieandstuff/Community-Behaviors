@@ -336,7 +336,7 @@ namespace CB::feature {
         ch::FloorVerdict SettleFloor(::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
                                      float& z, bool pogo)
         {
-            auto floorOf = [&](const ch::FloorVerdict& v, float& dz) { return pogo ? ch::PogoFloor(ctrl, v, dz) : HighestFloor(v, dz); };
+            auto floorOf = [&](const ch::FloorVerdict& v, float& dz) { return pogo ? ch::PogoFloor(v, dz) : HighestFloor(v, dz); };
             float            dz    = 0.0f;
             ch::FloorVerdict first = ch::QueryFloorAt(ctrl, hull, x, y, zEstimate);
             z                      = zEstimate;
@@ -534,7 +534,11 @@ namespace CB::feature {
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
-                        ch::ClipUphill(prevFloor, d.x, d.y);
+                        /// @note The ground rules' Steep ground (no support) drops the whole uphill request, as the live
+                        ///       step does; walkable ground clips by its support.
+                        hky::locomotion::ClipUphill(hky::locomotion::Surface{ true, ch::Supported(prevFloor) ? prevFloor.support : 0.0f,
+                                                                              prevFloor.groundNx, prevFloor.groundNy, prevFloor.groundNz },
+                                                    d.x, d.y);
                         ch::GroundVelocityStep(vx, vy, ax, ay, d.x, d.y, h);
                         if (!blocked) ch::SlideStep(prevFloor, gx, gy, gz, sx, sy, h);
                     } else {
@@ -648,14 +652,15 @@ namespace CB::feature {
                         blockedNow = true;
                     }
                 }
-                /// @note A leg grounded throughout runs the pogo over its substeps toward the floor between its ends (the
-                ///       floor is resolved only at the points); one that left or reached the ground puts the feet on its
-                ///       height, as the ground states' landing does.
+                /// @note A leg grounded throughout runs the bounded pogo (the live step's PogoRide) over its substeps toward
+                ///       the floor between its ends (the floor is resolved only at the points); one that left or reached the
+                ///       ground puts the feet on its height, as the ground states' landing does.
                 if (pogo && !legAir && !airborne) {
                     float feet = prevFz;
                     for (int k = 1; k <= kSubstepsPerPoint; k++) {
                         const float target = prevZ + (z - prevZ) * static_cast<float>(k) / kSubstepsPerPoint;
-                        feet += hky::locomotion::PogoStep(pogoRate, feet - target, kPogo, true, kSubstep) * kSubstep;
+                        float snap = 0.0f;
+                        feet += hky::locomotion::PogoRide(pogoRate, feet - target, 0.0f, kPogo, kSubstep, snap) * kSubstep + snap;
                     }
                     fz = feet;
                 } else {

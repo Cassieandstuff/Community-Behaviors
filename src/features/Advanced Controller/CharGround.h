@@ -3,6 +3,7 @@
 #include <Common/Base/hkBase.h>
 #include <BSHavok/bhkCharProxyController.h>
 
+#include <hky/locomotion/Grounding.h>
 #include <hky/locomotion/Movement.h>
 #include <hky/locomotion/Pogo.h>
 #include <hky/locomotion/Slope.h>
@@ -135,6 +136,8 @@ namespace CB::feature::controller {
         unsigned                 layer = 0;
         const ::hkpCollidable* body = nullptr;
         std::uint32_t            material = 0;   ///< the hit's MATERIAL_ID, 0 unknown
+        bool                     floorLike = false;   ///< no wall and no character
+        bool                     walkable  = false;   ///< floor-like, and its slope or its material walkable
     };
 
     /// @brief The support at and above which the ground holds the character (Supported): the constraint planes treat its
@@ -149,6 +152,9 @@ namespace CB::feature::controller {
         float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); under the pogo 1 or 0, its ray walkable or not; 0 when Airborne
         bool                     stickable = false;   ///< a floor-like hit (walls and characters excluded) within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest such hit below the foot tolerance (negative)
+        float                    stickNx = 0, stickNy = 0, stickNz = 1;   ///< that hit's normal
+        bool                     stickWalkable    = false;   ///< that hit is walkable
+        bool                     materialWalkable = false;   ///< a support hit is walkable by its material alone (stairs)
         float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it); under the pogo its ray's
         const ::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         std::uint32_t            material    = 0;         ///< that hit's MATERIAL_ID, 0 unknown or none
@@ -195,12 +201,23 @@ namespace CB::feature::controller {
     /// @brief The verdict last published for `ctrl`; false when none is.
     bool PublishedVerdict(const ::bhkCharacterController& ctrl, FloorVerdict& out);
 
-    /// @brief How much a ground of normal z `groundNz` holds the character up, 0-1: 1 up to [Character] fSlidePullStart
-    ///        degrees (default 5) below the controller's max slope (acos WalkableZ), easing to 0 at fSlidePullFull
-    ///        degrees (default 10) past it.
-    /// @note Why a number and not a threshold: a hard walkable/too-steep line gave two movement models a degree apart
-    ///       (and needed a hysteresis delay on rough ground); the slide below scales with it instead.
+    /// @brief How much a ground of normal z `groundNz` holds the character up, 0-1: locomotion::SupportBand from
+    ///        [Character] fSlidePullStart degrees (default 5) below the controller's max slope (acos WalkableZ) to
+    ///        fSlidePullFull degrees (default 10) past it.
     float Support(const ::bhkCharacterController& ctrl, float groundNz);
+
+    /// @brief Whether a face of material `id` (a MATERIAL_ID) is walkable at any angle: its MATT record carries the
+    ///        stairs flag (BGSMaterialType::FLAG::kStairs), the data Bethesda's own stairs rule reads.
+    bool StairsMaterial(std::uint32_t id);
+
+    /// @brief locomotion::DecideGround on floor `v` with GroundingTuning, from mode `mode` with the last ground's normal
+    ///        (lastNx, lastNy, lastNz) and the body's velocity (vx, vy, vz) relative to the ground's.
+    hky::locomotion::GroundDecision DecideGround(const FloorVerdict& v, hky::locomotion::GroundMode mode, float lastNx, float lastNy,
+                                                 float lastNz, float vx, float vy, float vz, bool pushed);
+
+    /// @brief The ground rules' tunables: locomotion::GroundingTunables with settings.ini [Character] fCrestReleaseAngle
+    ///        (degrees, default 40) and fCrestReleaseSpeed (game units/s, default 560; 0 never lets go), read once.
+    const hky::locomotion::GroundingTunables& GroundingTuning();
 
     /// @brief The ground of `v` as the engine's slope helpers read it.
     inline hky::locomotion::Surface SurfaceOf(const FloorVerdict& v)
@@ -279,6 +296,10 @@ namespace CB::feature::controller {
 
     using hky::locomotion::SpringDamperExact;
     using hky::locomotion::GroundVelocityStep;
+    using hky::locomotion::GroundDecision;
+    using hky::locomotion::GroundEvent;
+    using hky::locomotion::GroundMode;
+    using hky::locomotion::Name;
 
     /// @brief Whether the pogo runs (char_pogo, under char_ground_states): the managed controller's shape floats Lift
     ///        above its feet and a spring holds the feet on the floor, in place of the step query and stick-to-floor.
@@ -295,9 +316,9 @@ namespace CB::feature::controller {
     /// @pre Inside the controller's update, outside the physics step (it moves the proxy, as a teleport does).
     float RaiseLift(::bhkCharacterController& ctrl, const Hull& hull);
 
-    /// @brief The pogo's floor under `v`, above the feet (Havok units): locomotion::PogoSelect over its rays (a long
-    ///        body: the higher of its two ends). False when no ray met a floor.
+    /// @brief The pogo's floor under `v`, above the feet (Havok units): locomotion::PogoFloor over its rays (a long
+    ///        body: the higher of its two ends). False when no ray met a floor the pogo may hold.
     /// @param ray receives the chosen ray when not null: 0-8 under `v.hits`, 9-17 under a long body's `v.hindHits`.
-    bool PogoFloor(const ::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray = nullptr);
+    bool PogoFloor(const FloorVerdict& v, float& dz, int* ray = nullptr);
 
 }  // namespace CB::feature::controller

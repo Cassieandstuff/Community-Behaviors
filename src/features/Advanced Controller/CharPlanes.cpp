@@ -32,12 +32,10 @@
 ///        processConstraintsCallback for the managed controller (the player's proxy).
 /// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (CB-SDK's Bethesda tree), with
 ///       the spec's rules in place of its per-contact walkability, TryStep and wall planes: blocking follows the
-///       contact normal only (M1/M2) and walkability comes from one floor query per callback. No wall planes: a steep
-///       face blocks along its own normal, and the ground states' grip (their slide and uphill clip) is what keeps the
-///       character off it; a vertical plane once met a ledge lip's sloped one in a horizontal line and hung a jump
-///       there. Its gameplay side effects (hurtful
-///       bodies, character pushes and collision handler, footstep material, support body, orientation controller, the
-///       animated-static and stuck-quad flags) are kept.
+///       contact normal only (M1/M2) and walkability comes from one floor query per callback. On the ground a steep
+///       contact also gets one vertical wall plane (the ground rules' SteepWall); in the air none (see OnProcess).
+///       Its gameplay side effects (hurtful bodies, character pushes and collision handler, footstep material, support
+///       body, orientation controller, the animated-static and stuck-quad flags) are kept.
 /// @warning The callback also runs inside the proxy's checkSupport, which is the call whose bit 9 / m_onlyWallContacts
 ///          UpdatePhysics reads; the integrate calls only shape the motion.
 
@@ -79,12 +77,13 @@ namespace CB::feature {
 
         /// @brief One line per change of (contacts, zeroed, planes added, support contacts, verdict, bits).
         /// @note The player runs on one thread, so the last signature is plain.
-        void Log(int contacts, int zeroed, int characters, int penetration, int support, const ch::FloorVerdict& v, ::hkUint32 flags)
+        void Log(int contacts, int zeroed, int characters, int penetration, int walls, int support, const ch::FloorVerdict& v, ::hkUint32 flags)
         {
             static std::uint64_t last = ~0ull;
             const std::uint64_t  sig  = static_cast<std::uint64_t>(contacts) | (static_cast<std::uint64_t>(zeroed) << 8)
                                     | (static_cast<std::uint64_t>(characters) << 16)
-                                    | (static_cast<std::uint64_t>(penetration) << 32) | (static_cast<std::uint64_t>(support) << 40)
+                                    | (static_cast<std::uint64_t>(penetration) << 32) | (static_cast<std::uint64_t>(walls) << 36)
+                                    | (static_cast<std::uint64_t>(support) << 40)
                                     | (static_cast<std::uint64_t>(v.ground) << 48) | (static_cast<std::uint64_t>((flags >> 9) & 3) << 56);
             if (sig == last) return;
             last = sig;
@@ -94,9 +93,9 @@ namespace CB::feature {
                 LOG_INFO("planes: {} lines logged, stopping", kMaxLogged);
                 return;
             }
-            LOG_INFO("planes: contacts {} (zeroed {}, characters {}, penetration-dropped {}) support contacts {} "
+            LOG_INFO("planes: contacts {} (zeroed {}, characters {}, penetration-dropped {}, walls added {}) support contacts {} "
                      "-> {} (support hits {}, walkable {}) n=({:.2f},{:.2f},{:.2f}) bit9 {} canJump {}",
-                     contacts, zeroed, characters, penetration, support, ch::Name(v.ground), v.supportHits, v.walkableHits,
+                     contacts, zeroed, characters, penetration, walls, support, ch::Name(v.ground), v.supportHits, v.walkableHits,
                      v.groundNx, v.groundNy, v.groundNz, (flags >> 9) & 1, (flags >> 10) & 1);
         }
 
@@ -260,6 +259,37 @@ namespace CB::feature {
                 }
             }
 
+            /// @note The ground rules' wall (locomotion::SteepWall, Jolt's steep-slope plane): while the ground holds the
+            ///       character (Grounded, Steep included), a contact steeper than walkable also blocks as a vertical wall,
+            ///       appended beside its own plane, so pushing into a steep face never slides the character up it. A face
+            ///       of a walkable material (stairs steeper than the slope) is left to climb. In the air no wall is added:
+            ///       a vertical plane once met a ledge lip's sloped one in a horizontal line and hung a jump there; the
+            ///       ground states' air guard keeps a slide from lifting the body instead.
+            /// @note Appended within the proxy's m_userPlanes, the room integrate reserves for its listeners (Bethesda's
+            ///       own callback appended its wall planes there).
+            int walls = 0;
+            if (verdict.ground == ch::Ground::Grounded) {
+                const float walkZ = ch::WalkableZ(ctrl);
+                const int   room  = proxy->m_userPlanes;
+                for (int i = 0; i < numPoints && walls < room; i++) {
+                    if (kind[i] != Kind::Block) continue;
+                    const ::hkpSurfaceConstraintInfo& c = input.m_constraints[i];
+                    if (verdict.materialWalkable && c.m_plane(2) >= tun.wallNormalZ) continue;
+                    float wx, wy, wd;
+                    if (!hky::locomotion::SteepWall(c.m_plane(0), c.m_plane(1), c.m_plane(2), c.m_plane(3), walkZ, wx, wy, wd)) continue;
+                    ::hkpSurfaceConstraintInfo& wall = input.m_constraints[input.m_numConstraints + walls];
+                    wall                             = c;
+                    wall.m_plane.set(wx, wy, 0.0f, wd);
+                    const float along = c.m_velocity(0) * wx + c.m_velocity(1) * wy;
+                    wall.m_velocity.set(along * wx, along * wy, 0.0f, 0.0f);
+                    wall.m_staticFriction          = 0.0f;
+                    wall.m_extraUpStaticFriction   = 0.0f;
+                    wall.m_extraDownStaticFriction = 0.0f;
+                    ++walls;
+                }
+                input.m_numConstraints += walls;
+            }
+
             /// @note Support is the floor query's verdict; the contacts inside the supporting region (under the feet, by
             ///       position) are the ones it is "on": they carry the anti-creep friction, the footstep material, the
             ///       support body and the orientation controller's notice, as Bethesda's walkable contacts did.
@@ -297,7 +327,7 @@ namespace CB::feature {
             ctrl.m_supportCount     = support;
             ctrl.m_supportNorm.set(verdict.groundNx, verdict.groundNy, verdict.groundNz, 0.0f);
 
-            Log(numPoints, zeroed, characters, penetration, support, verdict, ctrl.m_flags);
+            Log(numPoints, zeroed, characters, penetration, walls, support, verdict, ctrl.m_flags);
         }
 
         /// @note Last = innermost: observers (the contact probe) still wrap it. It replaces Bethesda's callback, so

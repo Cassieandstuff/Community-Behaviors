@@ -333,8 +333,10 @@ namespace CB::feature::controller {
         {
             FloorHit o;
             o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
-            o.body     = reinterpret_cast<const ::hkpCollidable*>(h.body);
-            o.material = h.material;
+            o.body      = reinterpret_cast<const ::hkpCollidable*>(h.body);
+            o.material  = h.material;
+            o.floorLike = h.floorLike;
+            o.walkable  = h.walkable;
             return o;
         }
 
@@ -342,8 +344,10 @@ namespace CB::feature::controller {
         {
             lc::FloorHit o;
             o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
-            o.body     = reinterpret_cast<std::uint64_t>(h.body);
-            o.material = h.material;
+            o.body      = reinterpret_cast<std::uint64_t>(h.body);
+            o.material  = h.material;
+            o.floorLike = h.floorLike;
+            o.walkable  = h.walkable;
             return o;
         }
 
@@ -354,6 +358,9 @@ namespace CB::feature::controller {
             o.support   = v.support;
             o.stickable = v.stickable;
             o.stickDz   = v.stickDz;
+            o.stickNx = v.stickNx, o.stickNy = v.stickNy, o.stickNz = v.stickNz;
+            o.stickWalkable    = v.stickWalkable;
+            o.materialWalkable = v.materialWalkable;
             o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
             o.supportBody  = reinterpret_cast<const ::hkpCollidable*>(v.supportBody);
             o.material     = v.material;
@@ -371,6 +378,9 @@ namespace CB::feature::controller {
             o.support   = v.support;
             o.stickable = v.stickable;
             o.stickDz   = v.stickDz;
+            o.stickNx = v.stickNx, o.stickNy = v.stickNy, o.stickNz = v.stickNz;
+            o.stickWalkable    = v.stickWalkable;
+            o.materialWalkable = v.materialWalkable;
             o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
             o.supportBody  = reinterpret_cast<std::uint64_t>(v.supportBody);
             o.material     = v.material;
@@ -421,15 +431,53 @@ namespace CB::feature::controller {
         q.walkableZ      = WalkableZ(ctrl);
         q.characterLayer = kCharControllerLayer;
         q.support        = [&ctrl](float groundNz) { return Support(ctrl, groundNz); };
+        q.walkableMaterial = &StairsMaterial;
         const lc::FloorVerdict v = lc::QueryFloorAt(q, BodyOf(hull), dx, dy, dz, TunablesOf(t));
         CountFootprint(v.ringCast);
         if (v.longBody) CountFootprint(v.hindRingCast);
         return FromSdk(v);
     }
 
-    bool PogoFloor(const ::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray)
+    bool PogoFloor(const FloorVerdict& v, float& dz, int* ray) { return lc::PogoFloor(ToSdk(v), dz, ray); }
+
+    bool StairsMaterial(std::uint32_t id)
     {
-        return lc::PogoFloor(WalkableZ(ctrl), ToSdk(v), dz, ray, kCharControllerLayer);
+        /// @note Cached per material: the floor query asks for every hit, and the MATT lookup walks the form list.
+        static std::mutex                              lock;
+        static std::unordered_map<std::uint32_t, bool> cache;
+        {
+            std::scoped_lock held(lock);
+            if (const auto it = cache.find(id); it != cache.end()) return it->second;
+        }
+        const RE::BGSMaterialType* type   = RE::BGSMaterialType::GetMaterialType(static_cast<RE::MATERIAL_ID>(id));
+        const bool                 stairs = type && type->flags.any(RE::BGSMaterialType::FLAG::kStairs);
+        std::scoped_lock           held(lock);
+        cache.emplace(id, stairs);
+        return stairs;
+    }
+
+    hky::locomotion::GroundDecision DecideGround(const FloorVerdict& v, hky::locomotion::GroundMode mode, float lastNx, float lastNy,
+                                                 float lastNz, float vx, float vy, float vz, bool pushed)
+    {
+        hky::locomotion::GroundInput in;
+        in.mode   = mode;
+        in.floor  = ToSdk(v);
+        in.lastNx = lastNx, in.lastNy = lastNy, in.lastNz = lastNz;
+        in.vx = vx, in.vy = vy, in.vz = vz;
+        in.pushed = pushed;
+        return hky::locomotion::DecideGround(in, GroundingTuning());
+    }
+
+    const hky::locomotion::GroundingTunables& GroundingTuning()
+    {
+        static const hky::locomotion::GroundingTunables t = [] {
+            hky::locomotion::GroundingTunables g;
+            g.crestAngle = std::clamp(SettingFloat("fCrestReleaseAngle", 40.0f), 0.0f, 90.0f) * 0.017453292f;
+            g.crestSpeed = (std::max)(0.0f, SettingFloat("fCrestReleaseSpeed", 560.0f)) / 69.99125f;
+            LOG_INFO("ground rules: crest release past {:.1f} deg above {:.2f} Havok units/s (0 = never)", g.crestAngle / 0.017453292f, g.crestSpeed);
+            return g;
+        }();
+        return t;
     }
 
     bool PogoOn()
@@ -502,12 +550,7 @@ namespace CB::feature::controller {
             return true;
         }();
         (void)logged;
-        const float slope = std::acos(std::clamp(groundNz, -1.0f, 1.0f));
-        const float lo = maxSlope - start, hi = maxSlope + full;
-        if (slope <= lo) return 1.0f;
-        if (slope >= hi) return 0.0f;
-        const float u = (slope - lo) / (hi - lo);
-        return 1.0f - u * u * (3.0f - 2.0f * u);
+        return hky::locomotion::SupportBand(groundNz, WalkableZ(ctrl), start, full);
     }
 
     namespace {

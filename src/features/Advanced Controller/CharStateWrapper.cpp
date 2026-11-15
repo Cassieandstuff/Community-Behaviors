@@ -86,14 +86,6 @@ namespace CB::feature {
         constexpr hky::locomotion::Pogo kPogo{};
         /// @brief G2: how long after walking off a jump request is still honoured (seconds).
         constexpr float kCoyoteTime = 0.1f;
-        /// @brief G3/G4: rising faster than this off the ground (Havok units/s, about 35 game units/s), measured against
-        ///        what following the ground gives (ch::SlopeRise of the horizontal velocity), is launching. Slower, a
-        ///        character that loses the ground sticks to ground within the probe, and an airborne one on ground lands.
-        /// @note Why relative to the ground: running up a road rises 0.5-2 Havok units/s from the slope alone. Measured
-        ///       against the world, that sent 14 of 17 walk-offs in one session into the air at crests (a short hop) and
-        ///       kept 8 landings airborne for 1-2 s with ground under the feet; the collision solver's push out of the
-        ///       ground also leaves a small positive vz. Requiring vz <= 0 outright was worse still (a ground/air bounce).
-        constexpr float kStickMaxRise = 0.5f;
         /// @brief A wind-up with this little left (seconds) is done: the step launches.
         constexpr float kWindupDone = 1.0e-4f;
         /// @brief Seconds for the grip to go from full to none or back (Box3D's dynamic mover slideDuration).
@@ -105,8 +97,8 @@ namespace CB::feature {
         constexpr ::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
         constexpr ::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
 
-        /// @note No Sliding mode: ground too steep to stand on is Grounded with low support, where the slide velocity
-        ///       (ch::SlideStep) drags the character down and the player cannot climb (ch::ClipUphill).
+        /// @note Grounded holds both of the ground rules' ground modes (locomotion::GroundMode Walking and Steep, told
+        ///       apart by Track::steep): vanilla sees both as OnGround.
         enum class Mode : std::uint8_t { Grounded, Airborne };
         enum class AirEntry : std::uint8_t { None, WalkedOff, Jumped, Launched, OutOfWater };
 
@@ -142,7 +134,10 @@ namespace CB::feature {
             float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
             float    jumpHeight   = 0.0f;    ///< Havok units, this jump's height above the slope it left
             float    windup       = -1.0f;   ///< seconds left on a pending ground jump's wind-up, -1 for none
-            ch::FloorVerdict lastGround;     ///< the floor of the last Grounded step with ground under the feet
+            bool     steep       = false;    ///< Grounded on ground that does not hold the character up (GroundMode::Steep)
+            float    support     = 0.0f;     ///< the last Grounded step's decided support (GroundDecision::support)
+            float    lastNx = 0.0f, lastNy = 0.0f, lastNz = 1.0f;   ///< the ground the last Grounded step stood on
+            float    airVz       = 0.0f;     ///< the vertical speed the last Airborne step commanded (GuardAirRise)
             bool     pogoHeld    = false;    ///< the pogo held the feet this step
             float    pogoRate    = 0.0f;     ///< the pogo spring's correction rate (Havok units/s, + up)
             float    pogoDz      = 0.0f;     ///< the floor it held the feet to, above where this step's correction leaves them
@@ -151,9 +146,6 @@ namespace CB::feature {
             bool     riding      = false;    ///< the pogo is riding the feet down to a floor below the foot tolerance
             int      pogoRay     = -1;       ///< the floor ray the pogo stood on this step (ch::PogoFloor's numbering)
         };
-
-        /// @brief Vertical speed `vz` against what following the ground `g` gives at horizontal velocity (vx, vy).
-        float RiseOffGround(const ch::FloorVerdict& g, float vx, float vy, float vz) { return vz - ch::SlopeRise(g, vx, vy); }
 
         /// @brief How long a jump from the ground waits at most before it launches, the character moving on the ground
         ///        meanwhile: for the player [Character] fJumpWindup seconds (default 0.4), cut short when the jump start
@@ -385,15 +377,31 @@ namespace CB::feature {
             }
             const float k = gravityMult * c.m_gravity * dt;
             c.m_outVelocity.set(ox + gx * k, oy + gy * k, oz + gz * k, 0.0f);
+            t.airVz = oz + gz * k;
             c.AccumulateFallTime();
             t.airTime += dt;
         }
 
-        /// @brief P2 + step 7: one Grounded step. Each horizontal component springs toward the desired velocity (its
-        ///        uphill part cut by the ground's lack of support), the slide velocity is added, the sum is laid along
-        ///        the ground plane at the same speed (as vanilla's surface frame does), plus one step of gravity
-        ///        pressing into the floor (vanilla OnGround's pressure, never its 4x).
-        void GroundStep(::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, float dt)
+        /// @brief Snaps the character down onto the floor `dz` (negative, Havok units) below its feet (M8).
+        void Stick(::bhkCharacterController& c, float dz)
+        {
+            ::hkVector4 pos;
+            c.GetPositionImpl(pos, true);
+            pos(2) += dz;
+            c.SetPositionImpl(pos, true, false);
+        }
+
+        ch::GroundMode ModeOf(const Track& t)
+        {
+            return t.mode == Mode::Airborne ? ch::GroundMode::Airborne : t.steep ? ch::GroundMode::Steep : ch::GroundMode::Walking;
+        }
+
+        /// @brief P2 + step 7: one Grounded step on the ground decision `d`. Each horizontal component springs toward the
+        ///        desired velocity (its uphill part cut by the ground's lack of support, all of it on Steep ground), the
+        ///        slide velocity is added, and the sum is laid on the ground (locomotion::LayOnGround: along its plane at
+        ///        the same speed, never upward on Steep ground). Without the pogo one step of gravity presses into the
+        ///        floor (vanilla OnGround's pressure, never its 4x); under it the bounded pogo holds the height.
+        void GroundStep(::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, const ch::GroundDecision& d, float dt)
         {
             const ::hkVector4 v    = c.m_outVelocity;
             const ::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
@@ -401,15 +409,18 @@ namespace CB::feature {
                 t.vx = v(0) - surf(0) - t.sx, t.vy = v(1) - surf(1) - t.sy, t.ax = t.ay = 0.0f;
                 t.springInit = true;
             }
+            t.steep   = d.mode == ch::GroundMode::Steep;
+            t.support = d.support;
+            t.lastNx = d.nx, t.lastNy = d.ny, t.lastNz = d.nz;
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
-            /// @note Box3D's slideDuration: the grip follows the verdict's support at most 1/kGripFade per second, so a
-            ///       steep ray or two on rough ground cannot flip the character between walking and sliding.
+            /// @note Box3D's slideDuration: the grip follows the decided support at most 1/kGripFade per second, so a
+            ///       steep ray or two on rough ground cannot flip the character between walking and sliding. The uphill
+            ///       clip reads it on walkable ground; on Steep ground the uphill request goes at once (Jolt's
+            ///       CancelVelocityTowardsSteepSlopes), or the fade carried a run 0.2 s up any face.
             const float gripStep = dt / kGripFade;
-            t.grip               = std::clamp(fv.support, t.grip - gripStep, t.grip + gripStep);
-            ch::FloorVerdict held = fv;
-            held.support          = t.grip;
-            ch::ClipUphill(held, dx, dy);
+            t.grip               = std::clamp(d.support, t.grip - gripStep, t.grip + gripStep);
+            hky::locomotion::ClipUphill(hky::locomotion::Surface{ true, t.steep ? 0.0f : t.grip, d.nx, d.ny, d.nz }, dx, dy);
             ch::GroundVelocityStep(t.vx, t.vy, t.ax, t.ay, dx, dy, dt);
 
             /// @note A slide the body is not making (a wall or a ledge lip stopped it) does not keep growing: along its
@@ -423,30 +434,26 @@ namespace CB::feature {
             }
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
-            ch::SlideStep(held, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, t.sx, t.sy, dt);
+            hky::locomotion::SlideStep(hky::locomotion::Surface{ true, t.grip, d.nx, d.ny, d.nz }, gx * c.m_gravity, gy * c.m_gravity,
+                                       gz * c.m_gravity, t.sx, t.sy, dt);
 
             float hx = t.vx + t.sx, hy = t.vy + t.sy, hz = 0.0f;
-            const float nz = fv.groundNz;
-            if (nz > 1.0e-3f) {
-                hz = -(fv.groundNx * hx + fv.groundNy * hy) / nz;
-                const float h2 = hx * hx + hy * hy, l2 = h2 + hz * hz;
-                if (l2 > 1.0e-12f) {
-                    const float s = std::sqrt(h2 / l2);
-                    hx *= s, hy *= s, hz *= s;
-                }
-            }
+            hky::locomotion::LayOnGround(d.mode, d.nx, d.ny, d.nz, hx, hy, hz);
             /// @note Under the pogo the spring holds the height instead of gravity's press into the floor (the floating
             ///       shape touches no floor to stop it); its rate moves the feet this step and is taken out of the
-            ///       velocity at the next (pogoApplied).
+            ///       velocity at the next (pogoApplied). Lag past the bound is snapped at once (PogoRide), so riding down
+            ///       stairs never leaves the floor out of the probe's reach.
             float vertical = gz * dt;
             t.pogoHeld     = false;
             if (ch::PogoOn()) {
                 float floor = 0.0f;
                 vertical    = 0.0f;
-                if (ch::PogoFloor(c, fv, floor, &t.pogoRay)) {
-                    vertical      = hky::locomotion::PogoStep(t.pogoRate, -floor, kPogo, true, dt);
+                if (ch::PogoFloor(fv, floor, &t.pogoRay)) {
+                    float snap    = 0.0f;
+                    vertical      = hky::locomotion::PogoRide(t.pogoRate, -floor, hz * dt, kPogo, dt, snap);
+                    if (snap < 0.0f) Stick(c, snap);
                     t.pogoHeld    = true;
-                    t.pogoDz      = floor - vertical * dt;
+                    t.pogoDz      = floor - (vertical + hz) * dt - snap;
                     t.pogoApplied = vertical;
                 } else t.pogoRate = 0.0f;
             }
@@ -459,7 +466,7 @@ namespace CB::feature {
         void ClampLanding(::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
         {
             float floor = 0.0f;
-            if (!ch::PogoOn() || !(dt > 0.0f) || !ch::PogoFloor(c, fv, floor) || floor > 0.0f) return;
+            if (!ch::PogoOn() || !(dt > 0.0f) || !ch::PogoFloor(fv, floor) || floor > 0.0f) return;
             const float vz = c.m_outVelocity(2);
             if (vz * dt < floor) c.m_outVelocity(2) = floor / dt;
         }
@@ -484,6 +491,8 @@ namespace CB::feature {
             t.pogoRate   = 0.0f;
             t.pogoHeld   = false;
             t.riding     = false;
+            t.steep      = false;
+            t.airVz      = c.m_outVelocity(2);
             if (entry != AirEntry::Jumped && entry != AirEntry::OutOfWater) c.m_fallStartHeight = HeightGame(c);
             Commit(c, ::HK_CHARACTER_IN_AIR);
         }
@@ -561,15 +570,6 @@ namespace CB::feature {
             AirStep(c, t, dt, false);
         }
 
-        /// @brief Snaps the character down onto the walkable floor `dz` (negative, Havok units) below its feet (M8).
-        void Stick(::bhkCharacterController& c, float dz)
-        {
-            ::hkVector4 pos;
-            c.GetPositionImpl(pos, true);
-            pos(2) += dz;
-            c.SetPositionImpl(pos, true, false);
-        }
-
         void SetSupportFrom(::bhkCharacterController& c, const ch::FloorVerdict& fv)
         {
             if (!fv.supportBody) return;
@@ -593,7 +593,7 @@ namespace CB::feature {
             h.feet         = { hull.cx, hull.cy, hull.feetZ };
             h.radius       = hull.radius;
             h.height       = hull.topZ - hull.feetZ;
-            h.mode         = Name(t.mode);
+            h.mode         = t.mode == Mode::Grounded && t.steep ? "Steep" : Name(t.mode);
             h.entry        = Name(t.entry);
             h.verdict      = fv.ground;
             h.groundNz     = fv.groundNz;
@@ -625,8 +625,8 @@ namespace CB::feature {
                 r.bottom   = { x, y, hull.feetZ - c.m_stepHeight };
                 r.hit      = hit.hit;
                 r.hitZ     = hull.feetZ + hit.dz;
-                r.walkable = hit.hit && hit.nz >= ch::WalkableZ(c) && hit.layer != ch::kCharControllerLayer;
-                r.wall     = hit.hit && (hit.nz < tun.wallNormalZ || hit.layer == ch::kCharControllerLayer);
+                r.walkable = hit.walkable;
+                r.wall     = hit.hit && !hit.floorLike;
             }
             const ch::HullShape shape = ch::ReadHullShape(hull);
             h.capsuleCount            = (std::min)(shape.count, static_cast<int>(h.capsules.size()));
@@ -662,6 +662,9 @@ namespace CB::feature {
             ///       is the body's own (Box3D's relax pass), so a stair never reads as a launch.
             if (t.init && t.lastState == cur && t.pogoApplied != 0.0f) c.m_outVelocity(2) -= t.pogoApplied;
             t.pogoApplied = 0.0f;
+            /// @note Unreal's slope-boost guard: in the air a slide never lifts the body above what the last air step
+            ///       commanded; Airborne has no wall planes, so a steep face it brushes would otherwise launch it.
+            if (t.init && t.lastState == cur && t.mode == Mode::Airborne) c.m_outVelocity(2) = hky::locomotion::GuardAirRise(t.airVz, c.m_outVelocity(2));
 
             if (!t.init || t.lastState != cur) {
                 const Mode before = t.mode;
@@ -674,6 +677,8 @@ namespace CB::feature {
                 t.airTime    = 0.0f;
                 t.pogoRate   = 0.0f;
                 t.pogoHeld   = false;
+                t.steep      = false;
+                t.airVz      = c.m_outVelocity(2);
                 if (LogBudget())
                     LOG_INFO("ground states: resync to vanilla state {} ({} -> {}{})", cur, Name(before), Name(t.mode), t.init ? "" : ", first step");
                 t.init = true;
@@ -708,64 +713,69 @@ namespace CB::feature {
                 t.lastVerdict = fv.ground;
             }
 
+            const ::hkVector4 surfV = c.m_surfaceInfo.m_surfaceVelocity;
+            const float       rx = c.m_outVelocity(0) - surfV(0), ry = c.m_outVelocity(1) - surfV(1), rz = vz - surfV(2);
+
             if (id == ::HK_CHARACTER_JUMPING || cur == ::HK_CHARACTER_JUMPING) {
                 /// @note A Jumping state some vanilla state committed (Swimming's jump out of the water): launch.
                 Launch(c, t, previousState == ::HK_CHARACTER_USER_STATE_0 ? AirEntry::OutOfWater : AirEntry::Jumped, fv, dt);
             } else if (t.mode != Mode::Airborne) {
-                bool grounded = true;
-                if (want == ::HK_CHARACTER_IN_AIR) {
-                    EnterAirborne(c, t, AirEntry::Launched, fv, vz);
-                    grounded = false;
-                } else if (fv.ground != ch::Ground::Airborne) {
-                    /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
-                    ///       verdict's support, which the slide and the uphill clip read.
-                    t.riding = false;
-                } else if (RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise && fv.stickable) {
-                    /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it. Under the
-                    ///       pogo the spring rides the feet down to it instead of a snap.
-                    if ((!pogo || !t.riding) && LogBudget())
-                        LOG_INFO("ground states: {} {:.3f} down in {} (vz {:.2f}, {:.2f} off the slope)", pogo ? "ride" : "stick", fv.stickDz,
-                                 Name(t.mode), vz, RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz));
-                    if (!pogo) Stick(c, fv.stickDz);
-                    t.riding = pogo;
-                    t.mode   = Mode::Grounded;
+                /// @note G4/M8 by the ground rules (locomotion::DecideGround): the ground is left only by a push (a vanilla
+                ///       InAir request), with no floor within step height, or at a crest too sharp for the speed. The
+                ///       character's own ground-following speed never makes it leave: compared with the slope it last stood
+                ///       on, a ride down a ramp's lip read as rising off it.
+                const ch::GroundDecision d =
+                    ch::DecideGround(fv, ModeOf(t), t.lastNx, t.lastNy, t.lastNz, rx, ry, rz, want == ::HK_CHARACTER_IN_AIR);
+                if (d.mode == ch::GroundMode::Airborne) {
+                    EnterAirborne(c, t, d.event == ch::GroundEvent::Pushed ? AirEntry::Launched : AirEntry::WalkedOff, fv, vz);
+                    if (d.event == ch::GroundEvent::Crest && LogBudget()) LOG_INFO("ground states: let go at a crest ({:.2f} H/s)", std::sqrt(rx * rx + ry * ry));
+                    AirStep(c, t, dt, true);
                 } else {
-                    EnterAirborne(c, t, AirEntry::WalkedOff, fv, vz);
-                    grounded = false;
-                }
-
-                if (grounded) {
-                    if (fv.ground == ch::Ground::Grounded) t.lastGround = fv;
+                    if (d.event == ch::GroundEvent::Ride) {
+                        /// @note Without the pogo the ride is a snap onto the floor (Jolt's StickToFloor); under it the
+                        ///       bounded pogo rides the feet down in GroundStep.
+                        if ((!pogo || !t.riding) && LogBudget())
+                            LOG_INFO("ground states: {} {:.3f} down in {} (vz {:.2f})", pogo ? "ride" : "stick", d.rideDz, ch::Name(d.mode), vz);
+                        if (!pogo) Stick(c, d.rideDz);
+                        t.riding = pogo;
+                    } else t.riding = false;
+                    if (t.steep != (d.mode == ch::GroundMode::Steep) && LogBudget())
+                        LOG_INFO("ground states: {} (support {:.2f}, n.z {:.3f})", ch::Name(d.mode), d.support, d.nz);
+                    if (fv.ground == ch::Ground::Grounded && ch::Supported(fv)) SetSupportFrom(c, fv);
                     const bool player = ch::IsPlayer(&c);
-                    if (want == ::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
+                    if (want == ::HK_CHARACTER_JUMPING && t.windup < 0.0f && d.mode == ch::GroundMode::Walking) {
                         t.windup = JumpWindup(player);
                         if (player && t.windup > kWindupDone) ch::takeoff::Begin();
                         if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s at most", t.windup);
+                    }
+                    /// @note Steep ground never lends a jump, a pending one included (kCanJump's rule).
+                    if (t.windup >= 0.0f && d.mode == ch::GroundMode::Steep) {
+                        if (player) ch::takeoff::End();
+                        t.windup = -1.0f;
                     }
                     const bool tookOff = player && t.windup > kWindupDone && ch::takeoff::IsReady();
                     if (tookOff && LogBudget()) LOG_INFO("ground states: the jump start took off - launching with {:.3f} s of wind-up left", t.windup);
                     if (t.windup >= 0.0f && (t.windup <= kWindupDone || tookOff)) {
                         Launch(c, t, AirEntry::Jumped, fv, dt);
                     } else {
-                        if (ch::Supported(fv)) SetSupportFrom(c, fv);
-                        GroundStep(c, t, fv, dt);
+                        GroundStep(c, t, fv, d, dt);
                         if (t.windup >= 0.0f) t.windup = (std::max)(0.0f, t.windup - dt);
                     }
-                } else {
-                    AirStep(c, t, dt, true);
                 }
             } else {
                 const bool coyote = t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime && !(c.m_flags & ch::kJumping);
-                if (fv.ground == ch::Ground::Grounded && RiseOffGround(fv, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise) {
-                    /// @note G3: lands on any ground it is not rising off (kStickMaxRise); steep ground lands too, and slides.
+                const ch::GroundDecision d = ch::DecideGround(fv, ch::GroundMode::Airborne, t.lastNx, t.lastNy, t.lastNz, rx, ry, rz, false);
+                if (d.event == ch::GroundEvent::Land) {
+                    /// @note G3: lands on any ground it is not rising off; steep ground lands Steep, and slides.
                     EnterGrounded(c, t, Mode::Grounded, "landed", fv, vz);
                     if (ch::Supported(fv)) SetSupportFrom(c, fv);
-                    GroundStep(c, t, fv, dt);
+                    GroundStep(c, t, fv, d, dt);
                 } else if (want == ::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
                     /// @note G2: a forced OnGround only onto support within probe depth.
-                    if (fv.supportHits == 0 && !pogo) Stick(c, fv.stickDz);
+                    const ch::GroundDecision forced = ch::DecideGround(fv, ch::GroundMode::Walking, t.lastNx, t.lastNy, t.lastNz, 0.0f, 0.0f, 0.0f, false);
+                    if (forced.event == ch::GroundEvent::Ride && !pogo) Stick(c, forced.rideDz);
                     EnterGrounded(c, t, Mode::Grounded, "forced", fv, vz);
-                    GroundStep(c, t, fv, dt);
+                    GroundStep(c, t, fv, forced, dt);
                 } else if ((want == ::HK_CHARACTER_JUMPING || t.windup >= 0.0f) && coyote) {
                     /// @note A wind-up the character walked off during launches at once, as a coyote jump.
                     if (LogBudget())
@@ -780,24 +790,25 @@ namespace CB::feature {
                 }
             }
 
-            /// @note G2 contract: kCanJump from CB's rule (Grounded on walkable ground, or inside the coyote window).
+            /// @note G2 contract: kCanJump from CB's rule (Walking on ground that holds the character up, or inside the
+            ///       coyote window).
             /// @note Walkable now, not the faded grip (Box3D's Jump needs onGround and walkable): steep ground never
             ///       lends a jump, or spamming it climbs a mountain face.
-            const bool canJumpNow = (t.mode == Mode::Grounded && ch::Supported(fv))
+            const bool canJumpNow = (t.mode == Mode::Grounded && !t.steep && t.support >= ch::kSupportedAt)
                                  || (t.mode == Mode::Airborne && t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime
                                      && !(c.m_flags & ch::kJumping));
             if (canJumpNow) c.m_flags |= ch::kCanJump;
             else            c.m_flags &= ~ch::kCanJump;
 
-            /// @note Grounded with no hits at the feet is the stick-to-floor case: it stands on the walkable floor it
-            ///       was snapped to.
+            /// @note Riding down to a floor below the foot tolerance is Grounded on that floor, with its support.
             ch::FloorVerdict decided = fv;
             if (t.mode == Mode::Airborne) {
                 decided.ground  = ch::Ground::Airborne;
                 decided.support = 0.0f;
             } else if (fv.ground == ch::Ground::Airborne) {
                 decided.ground  = ch::Ground::Grounded;
-                decided.support = 1.0f;
+                decided.support = t.support;
+                decided.groundNx = t.lastNx, decided.groundNy = t.lastNy, decided.groundNz = t.lastNz;
             }
             ch::PublishVerdict(c, decided);
             /// @note The floating shape touches no floor, so the proxy's own support check never finds one: under the
