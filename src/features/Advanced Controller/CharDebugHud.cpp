@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharCollisionHud.h"
+#include "CharHudDraw.h"
 #include "CharFacing.h"
 #include "CharMoveRules.h"
 #include "CharSprint.h"
