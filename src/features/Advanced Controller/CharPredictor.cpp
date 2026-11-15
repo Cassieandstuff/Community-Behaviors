@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include "CharMotionMatching.h"
 #include "CharMovementModel.h"
+#include "CharSurface.h"
 #include "CharSweep.h"
 
 #include <hky/compile/MotionFeatures.h>
@@ -186,6 +187,7 @@ namespace CB::feature {
             std::array<ch::hud::Point, kPathPoints> at{};
             std::array<ch::Ground, kPathPoints>     ground{};
             std::array<float, kPathPoints>          support{};
+            std::array<std::uint32_t, kPathPoints>  material{};   ///< the floor's MATERIAL_ID, 0 airborne or unknown
             bool                                    blocked = false;
             ch::hud::Point                          blockedAt;
         };
@@ -687,6 +689,7 @@ namespace CB::feature {
                 path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + fz };
                 path.ground[i]  = floor.ground;
                 path.support[i] = floor.support;
+                path.material[i] = floor.ground == ch::Ground::Airborne ? 0u : floor.material;
                 if (sample < kFutureSamples && i == kSampleIndex[sample]) {
                     Sample& out = tr.future[sample];
                     out.time    = kSampleTimes[sample];
@@ -810,6 +813,10 @@ namespace CB::feature {
             s.clock = here.t;
             if (s.historyCount) Score(s, s.history[s.historyHead], here);
             PushHistory(s, here);
+            {
+                ch::FloorVerdict floor;
+                ch::surface::SetNow(actorId, ch::PublishedVerdict(ctrl, floor) && floor.ground == ch::Ground::Grounded ? floor.material : 0u);
+            }
             if (npc && !NpcDue(s, *actor)) {
                 ch::CountLoad(ch::LoadCounter::PredictNpcSkipped);
                 return;
@@ -876,6 +883,19 @@ namespace CB::feature {
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, pastTimes, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
+            /// @note The material ahead (relay IsAheadMaterial): the one most of the path's grounded points stand on, the
+            ///       nearer winning a tie; none while the character neither moves nor asks to.
+            {
+                std::uint32_t ahead = 0;
+                int           best  = 0;
+                for (int i = 0; active && i < kPathPoints; i++) {
+                    if (!path.material[i]) continue;
+                    int n = 0;
+                    for (int j = 0; j < kPathPoints; j++) n += path.material[j] == path.material[i] ? 1 : 0;
+                    if (n > best) best = n, ahead = path.material[i];
+                }
+                ch::surface::SetAhead(actorId, ahead);
+            }
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
             if (matches && ch::motion::On()) {

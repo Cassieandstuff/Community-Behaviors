@@ -134,6 +134,7 @@ namespace CB::feature::controller {
         float                    nx = 0, ny = 0, nz = 0;
         unsigned                 layer = 0;
         const ::hkpCollidable* body = nullptr;
+        std::uint32_t            material = 0;   ///< the hit's MATERIAL_ID, 0 unknown
     };
 
     /// @brief The support at and above which the ground holds the character (Supported): the constraint planes treat its
@@ -150,6 +151,7 @@ namespace CB::feature::controller {
         float                    stickDz   = 0;       ///< the highest such hit below the foot tolerance (negative)
         float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it); under the pogo its ray's
         const ::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
+        std::uint32_t            material    = 0;         ///< that hit's MATERIAL_ID, 0 unknown or none
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};       ///< axis, then the ring at the perch radius (a long body's fore end)
         bool                     longBody = false;

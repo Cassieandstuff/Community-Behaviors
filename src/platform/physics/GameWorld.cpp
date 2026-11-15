@@ -3,7 +3,9 @@
 #include "platform/physics/GameWorld.h"
 
 #include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
+#include <Physics/Collide/Shape/hkpShape.h>
 #include <BSHavok/bhkPickData.h>
+#include <BSHavok/bhkShape.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -184,6 +186,27 @@ namespace CB::platform::physics {
         return {};
     }
 
+    namespace {
+
+        /// @brief The material a ray hit, read as the game reads a contact's in its stairs test
+        ///        (bhkCharacterController's IsStairsContact): the mesh shape seen through a MOPP, its child's material at the
+        ///        hit's leaf shape key, else the shape wrapper's own.
+        /// @note  The leaf key is the last valid entry of the ray's key path, as a contact's m_shapeKeyB is the leaf's.
+        std::uint32_t MaterialOf(const ::hkpCollidable* body, const ::hkpWorldRayCastOutput& out)
+        {
+            const ::hkpShape* root = body ? body->getShape() : nullptr;
+            if (!root) return 0;
+            ::hkpShapeKey key = HK_INVALID_SHAPE_KEY;
+            for (int i = 0; i < ::hkpShapeRayCastOutput::MAX_HIERARCHY_DEPTH && out.m_shapeKeys[i] != HK_INVALID_SHAPE_KEY; ++i) key = out.m_shapeKeys[i];
+            if (const ::hkpShape* mesh = ::bhkGetMeshShape(root))
+                if (const auto* wrapper = reinterpret_cast<const ::bhkShape*>(mesh->getUserData()))
+                    return key != HK_INVALID_SHAPE_KEY ? wrapper->GetMaterialID(key) : wrapper->m_materialID;
+            const auto* wrapper = reinterpret_cast<const ::bhkShape*>(root->getUserData());
+            return wrapper ? wrapper->m_materialID : 0;
+        }
+
+    }  // namespace
+
     std::optional<ph::Hit> GameWorld::CastRay(const ph::Vec3& from, const ph::Vec3& to, const ph::QueryFilter& filter) const
     {
         if (!m_world) return std::nullopt;
@@ -203,6 +226,7 @@ namespace CB::platform::physics {
         hit.normal   = { n(0), n(1), n(2) };
         hit.layer    = static_cast<std::uint8_t>(layer);
         hit.userData = reinterpret_cast<std::uint64_t>(body);
+        hit.material.id = MaterialOf(body, pick.m_rayOutput);
         return hit;
     }
 

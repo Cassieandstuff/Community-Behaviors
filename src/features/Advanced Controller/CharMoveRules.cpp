@@ -4,6 +4,7 @@
 
 #include "CharComponents.h"
 #include "CharSpeedProfile.h"
+#include "CharSurface.h"
 
 #include <config/Config.h>
 #include <core/debug/Settings.h>
@@ -99,6 +100,7 @@ namespace CB::feature::controller::rules {
             LOG_INFO("movement rules: {} rules from {} files ({} live), {} material groups", set->rules.size(), docs.size(), live,
                      set->groups->size());
             hky::relay::SetMaterialGroups(set->groups);
+            surface::Bind();
             return set;
         }
 
