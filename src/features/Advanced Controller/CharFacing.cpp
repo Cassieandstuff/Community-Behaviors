@@ -401,6 +401,60 @@ namespace CB::feature::controller {
             if (mh.rotation.z == es.writtenDir) mh.rotation.z = es.engineDir;
         }
 
+        /// @brief The player's Sneak, Sprint and Jump presses from the input event stream (every device, as mapped),
+        ///        each taken once by the frame that reads it: the crouch slide's start (Sneak at a sprint) and its ends.
+        /// @note  Only listens: the buttons reach the game as always. Registered lazily from the player's frame (the
+        ///        input device manager exists long before the player moves).
+        class SlideButtons final : public RE::BSTEventSink<RE::InputEvent*> {
+        public:
+            enum Button : int { kSneak, kSprint, kJump, kButtons };
+
+            static SlideButtons& Get()
+            {
+                static SlideButtons s;
+                return s;
+            }
+
+            void EnsureRegistered()
+            {
+                if (m_registered.load(std::memory_order_acquire)) return;
+                auto* devices  = RE::BSInputDeviceManager::GetSingleton();
+                bool  expected = false;
+                if (devices && m_registered.compare_exchange_strong(expected, true)) devices->AddEventSink(this);
+            }
+
+            /// @return whether `b` was pressed since the last Take of it
+            bool Take(Button b)
+            {
+                const std::uint32_t now = m_pressed[b].load(std::memory_order_relaxed);
+                const bool          was = now != m_taken[b];
+                m_taken[b]              = now;
+                return was;
+            }
+
+            RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*) override
+            {
+                auto* names = RE::UserEvents::GetSingleton();
+                for (RE::InputEvent* e = a_event && names ? *a_event : nullptr; e; e = e->next) {
+                    const RE::ButtonEvent* b = e->AsButtonEvent();
+                    if (!b || !b->IsDown()) continue;
+                    const auto& user = b->QUserEvent();
+                    const int   i    = user == names->sneak ? kSneak : user == names->sprint ? kSprint : user == names->jump ? kJump : -1;
+                    if (i >= 0) m_pressed[i].fetch_add(1, std::memory_order_relaxed);
+                }
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+        private:
+            std::atomic<bool>                                m_registered{ false };
+            std::array<std::atomic<std::uint32_t>, kButtons> m_pressed{};
+            std::array<std::uint32_t, kButtons>              m_taken{};   ///< the player's frame's alone
+        };
+
+        /// @brief Seconds a Sneak press still counts as at a sprint after the gait left it: the game may end the sprint as
+        ///        it toggles sneak, before the frame reads the press.
+        constexpr double kSlideSprintGrace = 0.25;
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             RE::Actor* player   = out ? PlayerOf(controller) : nullptr;
@@ -545,6 +599,20 @@ namespace CB::feature::controller {
             in.gait      = gait;
             in.airborne  = Airborne(player);
             hky::locomotion::ApplyStick(in, haveStick, stickHeading, deflection, thresholds);
+            /// @note The crouch slide: Sneak pressed at a sprint asks for one (the model decides, Profile::slideEnabled and
+            ///       the speed); Jump or Sprint ends one. Silent Roll is the add-on's to keep out of the way (its graph
+            ///       gates the roll's transitions on motion matching).
+            {
+                SlideButtons& buttons = SlideButtons::Get();
+                buttons.EnsureRegistered();
+                static double sprintAt = -1.0e9;
+                if (gait == Gait::Sprint) sprintAt = Now();
+                const bool sneak = buttons.Take(SlideButtons::kSneak);
+                const bool jump  = buttons.Take(SlideButtons::kJump);
+                const bool run   = buttons.Take(SlideButtons::kSprint);
+                in.slide         = sneak && Now() - sprintAt <= kSlideSprintGrace;
+                in.cancelSlide   = jump || run;
+            }
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
@@ -564,6 +632,11 @@ namespace CB::feature::controller {
             FloorVerdict     ground;
             const float      speed0 = std::hypot(s.vx, s.vy);
             if (LatestVerdict(ground)) {
+                /// @note The ground's tilt for the slide: its normal's horizontal part points downhill.
+                if (Supported(ground)) {
+                    const float len = std::sqrt(ground.groundNx * ground.groundNx + ground.groundNy * ground.groundNy + ground.groundNz * ground.groundNz);
+                    if (len > 1.0e-4f) in.downhillX = ground.groundNx / len, in.downhillY = ground.groundNy / len;
+                }
                 const float dir = speed0 > 1.0f ? std::atan2(s.vx, s.vy) : (haveStick ? stickHeading : heading);
                 hky::locomotion::Tuning slope = SlopeTuning();
                 hky::locomotion::ApplyModifiers(mods, slope);

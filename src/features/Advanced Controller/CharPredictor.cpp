@@ -467,6 +467,8 @@ namespace CB::feature {
 
             ch::move::State model = drive.state;
             ch::move::Input input = drive.input;
+            /// @note The press happened this frame, not again on the predicted path.
+            input.slide           = false;
             ch::move::Caps  caps  = drive.caps;
             float f = drive.model ? kHalfPi - model.yaw : heading, fv = 0.0f;
             float slopeMul = drive.slope, slopeRate = 0.0f;

@@ -123,6 +123,7 @@ namespace CB::feature {
         using InputVariables = ps::ChooserVariables;
         using ps::kMovementMode, ps::kRotationMode, ps::kMovementState, ps::kGait, ps::kStance, ps::kIsStarting, ps::kIsPivoting;
         using ps::kJustLandedLight, ps::kJustLandedHeavy, ps::kShouldTurnInPlace, ps::kShouldSpinTransition, ps::kJustTraversed, ps::kDatabaseLOD;
+        using ps::kSlidePhase;
         using ps::kSpeed2D, ps::kTimeToLand, ps::IsBoolInput;
         constexpr int kInputs = ps::kChooserInputs, kRealInputs = ps::kChooserRealInputs;
         constexpr const auto& kInputNames = ps::kChooserInputNames;
@@ -476,6 +477,7 @@ namespace CB::feature {
             float landedFor = -1;     ///< seconds since touching down, -1 = not landed since the last air time
             bool  heavy = false;
             float turnHold = 0;       ///< seconds ShouldTurnInPlace stays raised
+            float slideExitHold = 0;  ///< seconds MM_SlidePhase still reads Exiting
         };
 
         /// @brief One character's side of the matching, by FormID: what the predictor, the frame hook and the node hand each other.
@@ -582,6 +584,7 @@ namespace CB::feature {
 
             io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), s.yaw, static_cast<float>(ps::kSearchInterval), dt);
 
+            io[kSlidePhase]           = ps::SlidePhase(m.slideExitHold, s, dt);
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
             io.real[kTimeToLand]      = air ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
@@ -729,6 +732,8 @@ namespace CB::feature {
             for (const auto& [i, name] : kFlags)
                 if (in[i]) out += std::string(" ") + name;
             if (in[kDatabaseLOD]) out += std::format(" lod{}", in[kDatabaseLOD]);
+            static constexpr const char* kSlides[4] = { "", " slide-entering", " sliding", " slide-exiting" };
+            out += kSlides[std::clamp(in[kSlidePhase], 0, 3)];
             out += std::format(" {:.0f}/s", in.real[kSpeed2D]);
             if (in[kMovementMode]) out += in.real[kTimeToLand] >= controller::motion::kNoLanding
                                               ? std::string(" no-landing")
