@@ -7,19 +7,20 @@
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraphData.h>
 #include <Behavior/Behavior/BehaviorGraph/hkbBehaviorGraphStringData.h>
+#include <Behavior/Behavior/Character/hkbCharacter.h>
+#include <Behavior/Behavior/Character/hkbCharacterData.h>
+#include <Behavior/Behavior/Character/hkbCharacterSetup.h>
+#include <Behavior/Behavior/Character/hkbCharacterStringData.h>
 #include <Behavior/Behavior/Context/hkbContext.h>
-#include <Behavior/Behavior/Variables/hkbVariableBindingSet.h>
+#include <Behavior/Behavior/Variables/hkbVariableValueSet.h>
 #include <Common/Base/Reflection/hkClass.h>
 
-#include <charconv>
 #include <cstring>
 #include <new>
-#include <string_view>
 
 namespace CB::feature::controller::motion {
 
     namespace {
-
 
         /// @brief Declare `T` (finish constructor, destructor, vtable) for the platform to register as `name`.
         template <class T>
@@ -41,123 +42,70 @@ namespace CB::feature::controller::motion {
             return platform::classes::Declare({ name, sizeof(T), &Ops::Finish, &Ops::Cleanup, &Ops::Vtable });
         }
 
-        constexpr const char* kSchema     = "CBPoseSearchSchema";
-        constexpr const char* kTrajectory = "CBPoseSearchTrajectory";
-        constexpr const char* kPosition   = "CBPoseSearchPosition";
-        constexpr const char* kVelocity   = "CBPoseSearchVelocity";
-        constexpr const char* kHeading    = "CBPoseSearchHeading";
-        constexpr const char* kCurve      = "CBPoseSearchCurve";
+        constexpr const char* kChannel = "CBPoseSearchChannel";
+        constexpr const char* kProfile = "CBPoseSearchProfile";
 
-        [[maybe_unused]] const bool s_declared = DeclareClass<PoseSearchSchema>(kSchema) && DeclareClass<PoseSearchTrajectory>(kTrajectory) &&
-                                                 DeclareClass<PoseSearchPosition>(kPosition) && DeclareClass<PoseSearchVelocity>(kVelocity) &&
-                                                 DeclareClass<PoseSearchHeading>(kHeading) && DeclareClass<PoseSearchCurve>(kCurve);
+        [[maybe_unused]] const bool s_declared = DeclareClass<PoseSearchChannel>(kChannel) && DeclareClass<PoseSearchProfile>(kProfile);
 
         const ::hkClass* ClassNamed(const char* name) { return static_cast<const ::hkClass*>(platform::classes::ClassOf(name)); }
 
-        std::string Text(const ::hkStringPtr& s) { return s.cString() ? std::string(s.cString()) : std::string(); }
-
-        /// @brief "samples:<i>/<rest>" -> i and rest; false for any other path.
-        bool SamplePath(std::string_view path, int& index, std::string_view& rest)
+        const ::hkbBehaviorGraphStringData* NamesOf(const ::hkbContext& context)
         {
-            constexpr std::string_view prefix = "samples:";
-            if (!path.starts_with(prefix)) return false;
-            path.remove_prefix(prefix.size());
-            const auto slash = path.find('/');
-            if (slash == std::string_view::npos) return false;
-            const auto r = std::from_chars(path.data(), path.data() + slash, index);
-            if (r.ec != std::errc{}) return false;
-            rest = path.substr(slash + 1);
-            return true;
+            const ::hkbBehaviorGraph* graph = context.m_behavior;
+            return graph && graph->m_data ? graph->m_data->m_stringData.val() : nullptr;
         }
 
     }  // namespace
 
-    PoseSearchTrajectory::PoseSearchTrajectory(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_samples(flag) {}
-    PoseSearchBoneFeature::PoseSearchBoneFeature(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_bone(flag), m_origin(flag) {}
-    PoseSearchHeading::PoseSearchHeading(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_bone(flag) {}
-    PoseSearchCurve::PoseSearchCurve(::hkFinishLoadedObjectFlag flag) : PoseSearchFeature(flag), m_curve(flag) {}
-    PoseSearchSchema::PoseSearchSchema(::hkFinishLoadedObjectFlag flag) : ::hkReferencedObject(flag), m_name(flag), m_rootBone(flag), m_features(flag) {}
+    PoseSearchChannel::PoseSearchChannel(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag), m_name(flag), m_curve(flag), m_samples(flag) {}
+    PoseSearchProfile::PoseSearchProfile(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag), m_name(flag), m_weights(flag) {}
 
-    const ::hkClass* PoseSearchTrajectory::getClassType() const { static const auto* c = ClassNamed(kTrajectory); return c; }
-    const ::hkClass* PoseSearchPosition::getClassType() const { static const auto* c = ClassNamed(kPosition); return c; }
-    const ::hkClass* PoseSearchVelocity::getClassType() const { static const auto* c = ClassNamed(kVelocity); return c; }
-    const ::hkClass* PoseSearchHeading::getClassType() const { static const auto* c = ClassNamed(kHeading); return c; }
-    const ::hkClass* PoseSearchCurve::getClassType() const { static const auto* c = ClassNamed(kCurve); return c; }
-    const ::hkClass* PoseSearchSchema::getClassType() const { static const auto* c = ClassNamed(kSchema); return c; }
+    const ::hkClass* PoseSearchChannel::getClassType() const { static const auto* c = ClassNamed(kChannel); return c; }
+    const ::hkClass* PoseSearchProfile::getClassType() const { static const auto* c = ClassNamed(kProfile); return c; }
 
-    anim::SchemaSpec SpecOfSchema(const PoseSearchSchema& schema, const ::hkbContext& context, std::vector<BoundInput>& bound)
+    std::string VariableOf(const ::hkbContext& context, const ::hkbVariableBindingSet::Binding& b)
     {
-        anim::SchemaSpec out;
-        out.name     = Text(schema.m_name);
-        out.rootBone = Text(schema.m_rootBone);
-        const ::hkbBehaviorGraph* graph = context.m_behavior;
-        const auto*               names = graph && graph->m_data ? graph->m_data->m_stringData.val() : nullptr;
-        const auto variableName = [&](const ::hkbVariableBindingSet::Binding& b) -> std::string {
-            if (b.m_bindingType != ::hkbVariableBindingSet::Binding::BINDING_TYPE_VARIABLE || !names) return {};
-            if (b.m_variableIndex < 0 || b.m_variableIndex >= names->m_variableNames.getSize()) return {};
-            return Text(names->m_variableNames[b.m_variableIndex]);
-        };
+        const auto* names = NamesOf(context);
+        if (b.m_bindingType != ::hkbVariableBindingSet::Binding::BINDING_TYPE_VARIABLE || !names) return {};
+        if (b.m_variableIndex < 0 || b.m_variableIndex >= names->m_variableNames.getSize()) return {};
+        return Text(names->m_variableNames[b.m_variableIndex]);
+    }
 
-        int dim = 0;
-        for (int k = 0; k < schema.m_features.getSize(); ++k) {
-            const PoseSearchFeature* f   = schema.m_features[k];
-            const ::hkClass*         cls = f ? f->getClassType() : nullptr;
-            if (!cls) continue;
-            const std::string_view type = cls->getName();
-            anim::FeatureSpec      spec;
-            spec.weight = f->m_weight;
-            if (type == kTrajectory) {
-                const auto& t = static_cast<const PoseSearchTrajectory&>(*f);
-                spec.kind     = anim::FeatureKind::Trajectory;
-                for (int i = 0; i < t.m_samples.getSize(); ++i) {
-                    const auto& s = t.m_samples[i];
-                    spec.samples.push_back({ s.m_time, s.m_position, s.m_facing, s.m_velocity, s.m_height, s.m_direction });
-                }
-            } else if (type == kPosition || type == kVelocity) {
-                const auto& b = static_cast<const PoseSearchBoneFeature&>(*f);
-                spec.kind     = type == kPosition ? anim::FeatureKind::Position : anim::FeatureKind::Velocity;
-                spec.bone     = Text(b.m_bone);
-                spec.origin   = Text(b.m_origin);
-            } else if (type == kHeading) {
-                const auto& h = static_cast<const PoseSearchHeading&>(*f);
-                spec.kind     = anim::FeatureKind::Heading;
-                spec.bone     = Text(h.m_bone);
-                spec.axis     = h.m_axis;
-            } else if (type == kCurve) {
-                spec.kind  = anim::FeatureKind::Curve;
-                spec.curve = Text(static_cast<const PoseSearchCurve&>(*f).m_curve);
-            } else {
-                continue;
-            }
-
-            /// @note The bound query values, by member path: "query" for a pose feature or a curve, "samples:<i>/pose" and
-            ///       "samples:<i>/motion" for a trajectory sample. A path this reads nothing of stays the graph's.
-            if (const ::hkbVariableBindingSet* set = f->m_variableBindingSet.val())
-                for (int b = 0; b < set->m_bindings.getSize(); ++b) {
-                    const auto&       binding  = set->m_bindings[b];
-                    const std::string variable = variableName(binding);
-                    const char*       path     = binding.m_memberPath.cString();
-                    if (variable.empty() || !path) continue;
-                    int              sample = 0;
-                    std::string_view part;
-                    if (spec.kind == anim::FeatureKind::Trajectory && SamplePath(path, sample, part) && sample >= 0 &&
-                        sample < static_cast<int>(spec.samples.size())) {
-                        /// @note A typed schema's sample is anim::features::kSchemaPerSample wide; the motion fills the
-                        ///       velocity, the height and, from the velocity, its direction (the dims after the height).
-                        const int base = dim + sample * anim::features::kSchemaPerSample;
-                        if (part == "pose") bound.push_back({ base + anim::features::kSamplePos, 4, BoundInput::How::PoseXY, variable });
-                        if (part == "motion")
-                            bound.push_back({ base + anim::features::kSampleVelocity, anim::features::kSchemaPerSample - anim::features::kSampleVelocity,
-                                              BoundInput::How::MotionXYZ, variable });
-                    } else if (spec.kind != anim::FeatureKind::Trajectory && std::strcmp(path, "query") == 0) {
-                        const int width = anim::FeatureDims(spec);
-                        bound.push_back({ dim, width, width == 1 ? BoundInput::How::Float : BoundInput::How::Vector, variable });
-                    }
-                }
-            dim += anim::FeatureDims(spec);
-            out.features.push_back(std::move(spec));
-        }
+    std::string BoundVariable(const ::hkbContext& context, const ::hkbBindable& bindable, std::string_view member)
+    {
+        std::string out;
+        ForEachVariableBinding(context, bindable, [&](std::string_view path, const std::string& variable) {
+            if (out.empty() && path == member) out = variable;
+        });
         return out;
+    }
+
+    const ::hkReferencedObject* BoundCharacterProperty(const ::hkbContext& context, const ::hkbBindable& bindable, std::string_view member)
+    {
+        const ::hkbVariableBindingSet* set   = bindable.m_variableBindingSet.val();
+        const auto*                    names = NamesOf(context);
+        if (!set || !names || !context.m_character) return nullptr;
+        const ::hkbCharacterSetup* setup = context.m_character->m_setup.val();
+        const ::hkbCharacterData*  data  = setup ? setup->m_data.val() : nullptr;
+        if (!data || !data->m_stringData || !data->m_characterPropertyValues) return nullptr;
+        for (int i = 0; i < set->m_bindings.getSize(); ++i) {
+            const auto& b    = set->m_bindings[i];
+            const char* path = b.m_memberPath.cString();
+            if (!path || member != path || b.m_bindingType != ::hkbVariableBindingSet::Binding::BINDING_TYPE_CHARACTER_PROPERTY) continue;
+            if (b.m_variableIndex < 0 || b.m_variableIndex >= names->m_characterPropertyNames.getSize()) return nullptr;
+            /// @note By name: the behavior numbers its properties its own way, the character its own.
+            const char*                   want   = names->m_characterPropertyNames[b.m_variableIndex].cString();
+            const auto&                   have   = data->m_stringData->m_characterPropertyNames;
+            const ::hkbVariableValueSet&  values = *data->m_characterPropertyValues;
+            for (int p = 0; want && p < have.getSize(); ++p) {
+                if (!have[p].cString() || std::strcmp(have[p].cString(), want) != 0) continue;
+                if (p >= values.m_wordVariableValues.getSize()) return nullptr;
+                const int variant = values.m_wordVariableValues[p].m_value;
+                return variant >= 0 && variant < values.m_variantVariableValues.getSize() ? values.m_variantVariableValues[variant].val() : nullptr;
+            }
+            return nullptr;
+        }
+        return nullptr;
     }
 
 }  // namespace CB::feature::controller::motion

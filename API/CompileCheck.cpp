@@ -131,7 +131,7 @@ namespace {
         // cb::mm — the motion-matching bundle generator
         cb::mm::BundleSpec spec;
         cb::mm::Database db;
-        db.clips.push_back(cb::mm::Clip{ "", "", cb::mm::kMmDisableReselection | cb::mm::kMmLooping });
+        db.clips.push_back(cb::mm::Clip{ "", "", cb::mm::kMmDisableReselection });
         db.baseCostBias = "0"; db.continuingPoseCostBias = ""; db.loopingCostBias = "";
         spec.databases.push_back(db);
         cb::mm::ChooserRow row;

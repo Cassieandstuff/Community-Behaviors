@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace CB::core::debug {
 
@@ -31,5 +34,12 @@ namespace CB::core::debug {
 
     /// @brief Remove settings.ini's `[section] key` and write the file back; true when nothing is left to remove.
     bool RemoveValue(std::string_view section, std::string_view key);
+
+    /// @brief Every `key = value` of settings.ini's `[section]`, in file order; empty when the file or section is absent.
+    std::vector<std::pair<std::string, std::string>> Values(std::string_view section);
+
+    /// @brief How many times SetValue or RemoveValue changed settings.ini this session: a reader caching what it read
+    ///        reads again when this moves.
+    std::uint32_t Generation();
 
 }  // namespace CB::core::debug

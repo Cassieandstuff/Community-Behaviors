@@ -769,11 +769,11 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
 
     const std::string dir = "meshes/actors/character/animations/MotionMatching/";
     mm::MmBundleSpec  spec;
-    spec.databases.push_back({ "Idle", { { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping },
+    spec.databases.push_back({ "Idle", { { dir + "idle/Idle_Loop.hkx", "", 0 },
                                          { dir + "idle/TurnInPlace_L.hkx", "", mm::kMmDisableReselection } },
                                "", "-0.05", "", { "idle" } });
-    spec.databases.push_back({ "Run", { { dir + "running/Run_Fwd_Loop.hkx", "", mm::kMmLooping },
-                                        { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping } },
+    spec.databases.push_back({ "Run", { { dir + "running/Run_Fwd_Loop.hkx", "", 0 },
+                                        { dir + "idle/Idle_Loop.hkx", "", 0 } },
                                "0.1", "", "(GraphVar('MM_Speed') > 300) * -0.02", { "run", "locomotion" } });
     spec.rows.push_back({ "GraphVar(\"MM_Gait\") == 2 && GraphVar(\"MM_IsStarting\")", { "Run" } });
     spec.rows.push_back({ "GraphVar('MM_Speed') >= 0 && GraphVar('MM_Speed') <= 50", { "Idle", "Run" } });

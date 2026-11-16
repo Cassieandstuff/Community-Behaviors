@@ -2,12 +2,14 @@
 
 #include "CharPoseSearch.h"
 
+#include "CharGraph.h"
 #include "CharGround.h"
 #include "CharMotionMatching.h"
 #include "CharSkeletonWatch.h"
 
 #include <hky/locomotion/DeadBlend.h>
 #include <platform/classes/ClassRegistry.h>
+#include <platform/game/Character.h>
 #include <platform/profile/Profile.h>
 
 #include <Common/Base/hkBase.h>
@@ -21,12 +23,15 @@
 #include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutput.h>
 #include <Behavior/Behavior/Generator/hkbGeneratorOutputUtils.h>
+#include <Behavior/Behavior/Utils/hkbBoneIndexArray.h>
+#include <Animation/Animation/Playback/Control/Default/hkaDefaultAnimationControl.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <charconv>
 #include <cstring>
 #include <mutex>
 #include <new>
@@ -49,35 +54,17 @@ namespace CB::feature::controller::motion {
         namespace loco = hky::locomotion;
         static_assert(sizeof(loco::Bone) == sizeof(::hkQsTransform), "Bone mirrors hkQsTransform");
 
-        /// @brief The blend's tuning, read once from settings.ini [Character]: fMMBlendDecay. Each switch's blend time is
-        ///        the matcher's (BlendNext, SituationBlendTime).
-        inline const loco::DeadBlendTuning& Tuning()
-        {
-            static const loco::DeadBlendTuning s = [] {
-                loco::DeadBlendTuning t;
-                t.decay = std::clamp(SettingFloat("fMMBlendDecay", 0.1f), 0.01f, 1.0f);
-                return t;
-            }();
-            return s;
-        }
-
-        /// @brief GASP's Get_MMBlendTime numbers, read once from settings.ini [Character] (seconds, clamped to [0, 1]).
-        /// @note  fMMBlendTime (one 0.2 s blend for every switch) is retired for these. Ground and air default to 0.2, not
-        ///        GASP's 0.5: GASP's blend stack keeps the clips it blends playing, our dead blend coasts them to a stop,
-        ///        and half a second of that read as feet skating (in game, 2026-11-16).
-        struct BlendTimes {
-            float ground, land, jump, air;
-        };
-        inline const BlendTimes& Times()
-        {
-            static const BlendTimes t{ std::clamp(SettingFloat("fMMBlendTimeGround", 0.2f), 0.0f, 1.0f),
-                                       std::clamp(SettingFloat("fMMBlendTimeLand", 0.2f), 0.0f, 1.0f),
-                                       std::clamp(SettingFloat("fMMBlendTimeJump", 0.15f), 0.0f, 1.0f),
-                                       std::clamp(SettingFloat("fMMBlendTimeAir", 0.2f), 0.0f, 1.0f) };
-            return t;
-        }
         /// @brief Game units/s upward past which an airborne switch blends as a jump's (GASP: 100 cm/s).
         constexpr float kJumpRise = 70.0f;
+
+        /// @brief The blend's tuning from `node`'s blendDecay (bound to MM_BlendDecay), clamped to [0.01, 1] seconds. Each
+        ///        switch's blend time is the matcher's (BlendNext, SituationBlendTime).
+        loco::DeadBlendTuning TuningOf(const PoseSearchGenerator& node)
+        {
+            loco::DeadBlendTuning t;
+            t.decay = std::isfinite(node.m_blendDecay) ? std::clamp(node.m_blendDecay, 0.01f, 1.0f) : 0.1f;
+            return t;
+        }
 
         inline std::atomic<float> g_blendRemaining{ 0.0f };
 
@@ -191,19 +178,46 @@ namespace CB::feature::controller::motion {
     PoseSearchGenerator::PoseSearchGenerator(::hkFinishLoadedObjectFlag flag)
     :   hkbGenerator(flag),
         m_children(flag),
+        m_channels(flag),
+        m_profiles(flag),
         m_databases(flag)
     {
         m_currentIndex = 0;
     }
 
+    /// @note Every member is copied, so an unbound field keeps its authored value. The arrays are copied too (their
+    ///       elements are the file's: the channel and profile objects, the databases' strings): a binding into
+    ///       `databases:<d>/...` then writes this clone's own copy, never the template's.
     PoseSearchGenerator::PoseSearchGenerator(const PoseSearchGenerator& other)
     :   hkbGenerator(other),
+        m_rootBone(other.m_rootBone),
+        m_chooser(other.m_chooser),
+        m_haveQuery(other.m_haveQuery),
+        m_ignoreSurrounding(other.m_ignoreSurrounding),
+        m_desired(other.m_desired),
+        m_speed(other.m_speed),
+        m_ledgeDistance(other.m_ledgeDistance),
+        m_searchInterval(other.m_searchInterval),
+        m_minDwell(other.m_minDwell),
+        m_forcedDwell(other.m_forcedDwell),
+        m_switchFloor(other.m_switchFloor),
+        m_switchMargin(other.m_switchMargin),
+        m_reselectTime(other.m_reselectTime),
+        m_blendTimeGround(other.m_blendTimeGround),
+        m_blendTimeLand(other.m_blendTimeLand),
+        m_blendTimeJump(other.m_blendTimeJump),
+        m_blendTimeAir(other.m_blendTimeAir),
+        m_blendDecay(other.m_blendDecay),
         m_selectedIndex(other.m_selectedIndex),
         m_currentIndex(0),
-        m_chooser(nullptr),
-        m_speed(other.m_speed)
+        m_selectedTime(0.0f),
+        m_selectedCost(0.0f),
+        m_blendRemaining(0.0f)
     {
-        m_children = other.m_children;
+        m_children  = other.m_children;
+        m_channels  = other.m_channels;
+        m_profiles  = other.m_profiles;
+        m_databases = other.m_databases;
         for (int i = 0; i < m_children.getSize(); i++)
             if (m_children[i].m_generator) m_children[i].m_generator->addReference();
     }
@@ -364,12 +378,11 @@ namespace CB::feature::controller::motion {
         }
         if (m_children.isEmpty()) return;
         const int previous = m_currentIndex;
-        m_currentIndex     = computeCurrentIndex();
+        if (const int next = RunMatcher(context, *this, timestep, false); next >= 0 && next < m_children.getSize()) m_currentIndex = next;
         if (previous != m_currentIndex && m_children[previous].m_generator != m_children[m_currentIndex].m_generator) {
             ::hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
             rootBehavior->m_updateActiveNodes  = true;
         }
-        RunMatcher(context, *this, timestep, false);
     }
 
     void PoseSearchGenerator::BlendNext(float blendTime, bool jump)
@@ -382,22 +395,80 @@ namespace CB::feature::controller::motion {
         }
     }
 
-    float SituationBlendTime(bool airborne, bool justLanded, float vz)
+    float SituationBlendTime(const PoseSearchGenerator& node, bool airborne, bool justLanded, float vz)
     {
-        const BlendTimes& t = Times();
-        if (airborne) return vz > kJumpRise ? t.jump : t.air;
-        return justLanded ? t.land : t.ground;
+        const float t = airborne ? (vz > kJumpRise ? node.m_blendTimeJump : node.m_blendTimeAir) : justLanded ? node.m_blendTimeLand : node.m_blendTimeGround;
+        return std::isfinite(t) ? std::clamp(t, 0.0f, 1.0f) : 0.2f;
     }
 
-    void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
+    void PoseSearchGenerator::PlayPick(const ::hkbContext& context, int index, ::hkReal fraction)
     {
         if (index < 0 || index >= m_children.getSize()) return;
-        m_selectedIndex = index;
         ::hkbGenerator* child = m_children[index].m_generator;
         if (!child || child->getClassType() != &::hkbClipGenerator::staticClass()) return;
-        ::hkbNode* clone = context.m_character->m_behaviorGraph->getOrCreateNodeClone(child);
-        static_cast<::hkbClipGenerator*>(clone)->m_userControlledTimeFraction = fraction;
+        auto* clip = static_cast<::hkbClipGenerator*>(context.m_character->m_behaviorGraph->getOrCreateNodeClone(child));
+        if (!clip) return;
+        clip->m_userControlledTimeFraction         = fraction;
+        clip->m_previousUserControlledTimeFraction = fraction;
+        /// @note As resetAtEnd positions a user-controlled clip: the cropped part's local time.
+        if (clip->m_animationControl) {
+            clip->m_localTime = clip->computeUsableDuration() * fraction + clip->m_cropStartAmountLocalTime;
+            clip->m_animationControl->setLocalTime(clip->m_localTime);
+        }
     }
+
+    void PoseSearchGenerator::Publish(const ::hkbContext& context, const NodeBinds& binds, int clip, float time, float cost)
+    {
+        m_selectedIndex  = clip;
+        m_selectedTime   = time;
+        m_selectedCost   = cost;
+        m_blendRemaining = BlendRemaining();
+        /// @note CB's class registration states no output role, so Havok copies no member back: the node writes each
+        ///       output-bound variable itself.
+        RE::Actor* actor = platform::game::ActorOf(context.m_character);
+        if (!actor) return;
+        if (!binds.selectedIndex.empty()) SetGraphInt(actor, binds.selectedIndex, clip);
+        if (!binds.selectedTime.empty()) SetGraphFloat(actor, binds.selectedTime, time);
+        if (!binds.selectedCost.empty()) SetGraphFloat(actor, binds.selectedCost, cost);
+        if (!binds.blendRemaining.empty()) SetGraphFloat(actor, binds.blendRemaining, m_blendRemaining);
+    }
+
+    namespace {
+
+        /// @brief "<array>:<i>/<rest>" -> i and rest; false for any other path.
+        bool IndexedPath(std::string_view path, std::string_view array, int& index, std::string_view& rest)
+        {
+            if (!path.starts_with(array) || path.size() <= array.size() || path[array.size()] != ':') return false;
+            path.remove_prefix(array.size() + 1);
+            const auto slash = path.find('/');
+            if (slash == std::string_view::npos) return false;
+            const auto r = std::from_chars(path.data(), path.data() + slash, index);
+            if (r.ec != std::errc{} || index < 0) return false;
+            rest = path.substr(slash + 1);
+            return true;
+        }
+
+        /// @brief The bones of an hkbBoneIndexArray by name, through `rig`.
+        std::vector<std::string> BoneNames(const ::hkReferencedObject* set, const anim::Rig& rig)
+        {
+            std::vector<std::string> out;
+            const ::hkClass* cls = set ? set->getClassType() : nullptr;
+            if (!cls || std::strcmp(cls->getName(), "hkbBoneIndexArray") != 0) return out;
+            const auto& indices = static_cast<const ::hkbBoneIndexArray*>(set)->m_boneIndices;
+            for (int i = 0; i < indices.getSize(); ++i)
+                if (indices[i] >= 0 && static_cast<std::size_t>(indices[i]) < rig.bones.size()) out.push_back(rig.bones[static_cast<std::size_t>(indices[i])].name);
+            return out;
+        }
+
+        /// @brief Member `member`'s bones: its bound character property's set for this character, else the inline one.
+        std::vector<std::string> BoneSet(const ::hkbContext& context, const ::hkbBindable& bindable, std::string_view member,
+                                         const ::hkReferencedObject* inlineSet, const anim::Rig& rig)
+        {
+            if (const ::hkReferencedObject* bound = BoundCharacterProperty(context, bindable, member)) return BoneNames(bound, rig);
+            return BoneNames(inlineSet, rig);
+        }
+
+    }  // namespace
 
     std::optional<NodeDescription> PoseSearchGenerator::Describe(const ::hkbContext& context) const
     {
@@ -424,71 +495,108 @@ namespace CB::feature::controller::motion {
                     }
                     desc.rig.bones.push_back(std::move(bone));
                 }
-        const auto* names        = context.m_behavior && context.m_behavior->m_data ? context.m_behavior->m_data->m_stringData.val() : nullptr;
-        const auto  variableOf   = [&](const ::hkbVariableBindingSet* set, const char* member) -> std::string {
-            if (!set || !names) return {};
-            for (int b = 0; b < set->m_bindings.getSize(); ++b) {
-                const auto& bind = set->m_bindings[b];
-                const char* path = bind.m_memberPath.cString();
-                if (!path || std::strcmp(path, member) != 0 || bind.m_bindingType != ::hkbVariableBindingSet::Binding::BINDING_TYPE_VARIABLE) continue;
-                if (bind.m_variableIndex >= 0 && bind.m_variableIndex < names->m_variableNames.getSize()) return name(names->m_variableNames[bind.m_variableIndex]);
-            }
-            return {};
-        };
-        if (const ::hkbVariableBindingSet* set = m_variableBindingSet.val())
-            for (int b = 0; b < set->m_bindings.getSize(); ++b)
-                if (const char* path = set->m_bindings[b].m_memberPath.cString(); path && std::strcmp(path, "speed") == 0) desc.speedBound = true;
-        desc.clipVariable = variableOf(m_variableBindingSet.val(), "selectedIndex");
-        for (int i = 0; i < from->m_children.getSize() && desc.timeVariable.empty(); ++i)
-            if (const ::hkbGenerator* g = from->m_children[i].m_generator; g && std::strcmp(g->getClassType()->getName(), "hkbClipGenerator") == 0)
-                desc.timeVariable = variableOf(g->m_variableBindingSet.val(), "userControlledTimeFraction");
-        /// @note A schema shared by several databases is read once.
-        std::vector<const PoseSearchSchema*> schemas;
-        for (int i = 0; i < from->m_databases.getSize(); ++i) {
-            const PoseSearchDatabase& d = from->m_databases[i];
+        for (int d = 0; d < from->m_databases.getSize(); ++d) {
+            const PoseSearchDatabase& db = from->m_databases[d];
             loco::SpecDatabase        out;
-            out.name                   = name(d.m_name);
-            out.baseCostBias           = name(d.m_baseCostBias);
-            out.continuingPoseCostBias = name(d.m_continuingPoseCostBias);
-            out.loopingCostBias        = name(d.m_loopingCostBias);
-            out.standingCandidate      = name(d.m_standingCandidate);
-            out.movingCandidate        = name(d.m_movingCandidate);
-            for (int t = 0; t < d.m_tags.getSize(); ++t)
-                if (const std::string tag = name(d.m_tags[t]); tag == "Pivots") out.pivots = true;
+            out.name                   = name(db.m_name);
+            out.profile                = name(db.m_profile);
+            out.blendProfile           = name(db.m_blendProfile);
+            out.profileBlend           = db.m_profileBlend;
+            out.baseCostBias           = name(db.m_baseCostBias);
+            out.continuingPoseCostBias = name(db.m_continuingPoseCostBias);
+            out.loopingCostBias        = name(db.m_loopingCostBias);
+            out.standingCandidate      = name(db.m_standingCandidate);
+            out.movingCandidate        = name(db.m_movingCandidate);
+            for (int t = 0; t < db.m_tags.getSize(); ++t)
+                if (const std::string tag = name(db.m_tags[t]); tag == "Pivots") out.pivots = true;
                 else if (tag == "Stops") out.stops = true;
                 else if (tag == "TurnInPlace") out.rootTurns = true;
                 else if (tag == "Traversal") out.traversal = desc.traversal = true;
-            if (const auto* schema = static_cast<const PoseSearchSchema*>(d.m_schema)) {
-                const auto it = std::find(schemas.begin(), schemas.end(), schema);
-                out.schema    = static_cast<int>(it - schemas.begin());
-                if (it == schemas.end()) {
-                    schemas.push_back(schema);
-                    desc.bound.emplace_back();
-                    spec.schemas.push_back(SpecOfSchema(*schema, context, desc.bound.back()));
-                }
-            }
             spec.databases.push_back(std::move(out));
         }
         for (int i = 0; i < from->m_children.getSize(); ++i) {
             const PoseSearchChild& row = from->m_children[i];
             loco::SpecChild        out;
             const ::hkClass*       cls = row.m_generator ? row.m_generator->getClassType() : nullptr;
-            if (cls && std::strcmp(cls->getName(), "hkbClipGenerator") == 0)
-                out.clip = name(static_cast<const ::hkbClipGenerator*>(row.m_generator)->m_animationName);
+            if (cls && std::strcmp(cls->getName(), "hkbClipGenerator") == 0) {
+                const auto* clip = static_cast<const ::hkbClipGenerator*>(row.m_generator);
+                out.clip         = name(clip->m_animationName);
+                out.cropStart    = clip->m_cropStartAmountLocalTime;
+                out.cropEnd      = clip->m_cropEndAmountLocalTime;
+            }
             out.database   = text(row.m_database);
-            out.rangeStart = row.m_rangeStart;
-            out.rangeEnd   = row.m_rangeEnd;
-            out.flags      = static_cast<std::uint8_t>((row.m_disableReselection ? loco::kFlagDisableReselection : 0) |
-                                                       (row.m_looping ? loco::kFlagLooping : 0));
+            out.entryStart = row.m_entryStart;
+            out.entryEnd   = row.m_entryEnd;
+            out.flags      = static_cast<std::uint8_t>(row.m_disableReselection ? loco::kFlagDisableReselection : 0);
             spec.children.push_back(std::move(out));
         }
-        if (const PoseSearchChooser* chooser = from->m_chooser) {
+
+        /// @note The bone sets and the chooser as this character states them: a bound one is its property's value.
+        if (const auto root = BoneSet(context, *from, "rootBone", from->m_rootBone, desc.rig); !root.empty()) spec.rootBone = root.front();
+        for (int c = 0; c < from->m_channels.getSize(); ++c) {
+            const PoseSearchChannel* channel = from->m_channels[c];
+            loco::SpecChannel        out;
+            if (channel) {
+                out.name  = name(channel->m_name);
+                out.kind  = static_cast<loco::ChannelKind>(std::clamp<int>(channel->m_kind, 0, static_cast<int>(loco::ChannelKind::Curve)));
+                out.axis  = channel->m_axis;
+                out.curve = name(channel->m_curve);
+                out.bones = BoneSet(context, *channel, "bones", channel->m_bones, desc.rig);
+                if (const auto origin = BoneSet(context, *channel, "origin", channel->m_origin, desc.rig); !origin.empty()) out.origin = origin.front();
+                for (int k = 0; k < channel->m_samples.getSize(); ++k) out.times.push_back(channel->m_samples[k].m_time);
+                ForEachVariableBinding(context, *channel, [&](std::string_view path, const std::string& variable) {
+                    int              k = 0;
+                    std::string_view part;
+                    if (IndexedPath(path, "samples", k, part) && k < channel->m_samples.getSize() && (part == "pose" || part == "motion"))
+                        desc.binds.samples.push_back({ c, k, part == "pose", variable });
+                });
+            }
+            spec.channels.push_back(std::move(out));
+        }
+        desc.binds.weights.resize(static_cast<std::size_t>(from->m_profiles.getSize()));
+        for (int p = 0; p < from->m_profiles.getSize(); ++p) {
+            const PoseSearchProfile* profile = from->m_profiles[p];
+            loco::SpecProfile        out;
+            if (profile) {
+                out.name = name(profile->m_name);
+                for (int w = 0; w < profile->m_weights.getSize(); ++w) {
+                    const PoseSearchWeight& weight = profile->m_weights[w];
+                    out.weights.push_back({ name(weight.m_channel), weight.m_element, weight.m_part, weight.m_weight });
+                }
+                auto& bound = desc.binds.weights[static_cast<std::size_t>(p)];
+                bound.resize(out.weights.size());
+                ForEachVariableBinding(context, *profile, [&](std::string_view path, const std::string& variable) {
+                    int              w = 0;
+                    std::string_view part;
+                    if (IndexedPath(path, "weights", w, part) && part == "weight" && static_cast<std::size_t>(w) < bound.size()) bound[w] = variable;
+                });
+            }
+            spec.profiles.push_back(std::move(out));
+        }
+        desc.binds.blends.resize(spec.databases.size());
+        ForEachVariableBinding(context, *from, [&](std::string_view path, const std::string& variable) {
+            int              d = 0;
+            std::string_view part;
+            if (IndexedPath(path, "databases", d, part) && part == "profileBlend" && static_cast<std::size_t>(d) < desc.binds.blends.size())
+                desc.binds.blends[d] = variable;
+            else if (path == "speed") desc.speedBound = true;
+            else if (path == "selectedIndex") desc.binds.selectedIndex = variable;
+            else if (path == "selectedTime") desc.binds.selectedTime = variable;
+            else if (path == "selectedCost") desc.binds.selectedCost = variable;
+            else if (path == "blendRemaining") desc.binds.blendRemaining = variable;
+        });
+
+        desc.chooser = from->m_chooser;
+        if (const ::hkReferencedObject* bound = BoundCharacterProperty(context, *from, "chooser")) {
+            const ::hkClass* cls = bound->getClassType();
+            if (cls && std::strcmp(cls->getName(), "CBPoseSearchChooser") == 0) desc.chooser = static_cast<const PoseSearchChooser*>(bound);
+        }
+        /// @note The rows' conditions are asked at runtime (hkbCondition::isTrue): the spec holds only their databases.
+        if (const PoseSearchChooser* chooser = desc.chooser) {
             spec.haveChooser = true;
             for (int r = 0; r < chooser->m_rows.getSize(); ++r) {
-                const PoseSearchChooserRow& row = chooser->m_rows[r];
-                loco::SpecChooserRow        out;
-                out.when = name(row.m_when);
-                for (int d = 0; d < row.m_databases.getSize(); ++d) out.databases.push_back(name(row.m_databases[d]));
+                loco::SpecChooserRow out;
+                for (int d = 0; d < chooser->m_rows[r].m_databases.getSize(); ++d) out.databases.push_back(name(chooser->m_rows[r].m_databases[d]));
                 spec.rows.push_back(std::move(out));
             }
             for (int f = 0; f < chooser->m_fallback.getSize(); ++f) spec.fallback.push_back(name(chooser->m_fallback[f]));
@@ -594,7 +702,7 @@ namespace CB::feature::controller::motion {
             if (platform::profile::On()) {
                 CB_PLOT("MM blend resets", g_blendResets.fetch_add(1, std::memory_order_relaxed) + 1);
                 CB_MESSAGE("MM blend reset (reactivated) - index {}, last output child {}, {:.3f} s of blend dropped ({})", m_currentIndex,
-                           slot.blend.child, slot.blend.Remaining(Tuning()), Whose(context));
+                           slot.blend.child, slot.blend.Remaining(TuningOf(*this)), Whose(context));
             }
             slot.blend.Reset(0, m_currentIndex);
         }
@@ -631,8 +739,8 @@ namespace CB::feature::controller::motion {
                 break;
             }
         }
-        loco::DeadBlendTuning s = Tuning();
-        s.blendTime             = slot.blendTime >= 0.0f ? slot.blendTime : SituationBlendTime(false, false, 0.0f);
+        loco::DeadBlendTuning s = TuningOf(*this);
+        s.blendTime             = slot.blendTime >= 0.0f ? slot.blendTime : SituationBlendTime(*this, false, false, 0.0f);
         loco::BlendFault      fault;
         const bool jumped = std::exchange(slot.jumpNow, std::exchange(slot.jumpPending, false));
         if (!b.Step(pose.data(), bones, m_currentIndex, jumped, s, &fault)) return;

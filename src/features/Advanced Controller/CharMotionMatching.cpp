@@ -25,6 +25,7 @@
 #include <platform/game/Character.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
+#include <platform/physics/GameGraph.h>
 #include <platform/profile/Profile.h>
 
 #include <Common/Base/hkBase.h>
@@ -33,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -53,6 +55,7 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 /// @file
@@ -66,10 +69,10 @@
 /// @note  THE ADD-ON CONTRACT (Motion Matching.hky, shipped apart from CB): any behavior a mod adds whose root is a
 ///        CBPoseSearchGenerator over clip generators (MM_Clip = the child index; a clip listed in several databases is
 ///        one child per database), each child a row naming its database and carrying its flags and searched range,
-///        `databases` with Unreal's cost biases (condition expressions), and `chooser` rows each holding a `when`
-///        condition expression; the selected child bound to `kClipVar` and every child's user-controlled time to
-///        `kTimeVar`; `kEnableVar`, declared in 0_master and mt_behavior, switches mt_behavior's LocomotionDefault to that
-///        graph; and the inputs declared on it (compile/MotionMatchingBundle.h). Its database is built in the startup
+///        `channels` and `profiles` (the search space and its weights), `databases` with Unreal's cost biases (condition
+///        expressions), and a `chooser` whose rows each hold a condition; the search rules bound to MM_* variables and
+///        the pick output-bound to MM_Clip / MM_Time; `kEnableVar`, declared in 0_master and mt_behavior, switches
+///        mt_behavior's LocomotionDefault to that graph; and the inputs declared on it (compile/MotionMatchingBundle.h). Its database is built in the startup
 ///        warm-up (BuildAll), so the game never runs the node before it exists. Without one, nothing is
 ///        served, nothing is built, and the controller runs exactly as before.
 
@@ -96,37 +99,91 @@ namespace CB::feature {
 
         constexpr std::string_view kProjectDir = "meshes/actors/character/";   ///< a clip's animationName is below this
         constexpr const char*      kEnableVar  = "MM_Enable";
-        constexpr const char*      kClipVar    = "MM_Clip";
-        constexpr const char*      kTimeVar    = "MM_Time";
 
-        /// @brief fMMReselectTime (settings.ini [Character], read once): seconds a pick's neighbourhood stays banned.
-        /// @note  Default 0.3 s, GASP's PoseReselectHistory. Was 1.0 s.
-        float ReselectTime()
+        /// @brief When `node`'s playing pick may be replaced: its rule fields (bound to MM_SearchInterval, MM_MinDwell,
+        ///        MM_ForcedDwell, MM_SwitchFloor, MM_SwitchMargin and MM_IgnoreSurrounding), each clamped.
+        /// @note  GASP's rules (search every update, any gain switches, no dwell) are these all 0: our dead blend coasts the
+        ///        clip it leaves to a stop, and under them the feet skated (in game, 2026-11-16).
+        ps::SwitchRules RulesOf(const ch::motion::PoseSearchGenerator& node)
         {
-            static const float t = std::clamp(ch::SettingFloat("fMMReselectTime", ps::kReselectTime), 0.0f, 5.0f);
-            return t;
+            const auto clamp = [](float v, float lo, float hi, float def) { return std::isfinite(v) ? std::clamp(v, lo, hi) : def; };
+            const ps::SwitchRules d;
+            ps::SwitchRules       out;
+            out.searchInterval    = clamp(node.m_searchInterval, 0.0f, 1.0f, static_cast<float>(d.searchInterval));
+            out.minDwell          = clamp(node.m_minDwell, 0.0f, 2.0f, static_cast<float>(d.minDwell));
+            out.forcedDwell       = clamp(node.m_forcedDwell, 0.0f, 2.0f, static_cast<float>(d.forcedDwell));
+            out.switchFloor       = clamp(node.m_switchFloor, 0.0f, 1.0f, static_cast<float>(d.switchFloor));
+            out.margin            = clamp(node.m_switchMargin, 0.0f, 1.0f, d.margin);
+            out.ignoreSurrounding = std::clamp(node.m_ignoreSurrounding, 0, 60);
+            return out;
         }
-        /// @brief When a playing pick may be replaced (settings.ini [Character], read once).
-        /// @note  bMMGaspSwitching (default off) starts from GASP's rules: a search every update, any gain switches, no
-        ///        dwell. Our dead blend coasts the clip it leaves to a stop, so under those rules the output was mostly
-        ///        coasting poses and the feet skated (in game, 2026-11-16). Off, the rules are HKY's defaults: a search
-        ///        every 0.1 s, a pick held 0.3 s (0.1 after a jump in the request), 0.1 s between switches, a 12% margin,
-        ///        10 frames either side of the playing one no candidate. Each key overrides either way: fMMSearchInterval,
-        ///        fMMMinDwell, fMMForcedDwell, fMMSwitchFloor, fMMSwitchMargin (a share), iMMIgnoreSurrounding (frames).
-        const ps::SwitchRules& SwitchRules()
+        /// @brief `node`'s reselect time (bound to MM_ReselectTime): seconds a pick's neighbourhood stays banned.
+        float ReselectTimeOf(const ch::motion::PoseSearchGenerator& node)
         {
-            static const ps::SwitchRules r = [] {
-                const ps::SwitchRules base = ch::SettingFloat("bMMGaspSwitching", 0.0f) != 0.0f ? ps::SwitchRules::Gasp() : ps::SwitchRules{};
-                ps::SwitchRules       out;
-                out.searchInterval    = std::clamp(ch::SettingFloat("fMMSearchInterval", static_cast<float>(base.searchInterval)), 0.0f, 1.0f);
-                out.minDwell          = std::clamp(ch::SettingFloat("fMMMinDwell", static_cast<float>(base.minDwell)), 0.0f, 2.0f);
-                out.forcedDwell       = std::clamp(ch::SettingFloat("fMMForcedDwell", static_cast<float>(base.forcedDwell)), 0.0f, 2.0f);
-                out.switchFloor       = std::clamp(ch::SettingFloat("fMMSwitchFloor", static_cast<float>(base.switchFloor)), 0.0f, 1.0f);
-                out.margin            = std::clamp(ch::SettingFloat("fMMSwitchMargin", base.margin), 0.0f, 1.0f);
-                out.ignoreSurrounding = static_cast<int>(std::lround(std::clamp(ch::SettingFloat("iMMIgnoreSurrounding", static_cast<float>(base.ignoreSurrounding)), 0.0f, 60.0f)));
-                return out;
-            }();
-            return r;
+            return std::isfinite(node.m_reselectTime) ? std::clamp(node.m_reselectTime, 0.0f, 5.0f) : ps::kReselectTime;
+        }
+
+        /// @brief The retired [Character] keys and what replaced them: logged once when settings.ini still sets one.
+        void WarnRetiredKeys()
+        {
+            static std::once_flag once;
+            std::call_once(once, [] {
+                constexpr std::pair<const char*, const char*> kRetired[] = {
+                    { "fMMSearchInterval", "MM_SearchInterval" }, { "fMMMinDwell", "MM_MinDwell" },       { "fMMForcedDwell", "MM_ForcedDwell" },
+                    { "fMMSwitchFloor", "MM_SwitchFloor" },       { "fMMSwitchMargin", "MM_SwitchMargin" }, { "iMMIgnoreSurrounding", "MM_IgnoreSurrounding" },
+                    { "fMMReselectTime", "MM_ReselectTime" },     { "fMMBlendTimeGround", "MM_BlendTimeGround" }, { "fMMBlendTimeLand", "MM_BlendTimeLand" },
+                    { "fMMBlendTimeJump", "MM_BlendTimeJump" },   { "fMMBlendTimeAir", "MM_BlendTimeAir" },  { "fMMBlendDecay", "MM_BlendDecay" },
+                    { "bMMGaspSwitching", "MM_SearchInterval, MM_MinDwell, MM_ForcedDwell, MM_SwitchFloor, MM_SwitchMargin and MM_IgnoreSurrounding at 0" },
+                };
+                for (const auto& [key, now] : kRetired)
+                    if (!core::debug::Value("Character", key).empty())
+                        LOG_WARN("motion matching: settings.ini [Character] {} is retired and ignored - set {} under [GraphVariables]", key, now);
+            });
+        }
+
+        /// @brief settings.ini [GraphVariables] (`Name = value`, read again whenever the settings change) written to
+        ///        `actor`'s graph through the game's variable interface: only a variable the graph declares takes a value.
+        /// @note  The type is the graph's: a bool reads true / false / 1 / 0, an int or a real a number, a vector "x, y, z".
+        void ApplyGraphVariables(RE::Actor* actor)
+        {
+            static std::mutex                                       lock;
+            static std::uint32_t                                    generation = ~0u;
+            static std::vector<std::pair<std::string, std::string>> values;
+            std::vector<std::pair<std::string, std::string>>        now;
+            {
+                std::scoped_lock held(lock);
+                if (generation != core::debug::Generation()) {
+                    generation = core::debug::Generation();
+                    values     = core::debug::Values("GraphVariables");
+                }
+                now = values;
+            }
+            for (const auto& [name, text] : now) {
+                const char* const   begin = text.data();
+                const char* const   end   = begin + text.size();
+                float               f     = 0.0f;
+                const auto          number = std::from_chars(begin, end, f);
+                const bool          isNumber = number.ec == std::errc{};
+                hky::runtime::Variable current = false;
+                if (!platform::physics::GameGraph(actor).GetVariable(name, current)) continue;
+                if (std::holds_alternative<bool>(current)) {
+                    const bool b = text == "true" || text == "True" || text == "TRUE" || (isNumber && f != 0.0f);
+                    ch::SetGraphBool(actor, name, b);
+                } else if (std::holds_alternative<std::int32_t>(current)) {
+                    if (isNumber) ch::SetGraphInt(actor, name, static_cast<std::int32_t>(std::lround(f)));
+                } else if (std::holds_alternative<float>(current)) {
+                    if (isNumber) ch::SetGraphFloat(actor, name, f);
+                } else {
+                    RE::NiPoint3 v;
+                    float*       parts[3] = { &v.x, &v.y, &v.z };
+                    const char*  at       = begin;
+                    for (int k = 0; k < 3 && at < end; ++k) {
+                        while (at < end && (*at == ' ' || *at == ',')) ++at;
+                        at = std::from_chars(at, end, *parts[k]).ptr;
+                    }
+                    ch::SetGraphPoint(actor, name, v);
+                }
+            }
         }
         /// @brief iMMDatabaseLOD (settings.ini [Character], read once): the MM_DatabaseLOD the chooser sees.
         int DatabaseLod()
@@ -185,6 +242,9 @@ namespace CB::feature {
         constexpr double kRootTurnStale = 0.25;   ///< seconds since the node last published its clip before RootTurn holds none
         /// @brief The longest step in a clip's time RootTurn turns through; a longer one is the matcher jumping within the clip.
         constexpr double kRootTurnStep = 0.2;
+        /// @brief The player's node's search interval (seconds), which ShouldTurnInPlace holds its verdict for: the frame hook
+        ///        has no node to read it from.
+        std::atomic<float> g_searchInterval{ static_cast<float>(ps::kSearchInterval) };
         /// @brief When the last switch was chosen (steady_clock ticks; 0 = none yet), for Describe.
         std::atomic<Clock::rep> g_lastSwitch{ 0 };
         std::atomic<int>   g_logs{ 0 };
@@ -228,7 +288,7 @@ namespace CB::feature {
         /// @warning Throws when it cannot be measured.
         /// @note  The fingerprint folds in `compiler` (the plugin DLL + schema): a rebuild may measure differently, so it
         ///        measures every clip once.
-        /// @note  A cached clip lacking one of `needs`' schemas is measured again, under every one of them.
+        /// @note  A cached clip lacking `needs`' layout is measured again, under it.
         ea::MmCachedClip MeasureOrCached(const core::resolve::LoadOrderReader& reader, const std::string& name, std::string_view compiler,
                                          const std::map<std::string, ea::MmCachedClip>& cache, bool& hit, const ps::ClipNeeds& needs)
         {
@@ -288,8 +348,10 @@ namespace CB::feature {
             if (exec && *exec) {
                 ps::ClipNeeds needs;
                 needs.rig = rig.bones.empty() ? nullptr : &rig;
-                if (needs.rig)
-                    for (const auto& s : spec.schemas) needs.schemas.push_back(s), needs.keys.push_back(ea::SchemaKey(s, rig));
+                if (needs.rig && !spec.channels.empty()) {
+                    needs.schemas.push_back(ps::LayoutOf(spec));
+                    needs.keys.push_back(ea::SchemaKey(needs.schemas.back(), rig));
+                }
                 for (const auto& c : spec.children)
                     if (!c.clip.empty()) early.emplace(c.clip, early.size());
                 earlyClips.resize(early.size());
@@ -357,16 +419,17 @@ namespace CB::feature {
                      "chooser {}; {} frames x {} features; clip speeds walk {:.0f} ({} frames), run {:.0f} ({}), sprint {:.0f} ({}) "
                      "game units/s",
                      secs, db->clips.size(), report.distinctClips, report.measuredClips, db->databases.size(),
-                     db->haveChooser ? std::format("{} row(s), {} fallback", db->chooser.size(), db->fallback.size()) : std::string("none"),
-                     report.frames, hky::anim::features::kDims, db->gaitSpeed[1], report.gaitFrames[1], db->gaitSpeed[2], report.gaitFrames[2],
+                     db->chooser.have ? std::format("{} row(s), {} fallback", db->chooser.rows.size(), db->chooser.fallback.size()) : std::string("none"),
+                     report.frames, db->spaces.size() > 1 ? db->spaces[1].dims : db->spaces[0].dims, db->gaitSpeed[1], report.gaitFrames[1], db->gaitSpeed[2], report.gaitFrames[2],
                      db->gaitSpeed[3], report.gaitFrames[3]);
             const auto text = [](const Expression& e) { return e.text.empty() ? std::string("0") : "`" + e.text + "`"; };
             for (const PoseDatabase& d : db->databases)
-                LOG_INFO("motion matching: database '{}' - bias base {}, continuing {}, looping {}{}", d.name, text(d.base),
-                         text(d.continuing), text(d.looping), d.pivots ? ", Pivots" : "");
-            for (std::size_t r = 0; r < db->chooser.size(); ++r)
-                LOG_INFO("motion matching: chooser row {} - when {} -> {}", r, db->chooser[r].when.text.empty() ? std::string("always") : text(db->chooser[r].when),
-                         db->chooser[r].databases.size());
+                LOG_INFO("motion matching: database '{}' - profile {}{}, bias base {}, continuing {}, looping {}{}", d.name,
+                         d.profile >= 0 ? "'" + db->profiles[d.profile].name + "'" : std::string("none"),
+                         d.blendProfile >= 0 ? std::format(" blending toward '{}' by {:.2f}", db->profiles[d.blendProfile].name, d.blend) : std::string(),
+                         text(d.base), text(d.continuing), text(d.looping), d.pivots ? ", Pivots" : "");
+            for (const ps::ChannelSpan& c : db->channels)
+                LOG_INFO("motion matching: channel '{}' - dims {}..{} ({} x {})", c.name, c.first, c.first + c.elements * c.width - 1, c.elements, c.width);
             std::scoped_lock lock(g_store.lock);
             const Database* built = db.get();
             g_store.entries[key]  = std::move(db);
@@ -395,8 +458,13 @@ namespace CB::feature {
         }
 
         /// @brief The store's key: the selector, and the rig it is measured through.
-        std::string StoreKey(const ps::DatabaseSpec& spec, const ea::Rig& rig)
+        /// @note  Without its chooser: a node compiles its character's chooser against the database itself, so the warm-up
+        ///        (which reads the chooser's text) and the node (which asks its conditions) find the same database.
+        std::string StoreKey(ps::DatabaseSpec spec, const ea::Rig& rig)
         {
+            spec.haveChooser = false;
+            spec.rows.clear();
+            spec.fallback.clear();
             return spec.Key() + std::format("\x1c{:016x}", rig.bones.empty() ? 0ull : ea::SchemaKey({}, rig));
         }
 
@@ -411,25 +479,31 @@ namespace CB::feature {
             for (const std::string& key : reader.addedBehaviors()) {
                 hky::decompile::ParsedHky graph;
                 if (!reader.mergedGraph(key, graph)) continue;
+                /// @note Each character running the graph, with its rig: its properties name the bone sets. Without the
+                ///       reader's characters (an older host), each rig with the sets read inline.
+                std::vector<std::pair<std::string, std::string>> characters = reader.charactersOf ? reader.charactersOf(key)
+                                                                                                  : std::vector<std::pair<std::string, std::string>>{};
+                if (characters.empty())
+                    for (const std::string& rigKey : reader.rigUnitsOf ? reader.rigUnitsOf(key) : std::vector<std::string>{}) characters.emplace_back("", rigKey);
+                if (characters.empty()) characters.emplace_back();
                 for (const auto* selector : ps::Selectors(graph)) {
-                    const ps::DatabaseSpec   spec    = ps::SpecOf(*selector);
-                    std::vector<std::string> rigKeys = reader.rigUnitsOf ? reader.rigUnitsOf(key) : std::vector<std::string>{};
-                    if (rigKeys.empty()) rigKeys.emplace_back();
-                    for (const std::string& rigKey : rigKeys) {
-                        ea::Rig                          rig;
-                        hky::decompile::ParsedHky skeleton;
+                    for (const auto& [characterKey, rigKey] : characters) {
+                        ea::Rig                   rig;
+                        hky::decompile::ParsedHky skeleton, character;
                         if (!rigKey.empty() && reader.mergedGraph(rigKey, skeleton))
                             if (auto r = ps::RigFromSkeleton(skeleton)) rig = std::move(*r);
-                        if (rig.bones.empty() && !spec.schemas.empty())
-                            LOG_WARN("motion matching: no rig found for '{}' ('{}') - its typed schemas weigh the classic layout", key, rigKey);
+                        const bool haveCharacter = !characterKey.empty() && reader.mergedGraph(characterKey, character);
+                        const ps::DatabaseSpec spec = ps::SpecOf(*selector, ps::CharacterBoneNames(graph, haveCharacter ? &character : nullptr, rig));
+                        if (rig.bones.empty() && !spec.channels.empty())
+                            LOG_WARN("motion matching: no rig found for '{}' ('{}') - its channels weigh the classic layout", key, rigKey);
                         const std::string storeKey = StoreKey(spec, rig);
                         {
                             std::scoped_lock lock(g_store.lock);
                             if (g_store.entries.contains(storeKey)) continue;
                             g_store.entries.emplace(storeKey, nullptr);
                         }
-                        LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), rig '{}', {} bone(s))", key, spec.children.size(), rigKey,
-                                 rig.bones.size());
+                        LOG_INFO("motion matching: building '{}' in the warm-up ({} child(ren), character '{}', rig '{}', {} bone(s))", key,
+                                 spec.children.size(), characterKey, rigKey, rig.bones.size());
                         Build(reader, storeKey, spec, rig, exec);
                         ++built;
                     }
@@ -461,10 +535,19 @@ namespace CB::feature {
             relay::EvalContext ctx;
             std::vector<char>  lastActive;
             Clock::time_point  used{};
-            std::vector<std::vector<ch::motion::BoundInput>> bound;   ///< per schema of the node: the query values its features bind
+            ch::motion::NodeBinds binds;                         ///< what the node's channels, profiles and databases bind, by name
             bool               speedBound = false;
-            std::string        clipVariable, timeVariable;   ///< what the node's selection and its children's time are bound to
             bool               traversal = false;            ///< a database is tagged "Traversal": the search reads the ledge distance
+            /// @brief The character's chooser (its property's, else the node's own) and the chooser rows' databases, compiled
+            ///        against `db`; its rows' conditions are asked each update.
+            const ch::motion::PoseSearchChooser* chooser = nullptr;
+            ps::Chooser        compiled;
+            std::vector<char>  holds;
+            /// @brief Runtime weights: per profile per weight, and per database the blend; NaN = the authored value.
+            std::vector<std::vector<float>> weightValues;
+            std::vector<float>              blends;
+            bool               anyWeightBound = false;
+            std::uint32_t      graphVariables = ~0u;   ///< the settings generation [GraphVariables] was last written at
             float              rate = 1.0f, rateVelocity = 0.0f;   ///< the node's own playback rate, while its speed is bound
             int                playingClip = -1;
             double             playingTime = 0;
@@ -649,7 +732,7 @@ namespace CB::feature {
             /// @note Under the body facing the turn owed is the body's (GASP's root against its capsule): the model's facing
             ///       reaches the intent on its own, long before the body does.
             const float bodyYaw    = player->IsPlayerRef() && controller::tuning::WeightedFacing() ? player->GetHeading(false) : s.yaw;
-            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, static_cast<float>(SwitchRules().searchInterval), dt);
+            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, g_searchInterval.load(std::memory_order_relaxed), dt);
 
             io[kSlidePhase]           = ps::SlidePhase(m.slideExitHold, s, dt);
             /// @note GASP's JustTraversed: true while the traversal montage blends out and the request is within
@@ -948,9 +1031,8 @@ namespace CB::feature {
             }
             static int reports = 0;
             if (reports == 0)
-                LOG_INFO("motion matching: switching - additive database cost biases, reselect ban {:.2f} s, forced on {:.0f} "
-                         "units/s or 30 deg, database LOD {}",
-                         ReselectTime(), ps::kForceSpeed, DatabaseLod());
+                LOG_INFO("motion matching: switching - additive database cost biases, forced on {:.0f} units/s or 30 deg, database LOD {}",
+                         ps::kForceSpeed, DatabaseLod());
             if (frames > 0 && reports++ < 60)
                 LOG_INFO("motion matching: clip samples per frame (every character) {:.1f} (over {} frames); "
                          "biased cost min / median / max - best candidate {}, playing {}",
@@ -1040,47 +1122,47 @@ namespace CB::feature {
 
     namespace {
 
-        /// @brief The query values `bound` reads, from `actor`'s graph variables, into `given` per space of `db`.
-        /// @note  By name, for this character: one feature object serves every clone of the node, so its bindings are never
-        ///        copied into it.
-        void ReadBound(RE::Actor* actor, const Database& db, const std::vector<std::vector<ch::motion::BoundInput>>& bound,
-                       std::vector<std::vector<float>>& given)
+        /// @brief The values `binds` names, from `actor`'s graph variables: each bound trajectory sample's query into
+        ///        `given` (the channels' space), each bound weight and blend into `weightValues` and `blends`.
+        /// @note  By name, for this character: one channel or profile object serves every clone of the node.
+        void ReadBinds(RE::Actor* actor, const Database& db, const ch::motion::NodeBinds& binds, std::vector<std::vector<float>>& given,
+                       std::vector<std::vector<float>>& weightValues, std::vector<float>& blends)
         {
-            using How = ch::motion::BoundInput::How;
-            for (std::size_t k = 0; k < bound.size() && k < db.spaceOfSchema.size(); ++k) {
-                const int space = db.spaceOfSchema[k];
-                if (space <= 0 || bound[k].empty()) continue;
+            namespace F = hky::anim::features;
+            constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
+            if (!binds.samples.empty() && db.spaces.size() > 1) {
                 if (given.size() < db.spaces.size()) given.resize(db.spaces.size());
-                auto& out = given[space];
-                out.assign(static_cast<std::size_t>(db.spaces[space].dims), std::numeric_limits<float>::quiet_NaN());
-                for (const ch::motion::BoundInput& b : bound[k]) {
-                    const RE::BSFixedString name(b.variable.c_str());
-                    if (b.dim < 0 || b.dim + b.width > static_cast<int>(out.size())) continue;
-                    if (b.how == How::Float) {
-                        float v = 0;
-                        if (ch::GetGraphFloat(actor, name, v)) out[b.dim] = v;
-                        continue;
-                    }
+                auto& out = given[1];
+                out.assign(static_cast<std::size_t>(db.spaces[1].dims), kNone);
+                for (const ch::motion::SampleBind& b : binds.samples) {
+                    if (b.channel < 0 || b.channel >= static_cast<int>(db.channels.size())) continue;
+                    const ps::ChannelSpan& span = db.channels[b.channel];
+                    if (!span.trajectory || b.sample >= span.elements) continue;
+                    const int    dim = span.first + b.sample * span.width;
                     RE::NiPoint3 p;
-                    if (!ch::GetGraphPoint(actor, name, p)) continue;
-                    if (b.how == How::PoseXY) {
-                        out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = -std::sin(p.z), out[b.dim + 3] = std::cos(p.z);
-                    } else if (b.how == How::MotionXYZ) {
-                        /// @note The velocity, the height, then the velocity's direction, normalized as the rows are.
-                        constexpr int kDirection = hky::anim::features::kSampleDirection - hky::anim::features::kSampleVelocity;
-                        out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = p.z;
-                        if (b.width >= kDirection + 2) {
-                            double dx = 0.0, dy = 0.0;
-                            hky::anim::VelocityDirection(p.x, p.y, dx, dy);
-                            out[b.dim + kDirection]     = static_cast<float>(dx);
-                            out[b.dim + kDirection + 1] = static_cast<float>(dy);
-                        }
+                    if (!ch::GetGraphPoint(actor, b.variable, p)) continue;
+                    if (b.pose) {
+                        out[dim + F::kSamplePos] = p.x, out[dim + F::kSamplePos + 1] = p.y;
+                        out[dim + F::kSampleFacing] = -std::sin(p.z), out[dim + F::kSampleFacing + 1] = std::cos(p.z);
                     } else {
-                        const float v[3] = { p.x, p.y, p.z };
-                        for (int j = 0; j < (std::min)(b.width, 3); ++j) out[b.dim + j] = v[j];
+                        /// @note The velocity, the height, then the velocity's direction, normalized as the rows are.
+                        out[dim + F::kSampleVelocity] = p.x, out[dim + F::kSampleVelocity + 1] = p.y, out[dim + F::kSampleHeight] = p.z;
+                        double dx = 0.0, dy = 0.0;
+                        hky::anim::VelocityDirection(p.x, p.y, dx, dy);
+                        out[dim + F::kSampleDirection]     = static_cast<float>(dx);
+                        out[dim + F::kSampleDirection + 1] = static_cast<float>(dy);
                     }
                 }
             }
+            weightValues.resize(binds.weights.size());
+            for (std::size_t p = 0; p < binds.weights.size(); ++p) {
+                weightValues[p].assign(binds.weights[p].size(), kNone);
+                for (std::size_t w = 0; w < binds.weights[p].size(); ++w)
+                    if (float v = 0.0f; !binds.weights[p][w].empty() && ch::GetGraphFloat(actor, binds.weights[p][w], v)) weightValues[p][w] = v;
+            }
+            blends.assign(binds.blends.size(), kNone);
+            for (std::size_t d = 0; d < binds.blends.size(); ++d)
+                if (float v = 0.0f; !binds.blends[d].empty() && ch::GetGraphFloat(actor, binds.blends[d], v)) blends[d] = v;
         }
 
     }  // namespace
@@ -1104,11 +1186,19 @@ namespace CB::feature {
             }
             s.db = DatabaseFor(desc->spec, desc->rig);
             if (!s.db) return -1;
-            s.bound      = std::move(desc->bound);
+            s.binds      = std::move(desc->binds);
             s.speedBound = desc->speedBound;
-            s.clipVariable = desc->clipVariable.empty() ? kClipVar : desc->clipVariable;
-            s.timeVariable = desc->timeVariable.empty() ? kTimeVar : desc->timeVariable;
-            s.traversal    = desc->traversal;
+            s.traversal  = desc->traversal;
+            s.chooser    = desc->chooser;
+            s.compiled   = desc->spec.haveChooser ? ps::CompileChooser(*s.db, desc->spec.rows, desc->spec.fallback, [](const std::string& m) {
+                LOG_WARN("motion matching: {}", m);
+            })
+                                                  : ps::Chooser{};
+            s.anyWeightBound = std::any_of(s.binds.blends.begin(), s.binds.blends.end(), [](const std::string& v) { return !v.empty(); }) ||
+                               std::any_of(s.binds.weights.begin(), s.binds.weights.end(), [](const std::vector<std::string>& p) {
+                                   return std::any_of(p.begin(), p.end(), [](const std::string& v) { return !v.empty(); });
+                               });
+            WarnRetiredKeys();
             s.matcher.Restart();
             static std::atomic<int> searchers{ 0 };
             if (searchers.fetch_add(1, std::memory_order_relaxed) < 32)
@@ -1124,6 +1214,10 @@ namespace CB::feature {
         }
         if (restart) s.matcher.Restart();
         CB_ZONE(zone, "MM node");
+        if (const std::uint32_t generation = core::debug::Generation(); restart || s.graphVariables != generation) {
+            s.graphVariables = generation;
+            ApplyGraphVariables(actor);
+        }
 
         /// @note Everything the node asks of the character arrives as the graph's variables, which whoever drives it set.
         Inputs in = InitialInputs();
@@ -1137,17 +1231,33 @@ namespace CB::feature {
         s.before                       = in;
         ps::MatchRequest request;
         ReadQuery(actor, request);
-        ReadBound(actor, db, s.bound, request.given);
+        if (!node.m_haveQuery) request.haveQuery = false;
+        ReadBinds(actor, db, s.binds, request.given, s.weightValues, s.blends);
+        if (s.anyWeightBound) ps::WeightsFor(db, s.weightValues, s.blends, request.weights);
         /// @note The traversal driver writes the measured ledge distance before it raises the traversal; 0 or less is none.
-        if (float ledge = 0.0f; s.traversal && ch::GetGraphFloat(actor, ps::kLedgeDistanceVariable, ledge) && ledge > 0.0f) request.ledgeDistance = ledge;
+        ///       The node's field when bound, else the variable by name (a graph that binds none).
+        if (node.m_ledgeDistance > 0.0f) request.ledgeDistance = node.m_ledgeDistance;
+        else if (float ledge = 0.0f; s.traversal && ch::GetGraphFloat(actor, ps::kLedgeDistanceVariable, ledge) && ledge > 0.0f) request.ledgeDistance = ledge;
         if (s.speedBound) request.rate = ps::NodeRate(db, s.playingClip, s.playingTime, node.m_speed, s.rate, s.rateVelocity, timestep);
         request.inputsChanged = inputsChanged;
-        request.reselectTime  = ReselectTime();
-        request.rules         = SwitchRules();
+        request.reselectTime  = ReselectTimeOf(node);
+        request.rules         = RulesOf(node);
+        if (isPlayer) g_searchInterval.store(static_cast<float>(request.rules.searchInterval), std::memory_order_relaxed);
         const InputVariables vars(in);
         s.ctx.Reset(actor);
         s.ctx.variables = &vars;
-        request.active  = ps::Choose(db, s.ctx);
+        /// @note The chooser's rows are its conditions, asked as Havok asks a transition's (hkbCondition::isTrue); a null
+        ///       one holds. Without a chooser every database is searched.
+        if (s.chooser && s.compiled.have) {
+            s.holds.assign(static_cast<std::size_t>(s.chooser->m_rows.getSize()), 0);
+            for (int r = 0; r < s.chooser->m_rows.getSize(); ++r) {
+                ::hkbCondition* condition = s.chooser->m_rows[r].m_condition;
+                s.holds[static_cast<std::size_t>(r)] = !condition || condition->isTrue(context);
+            }
+            request.active = ps::Choose(db, s.compiled, s.holds);
+        } else {
+            request.active = ps::Choose(db, ps::Chooser{}, {});
+        }
         request.biases  = ps::EvaluateBiases(db, s.ctx);
 
         const double  wasTime = s.playingTime;
@@ -1191,7 +1301,7 @@ namespace CB::feature {
         /// @note Every switch hands the blend its time, as GASP's Get_MMBlendTime picks it at the search; a new child blends
         ///       by itself, a new time in the same one has to be told.
         if (step.switched)
-            node.BlendNext(SituationBlendTime(in[kMovementMode] == 1, in[kJustLandedLight] || in[kJustLandedHeavy], VerticalSpeed(actor)),
+            node.BlendNext(SituationBlendTime(node, in[kMovementMode] == 1, in[kJustLandedLight] || in[kJustLandedHeavy], VerticalSpeed(actor)),
                            step.clip >= 0 && step.nextClip == step.clip);
 
         if (request.active != s.lastActive) {
@@ -1269,17 +1379,12 @@ namespace CB::feature {
             match.shownAt = Clock::now();
         }
         if (step.nextClip < 0) return -1;
-        /// @note Through the graph's own bindings: the engine copies these into this node and every child before their
-        ///       next updates, per character. A child updates before its parent, so anything this update wrote straight
-        ///       into a child would reach the pose a frame later anyway.
-        const Clip&  next     = db.clips[step.nextClip];
-        const float  fraction = static_cast<float>(next.duration > 0 ? step.nextTime / next.duration : 0.0);
-        if (node.m_variableBindingSet == HK_NULL) {
-            node.PlayUnbound(context, step.nextClip, fraction);
-            return step.nextClip;
-        }
-        ch::SetGraphInt(actor, s.clipVariable, step.nextClip);
-        ch::SetGraphFloat(actor, s.timeVariable, fraction);
+        /// @note The node plays its pick on its child's clone itself, this frame (PlayPick), and publishes it through its
+        ///       outputs; nothing round-trips through a variable.
+        const Clip& next = db.clips[step.nextClip];
+        node.PlayPick(context, step.nextClip, static_cast<float>(next.FractionOf(step.nextTime)));
+        node.Publish(context, s.binds, step.nextClip, static_cast<float>(step.nextTime), step.searched ? (step.switched ? step.result.best : step.result.playing)
+                                                                                                    : node.m_selectedCost);
         return step.nextClip;
     }
 

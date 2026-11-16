@@ -7,6 +7,8 @@
 #include "SimpleIni.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -46,8 +48,11 @@ namespace CB::core::debug {
             return s;
         }
 
+        std::atomic<std::uint32_t> g_generation{ 0 };
+
         bool Write(LoadedIni& s)
         {
+            g_generation.fetch_add(1, std::memory_order_relaxed);
             std::error_code ec;
             std::filesystem::create_directories(std::filesystem::path(kIniPath).parent_path(), ec);
             if (s.ini.SaveFile(kIniPath) < 0) {
@@ -130,5 +135,22 @@ namespace CB::core::debug {
         if (!s.ini.Delete(sec.c_str(), std::string(key).c_str(), true)) return true;
         return Write(s);
     }
+
+    std::vector<std::pair<std::string, std::string>> Values(std::string_view section)
+    {
+        std::vector<std::pair<std::string, std::string>> out;
+        LoadedIni&                                       s = Ini();
+        std::scoped_lock                                 guard(s.lock);
+        if (!s.loaded) return out;
+        const std::string   sec(section);
+        CSimpleIniA::TNamesDepend keys;
+        if (!s.ini.GetAllKeys(sec.c_str(), keys)) return out;
+        keys.sort(CSimpleIniA::Entry::LoadOrder());
+        for (const auto& k : keys)
+            if (const char* v = s.ini.GetValue(sec.c_str(), k.pItem, nullptr)) out.emplace_back(k.pItem, v);
+        return out;
+    }
+
+    std::uint32_t Generation() { return g_generation.load(std::memory_order_relaxed); }
 
 }  // namespace CB::core::debug

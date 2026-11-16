@@ -1,135 +1,111 @@
 #pragma once
 
-#include <hky/layout/CBPoseSearchCurve.h>
-#include <hky/layout/CBPoseSearchFeature.h>
-#include <hky/layout/CBPoseSearchHeading.h>
-#include <hky/layout/CBPoseSearchPosition.h>
-#include <hky/layout/CBPoseSearchSchema.h>
-#include <hky/layout/CBPoseSearchTrajectory.h>
-#include <hky/layout/CBPoseSearchTrajectorySample.h>
-#include <hky/layout/CBPoseSearchVelocity.h>
+#include <hky/layout/CBPoseSearchChannel.h>
+#include <hky/layout/CBPoseSearchChannelSample.h>
+#include <hky/layout/CBPoseSearchProfile.h>
+#include <hky/layout/CBPoseSearchWeight.h>
 #include <Common/Base/hkBase.h>
 #include <Behavior/Behavior/Node/hkbBindable.h>
+#include <Behavior/Behavior/Variables/hkbVariableBindingSet.h>
 #include <Common/Base/Container/String/hkString.h>
 
 #include <hky/compile/MotionFeatures.h>
 
+#include <cstdint>
 #include <string>
-#include <vector>
+#include <string_view>
 
 struct hkbContext;
 
 /// @file
-/// @brief CBPoseSearchSchema and its feature classes as loaded objects: what a database matches on (locomotion/PoseSearch).
-///        The layouts are schema/generators/CBPoseSearch*.yaml's; the platform registers the classes from those descriptors.
-/// @note  A feature's bindings are never copied into it: one feature object serves every character's clone of the node, so
-///        the node reads each bound variable by name for its own character (BoundInput) instead.
+/// @brief A CBPoseSearchGenerator's channels and profiles as loaded objects (bindables, as a blender's children are), and
+///        reading what a bindable's bindings name for the character running it. The layouts are
+///        schema/generators/CBPoseSearch*.yaml's; the platform registers the classes from those descriptors.
+/// @note  One channel or profile object serves every character's clone of the node, so a bound value is never read from
+///        its members: the node reads each bound variable or character property by name for its own character.
 
 namespace CB::feature::controller::motion {
 
     namespace anim = hky::anim;
 
-    /// @brief CBPoseSearchFeature, the abstract base: a bindable with a weight.
-    class PoseSearchFeature : public ::hkbBindable {
-    public:
-        ::hkReal m_weight;   ///< +0x30
-        explicit PoseSearchFeature(::hkFinishLoadedObjectFlag flag) : ::hkbBindable(flag) {}
-    };
-    HKY_LAYOUT_CHECK(PoseSearchFeature, hky::layout::CBPoseSearchFeature);
-
-    /// @brief CBPoseSearchTrajectorySample. POD in the loaded file's array.
-    struct alignas(16) PoseSearchTrajectorySample {
+    /// @brief CBPoseSearchChannelSample. POD in the loaded file's array.
+    struct alignas(16) PoseSearchChannelSample {
         HK_DECLARE_POD_TYPE();
 
-        ::hkReal    m_time;       ///< +0x00
-        ::hkReal    m_position;   ///< +0x04
-        ::hkReal    m_facing;     ///< +0x08
-        ::hkReal    m_velocity;   ///< +0x0c
-        ::hkReal    m_height;     ///< +0x10
-        ::hkReal    m_direction;  ///< +0x14, the velocity's direction's weight (GASP's normalized Velocity)
-        ::hkUint8   m_pad18[0x20 - 0x18];
-        ::hkVector4 m_pose;       ///< +0x20 (x, y, facing angle, -)
-        ::hkVector4 m_motion;     ///< +0x30 (velocity x, velocity y, height, -)
+        ::hkReal    m_time;    ///< +0x00
+        ::hkUint8   m_pad04[0x10 - 0x04];
+        ::hkVector4 m_pose;    ///< +0x10 (x, y, facing angle, -)
+        ::hkVector4 m_motion;  ///< +0x20 (velocity x, velocity y, height, -)
     };
-    HKY_LAYOUT_CHECK(PoseSearchTrajectorySample, hky::layout::CBPoseSearchTrajectorySample);
+    HKY_LAYOUT_CHECK(PoseSearchChannelSample, hky::layout::CBPoseSearchChannelSample);
 
-    class PoseSearchTrajectory : public PoseSearchFeature {
+    /// @brief CBPoseSearchChannel: one axis group of the search space.
+    class PoseSearchChannel : public ::hkbBindable {
     public:
-        ::hkArray<PoseSearchTrajectorySample> m_samples;   ///< +0x38
-        explicit PoseSearchTrajectory(::hkFinishLoadedObjectFlag flag);
+        ::hkStringPtr                       m_name;     ///< +0x30
+        ::hkReferencedObject*               m_bones;    ///< +0x38 hkbBoneIndexArray, the loaded file's
+        ::hkReferencedObject*               m_origin;   ///< +0x40 hkbBoneIndexArray, the loaded file's
+        ::hkStringPtr                       m_curve;    ///< +0x48
+        ::hkArray<PoseSearchChannelSample>  m_samples;  ///< +0x50
+        ::hkInt8                            m_kind;     ///< +0x60 PoseSearchChannelKind
+        ::hkInt8                            m_axis;     ///< +0x61
+        ::hkUint8                           m_pad62[0x70 - 0x62];
+        ::hkVector4                         m_query;    ///< +0x70
+
+        explicit PoseSearchChannel(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    HKY_LAYOUT_CHECK(PoseSearchTrajectory, hky::layout::CBPoseSearchTrajectory);
+    HKY_LAYOUT_CHECK(PoseSearchChannel, hky::layout::CBPoseSearchChannel);
 
-    /// @brief CBPoseSearchPosition and CBPoseSearchVelocity share a layout.
-    class PoseSearchBoneFeature : public PoseSearchFeature {
-    public:
-        ::hkStringPtr m_bone;     ///< +0x38
-        ::hkStringPtr m_origin;   ///< +0x40
-        ::hkUint8     m_pad48[0x50 - 0x48];
-        ::hkVector4   m_query;    ///< +0x50
-        explicit PoseSearchBoneFeature(::hkFinishLoadedObjectFlag flag);
+    /// @brief CBPoseSearchWeight. POD in the loaded file's array.
+    struct PoseSearchWeight {
+        HK_DECLARE_POD_TYPE();
+
+        ::hkStringPtr m_channel;   ///< +0x00
+        ::hkInt32     m_element;   ///< +0x08
+        ::hkInt8      m_part;      ///< +0x0c
+        ::hkUint8     m_pad0d[0x10 - 0x0d];
+        ::hkReal      m_weight;    ///< +0x10
     };
-    HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchPosition);
-    HKY_LAYOUT_CHECK(PoseSearchBoneFeature, hky::layout::CBPoseSearchVelocity);
-    class PoseSearchPosition : public PoseSearchBoneFeature {
+    HKY_LAYOUT_CHECK(PoseSearchWeight, hky::layout::CBPoseSearchWeight);
+
+    /// @brief CBPoseSearchProfile: a named weight set over the channels.
+    class PoseSearchProfile : public ::hkbBindable {
     public:
-        using PoseSearchBoneFeature::PoseSearchBoneFeature;
+        ::hkStringPtr               m_name;      ///< +0x30
+        ::hkArray<PoseSearchWeight> m_weights;   ///< +0x38
+
+        explicit PoseSearchProfile(::hkFinishLoadedObjectFlag flag);
         const ::hkClass* getClassType() const override;
     };
-    class PoseSearchVelocity : public PoseSearchBoneFeature {
-    public:
-        using PoseSearchBoneFeature::PoseSearchBoneFeature;
-        const ::hkClass* getClassType() const override;
-    };
+    HKY_LAYOUT_CHECK(PoseSearchProfile, hky::layout::CBPoseSearchProfile);
 
-    class PoseSearchHeading : public PoseSearchFeature {
-    public:
-        ::hkStringPtr m_bone;    ///< +0x38
-        ::hkInt32     m_axis;    ///< +0x40
-        ::hkUint8     m_pad44[0x50 - 0x44];
-        ::hkVector4   m_query;   ///< +0x50
-        explicit PoseSearchHeading(::hkFinishLoadedObjectFlag flag);
-        const ::hkClass* getClassType() const override;
-    };
-    HKY_LAYOUT_CHECK(PoseSearchHeading, hky::layout::CBPoseSearchHeading);
+    /// @brief `s` as text, "" for a null string.
+    inline std::string Text(const ::hkStringPtr& s) { return s.cString() ? std::string(s.cString()) : std::string(); }
 
-    class PoseSearchCurve : public PoseSearchFeature {
-    public:
-        ::hkStringPtr m_curve;   ///< +0x38
-        ::hkReal      m_query;   ///< +0x40
-        explicit PoseSearchCurve(::hkFinishLoadedObjectFlag flag);
-        const ::hkClass* getClassType() const override;
-    };
-    HKY_LAYOUT_CHECK(PoseSearchCurve, hky::layout::CBPoseSearchCurve);
+    /// @brief The variable (byte-exact) member `member` of `bindable` is bound to in `context`'s behavior; empty when none.
+    std::string BoundVariable(const ::hkbContext& context, const ::hkbBindable& bindable, std::string_view member);
+    /// @brief The character property member `member` of `bindable` is bound to, as `context`'s character states its
+    ///        value; null when unbound or the character has no such property.
+    const ::hkReferencedObject* BoundCharacterProperty(const ::hkbContext& context, const ::hkbBindable& bindable, std::string_view member);
+    /// @brief Calls `fn(memberPath, variable)` for every variable binding of `bindable` in `context`'s behavior.
+    template <class Fn>
+    void ForEachVariableBinding(const ::hkbContext& context, const ::hkbBindable& bindable, Fn&& fn);
 
-    /// @brief CBPoseSearchSchema: shared by the databases pointing at it.
-    class PoseSearchSchema : public ::hkReferencedObject {
-    public:
-        ::hkStringPtr                  m_name;       ///< +0x10
-        ::hkStringPtr                  m_rootBone;   ///< +0x18
-        ::hkArray<PoseSearchFeature*>  m_features;   ///< +0x20, the loaded file's (never referenced or freed here)
-        explicit PoseSearchSchema(::hkFinishLoadedObjectFlag flag);
-        const ::hkClass* getClassType() const override;
-    };
-    HKY_LAYOUT_CHECK(PoseSearchSchema, hky::layout::CBPoseSearchSchema);
+    /// @brief The variable name of binding `b` in `context`'s behavior; empty for a character property or a bad index.
+    std::string VariableOf(const ::hkbContext& context, const ::hkbVariableBindingSet::Binding& b);
 
-    /// @brief One query value a feature takes from a graph variable: where it lands in the schema's row and how it reads.
-    struct BoundInput {
-        enum class How : std::uint8_t {
-            Float,      ///< one float
-            Vector,     ///< x, y, z into as many dims as the feature has (up to 3)
-            PoseXY,     ///< a trajectory sample's pose: x, y, then the facing angle as (-sin, cos)
-            MotionXYZ,  ///< a trajectory sample's motion: velocity x, y, then height; then the velocity's direction
-        };
-        int         dim = 0;     ///< the first dim it fills
-        int         width = 1;   ///< Vector: how many dims
-        How         how = How::Float;
-        std::string variable;    ///< the bound variable's name, byte-exact
-    };
-
-    /// @brief `schema` as data, and each of its features' bound query values resolved to variable names through the
-    ///        behavior graph `context` runs (its string data's variable names).
-    anim::SchemaSpec SpecOfSchema(const PoseSearchSchema& schema, const ::hkbContext& context, std::vector<BoundInput>& bound);
+    template <class Fn>
+    void ForEachVariableBinding(const ::hkbContext& context, const ::hkbBindable& bindable, Fn&& fn)
+    {
+        const ::hkbVariableBindingSet* set = bindable.m_variableBindingSet.val();
+        if (!set) return;
+        for (int i = 0; i < set->m_bindings.getSize(); ++i) {
+            const auto&       b    = set->m_bindings[i];
+            const char*       path = b.m_memberPath.cString();
+            const std::string var  = VariableOf(context, b);
+            if (path && !var.empty()) fn(std::string_view(path), var);
+        }
+    }
 
 }  // namespace CB::feature::controller::motion

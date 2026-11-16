@@ -265,6 +265,8 @@ namespace CB {
         /// @brief Every rig unit (normalized serve path) the characters that run `key` bind through, each backed by a skeleton
         ///        unit; empty when none does. A graph male and female characters share has both.
         std::vector<std::string> RigUnitsOf(const std::string& key) const;
+        /// @brief RigUnitsOf's characters: each character unit (normalized serve path) running `key`, with its rig unit.
+        std::vector<std::pair<std::string, std::string>> CharactersOf(const std::string& key) const;
 
         /// @brief The served graph `key` merged across every layer of the load order: the merge Resolve runs, before
         ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`. A skeleton

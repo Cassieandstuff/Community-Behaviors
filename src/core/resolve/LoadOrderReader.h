@@ -3,6 +3,7 @@
 #include <hky/decompile/BehaviorDecompile.h>
 
 #include <functional>
+#include <utility>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +26,9 @@ namespace CB::core::resolve {
         std::function<std::vector<std::string>()> addedBehaviors;
         /// @brief Every rig unit the characters running a graph bind through (Resolver::RigUnitsOf); mergedGraph reads each.
         std::function<std::vector<std::string>(const std::string& key)> rigUnitsOf;
+        /// @brief Every character running a graph, with the rig unit it binds through (Resolver::CharactersOf); mergedGraph
+        ///        reads each. Null on a host that predates it.
+        std::function<std::vector<std::pair<std::string, std::string>>(const std::string& key)> charactersOf;
     };
 
     /// @brief Runs a batch of jobs and returns once all are done: the plugin's BELOW_NORMAL pool, or none (serial).

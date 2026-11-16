@@ -1562,6 +1562,15 @@ namespace CB {
         return out;
     }
 
+    std::vector<std::pair<std::string, std::string>> Resolver::CharactersOf(const std::string& key) const
+    {
+        std::vector<std::pair<std::string, std::string>> out;
+        if (const auto* who = m_rigIndex.CharactersFor(NormalizeKey(key)))
+            for (const hky::skeleton::BoundCharacter& c : *who)
+                if (m_skeletonSources.contains(NormalizeKey(c.rig))) out.emplace_back(c.character, c.rig);
+        return out;
+    }
+
     Resolver::RigBones Resolver::BonesFor(const std::string& key) const
     {
         const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key));
