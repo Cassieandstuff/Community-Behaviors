@@ -103,9 +103,9 @@ namespace CB::feature::controller::config {
             if (ImGuiMCP::Button("Reset to GASP's")) tuning::Reset();
 
             ImGuiMCP::Separator();
-            ImGuiMCP::TextWrapped("The player's body facing: with weighted facing on, the playing clip's root yaw turns the body (pivots, "
-                                  "starts, stops, turns), steered toward where the model faces at the gait's rate and never further "
-                                  "behind than the largest lag. Traction makes the velocity arc and dig in at speed (the grip and "
+            ImGuiMCP::TextWrapped("The player's body facing: with weighted facing on, the body keeps an offset from where the model faces. "
+                                  "The model's turn opens it, the playing clip's root yaw turns the body (pivots, starts, stops, "
+                                  "turns), and the rest eases back over the halflife. Traction makes the velocity arc and dig in at speed (the grip and "
                                   "dig-in numbers above override it). Changes apply at once; the switches save at once, the numbers on "
                                   "Save, to settings.ini [Character].");
             bool weighted = tuning::WeightedFacing();
