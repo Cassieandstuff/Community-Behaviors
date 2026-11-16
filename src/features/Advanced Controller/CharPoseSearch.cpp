@@ -62,17 +62,18 @@ namespace CB::feature::controller::motion {
         }
 
         /// @brief GASP's Get_MMBlendTime numbers, read once from settings.ini [Character] (seconds, clamped to [0, 1]).
-        /// @note  fMMBlendTime (one 0.2 s blend for every switch) is retired: it was tuned for a single blend restarting at
-        ///        each switch, which the stacked blend replaces; GASP's 0.5 s ground blend needs the stack.
+        /// @note  fMMBlendTime (one 0.2 s blend for every switch) is retired for these. Ground and air default to 0.2, not
+        ///        GASP's 0.5: GASP's blend stack keeps the clips it blends playing, our dead blend coasts them to a stop,
+        ///        and half a second of that read as feet skating (in game, 2026-11-16).
         struct BlendTimes {
             float ground, land, jump, air;
         };
         inline const BlendTimes& Times()
         {
-            static const BlendTimes t{ std::clamp(SettingFloat("fMMBlendTimeGround", 0.5f), 0.0f, 1.0f),
+            static const BlendTimes t{ std::clamp(SettingFloat("fMMBlendTimeGround", 0.2f), 0.0f, 1.0f),
                                        std::clamp(SettingFloat("fMMBlendTimeLand", 0.2f), 0.0f, 1.0f),
                                        std::clamp(SettingFloat("fMMBlendTimeJump", 0.15f), 0.0f, 1.0f),
-                                       std::clamp(SettingFloat("fMMBlendTimeAir", 0.5f), 0.0f, 1.0f) };
+                                       std::clamp(SettingFloat("fMMBlendTimeAir", 0.2f), 0.0f, 1.0f) };
             return t;
         }
         /// @brief Game units/s upward past which an airborne switch blends as a jump's (GASP: 100 cm/s).

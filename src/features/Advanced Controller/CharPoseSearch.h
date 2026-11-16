@@ -157,8 +157,8 @@ namespace CB::feature::controller::motion {
     HKY_LAYOUT_CHECK(PoseSearchGenerator, hky::layout::CBPoseSearchGenerator);
 
     /// @brief GASP's Get_MMBlendTime: the seconds a switch made now blends over (settings.ini [Character]
-    ///        fMMBlendTimeGround 0.5, fMMBlendTimeLand 0.2 just landed, fMMBlendTimeJump 0.15 airborne and rising past
-    ///        70 units/s, fMMBlendTimeAir 0.5 otherwise in the air).
+    ///        fMMBlendTimeGround 0.2, fMMBlendTimeLand 0.2 just landed, fMMBlendTimeJump 0.15 airborne and rising past
+    ///        70 units/s, fMMBlendTimeAir 0.2 otherwise in the air).
     /// @param vz the character's vertical speed, game units/s
     float SituationBlendTime(bool airborne, bool justLanded, float vz);
 

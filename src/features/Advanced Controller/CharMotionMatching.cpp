@@ -100,12 +100,33 @@ namespace CB::feature {
         constexpr const char*      kTimeVar    = "MM_Time";
 
         /// @brief fMMReselectTime (settings.ini [Character], read once): seconds a pick's neighbourhood stays banned.
-        /// @note  Default 0.3 s, GASP's PoseReselectHistory: with a search every update and no margin or dwell, it is what
-        ///        keeps near-equal candidates from trading places each update. Was 1.0 s, beside a 0.3 s dwell.
+        /// @note  Default 0.3 s, GASP's PoseReselectHistory. Was 1.0 s.
         float ReselectTime()
         {
             static const float t = std::clamp(ch::SettingFloat("fMMReselectTime", ps::kReselectTime), 0.0f, 5.0f);
             return t;
+        }
+        /// @brief When a playing pick may be replaced (settings.ini [Character], read once).
+        /// @note  bMMGaspSwitching (default off) starts from GASP's rules: a search every update, any gain switches, no
+        ///        dwell. Our dead blend coasts the clip it leaves to a stop, so under those rules the output was mostly
+        ///        coasting poses and the feet skated (in game, 2026-11-16). Off, the rules are HKY's defaults: a search
+        ///        every 0.1 s, a pick held 0.3 s (0.1 after a jump in the request), 0.1 s between switches, a 12% margin,
+        ///        10 frames either side of the playing one no candidate. Each key overrides either way: fMMSearchInterval,
+        ///        fMMMinDwell, fMMForcedDwell, fMMSwitchFloor, fMMSwitchMargin (a share), iMMIgnoreSurrounding (frames).
+        const ps::SwitchRules& SwitchRules()
+        {
+            static const ps::SwitchRules r = [] {
+                const ps::SwitchRules base = ch::SettingFloat("bMMGaspSwitching", 0.0f) != 0.0f ? ps::SwitchRules::Gasp() : ps::SwitchRules{};
+                ps::SwitchRules       out;
+                out.searchInterval    = std::clamp(ch::SettingFloat("fMMSearchInterval", static_cast<float>(base.searchInterval)), 0.0f, 1.0f);
+                out.minDwell          = std::clamp(ch::SettingFloat("fMMMinDwell", static_cast<float>(base.minDwell)), 0.0f, 2.0f);
+                out.forcedDwell       = std::clamp(ch::SettingFloat("fMMForcedDwell", static_cast<float>(base.forcedDwell)), 0.0f, 2.0f);
+                out.switchFloor       = std::clamp(ch::SettingFloat("fMMSwitchFloor", static_cast<float>(base.switchFloor)), 0.0f, 1.0f);
+                out.margin            = std::clamp(ch::SettingFloat("fMMSwitchMargin", base.margin), 0.0f, 1.0f);
+                out.ignoreSurrounding = static_cast<int>(std::lround(std::clamp(ch::SettingFloat("iMMIgnoreSurrounding", static_cast<float>(base.ignoreSurrounding)), 0.0f, 60.0f)));
+                return out;
+            }();
+            return r;
         }
         /// @brief iMMDatabaseLOD (settings.ini [Character], read once): the MM_DatabaseLOD the chooser sees.
         int DatabaseLod()
@@ -628,7 +649,7 @@ namespace CB::feature {
             /// @note Under the body facing the turn owed is the body's (GASP's root against its capsule): the model's facing
             ///       reaches the intent on its own, long before the body does.
             const float bodyYaw    = player->IsPlayerRef() && controller::tuning::WeightedFacing() ? player->GetHeading(false) : s.yaw;
-            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, static_cast<float>(ps::kSearchInterval), dt);
+            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, static_cast<float>(SwitchRules().searchInterval), dt);
 
             io[kSlidePhase]           = ps::SlidePhase(m.slideExitHold, s, dt);
             /// @note GASP's JustTraversed: true while the traversal montage blends out and the request is within
@@ -1122,6 +1143,7 @@ namespace CB::feature {
         if (s.speedBound) request.rate = ps::NodeRate(db, s.playingClip, s.playingTime, node.m_speed, s.rate, s.rateVelocity, timestep);
         request.inputsChanged = inputsChanged;
         request.reselectTime  = ReselectTime();
+        request.rules         = SwitchRules();
         const InputVariables vars(in);
         s.ctx.Reset(actor);
         s.ctx.variables = &vars;
