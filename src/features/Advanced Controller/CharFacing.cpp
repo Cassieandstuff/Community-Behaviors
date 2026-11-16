@@ -14,6 +14,7 @@
 
 #include <features/Camera/Camera.h>
 #include <features/Camera/CameraLock.h>
+#include <hky/locomotion/BodyFacing.h>
 #include <hky/locomotion/Horse.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
@@ -99,6 +100,9 @@ namespace CB::feature::controller {
             move::State state;
             Slope       slope;
             EngineSpeed engineSpeed;
+            /// @brief The body facing (tuning::WeightedFacing): the heading, apart from state.yaw (the model's facing).
+            hky::locomotion::BodyFacing body;
+            bool                        bodyInit = false;   ///< body has stepped since the model last restarted
         };
         /// @brief Every driven actor's state, by FormID (the player today; a ridden horse next).
         /// @note  Each actor's frame runs on one movement job at a time, so only that actor's frame touches its entry: the
@@ -543,6 +547,7 @@ namespace CB::feature::controller {
                 const float dir = heading + out->angles[2];
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
                 d.init  = hold && !vanilla;
+                d.bodyInit = false;
                 es      = EngineSpeed{};
                 /// @note The graph owns the attack's translation (root motion) but not its yaw: the turn toward the aim is
                 ///       CB's, capped by AttackTurnRate. Actor_ApplyFrameMovement adds turn[2]*dt to the heading before the move.
@@ -561,6 +566,7 @@ namespace CB::feature::controller {
                 ///       toward the speaker (when one resolves), with the model's halflife.
                 s.vx = s.vy = 0.0f;
                 s.yaw       = heading + WrapPi(s.yaw - heading);
+                d.bodyInit  = false;
                 /// @note The speaker owns the facing: the desired facing goes, or the player turns back once it ends.
                 s.desiredYaw = kNoDirection;
                 if (haveSpeaker) {
@@ -652,25 +658,44 @@ namespace CB::feature::controller {
             speed::Ratios(player, in.gait, caps);
             LogSpeeds(player, in.gait, full);
 
+            /// @note The player's traction (tuning::PlayerTraction) fills the grip and dig-in [Movement] leaves at 0, before
+            ///       the components, so swimming still drops it.
+            move::Profile profile = tuning::Current();
+            if (tuning::PlayerTraction()) hky::locomotion::FillTraction(profile, hky::locomotion::kPlayerTraction);
             /// @note The components pushed on the player (swimming) reshape the profile, caps and input before the step.
-            component::Frame cf{ component::Character::Player, tuning::Current(), caps, in };
+            component::Frame cf{ component::Character::Player, profile, caps, in };
             component::Apply(*player, cf);
             in   = cf.input;
             caps = cf.caps;
             move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
-            /// @note GASP's turn in place: a TurnInPlace clip turns the body by its own root, which its feet step to.
-            ///       Standing, the clip's root yaw since the last frame is this frame's turn and the model's facing spring
-            ///       waits; the desired facing stays, so the query still asks for the rest of the turn.
-            if (float rootTurn = 0.0f; !in.airborne && std::hypot(s.vx, s.vy) < cf.profile.facingMinSpeed &&
-                                       motion::RootTurn(player->GetFormID(), rootTurn)) {
+            float faceYaw = s.yaw;
+            if (tuning::WeightedFacing()) {
+                /// @note GASP's Offset Root Bone (Accumulate) and Steering: the heading is the body, which every playing
+                ///       clip's root yaw turns, steered toward the model's facing (the capsule) and clamped to it. The model's
+                ///       facing keeps feeding the predictor, so the query asks for the turn the body still owes.
+                if (!d.bodyInit) d.body = hky::locomotion::BodyFacing{ heading, 0.0f }, d.bodyInit = true;
+                d.body.yaw = heading + WrapPi(d.body.yaw - heading);
+                hky::locomotion::BodyFacingInput bi;
+                bi.modelYaw     = s.yaw;
+                bi.gait         = in.gait;
+                bi.moving       = in.airborne || std::hypot(s.vx, s.vy) >= cf.profile.facingMinSpeed;
+                bi.haveClipTurn = motion::RootTurn(player->GetFormID(), bi.clipTurn, true, &bi.clipTurnAhead);
+                hky::locomotion::StepBody(d.body, bi, tuning::Body(), deltaTime);
+                faceYaw = d.body.yaw;
+            } else if (float rootTurn = 0.0f; !in.airborne && std::hypot(s.vx, s.vy) < cf.profile.facingMinSpeed &&
+                                              motion::RootTurn(player->GetFormID(), rootTurn)) {
+                /// @note GASP's turn in place: a TurnInPlace clip turns the body by its own root, which its feet step to.
+                ///       Standing, the clip's root yaw since the last frame is this frame's turn and the model's facing
+                ///       spring waits; the desired facing stays, so the query still asks for the rest of the turn.
                 s.yaw     = heading + rootTurn;
                 s.yawRate = deltaTime > 0.0f ? rootTurn / deltaTime : 0.0f;
+                faceYaw   = s.yaw;
             }
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
             out->angles[2]    = 0.0f;
-            Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
+            Face(out, heading, faceYaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
             es = EngineSpeed{ true, engineFull, speed, engineDir, out->angles[2] };
 
             move::Publish(player->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });

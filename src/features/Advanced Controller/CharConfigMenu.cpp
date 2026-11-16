@@ -100,6 +100,34 @@ namespace CB::feature::controller::config {
             if (ImGuiMCP::Button("Save")) tuning::Save();
             ImGuiMCP::SameLine();
             if (ImGuiMCP::Button("Reset to GASP's")) tuning::Reset();
+
+            ImGuiMCP::Separator();
+            ImGuiMCP::TextWrapped("The player's body facing: with weighted facing on, the playing clip's root yaw turns the body (pivots, "
+                                  "starts, stops, turns), steered toward where the model faces at the gait's rate and never further "
+                                  "behind than the largest lag. Traction makes the velocity arc and dig in at speed (the grip and "
+                                  "dig-in numbers above override it). Changes apply at once; the switches save at once, the numbers on "
+                                  "Save, to settings.ini [Character].");
+            bool weighted = tuning::WeightedFacing();
+            if (ImGuiMCP::Checkbox("Weighted facing (the body follows the clip)", &weighted)) tuning::SetWeightedFacing(weighted);
+            bool traction = tuning::PlayerTraction();
+            if (ImGuiMCP::Checkbox("Player traction (grip and dig-in)", &traction)) tuning::SetPlayerTraction(traction);
+            loco::BodyFacingProfile       body         = tuning::Body();
+            const loco::BodyFacingProfile bodyDefaults = loco::kPlayerBody;
+            bool                          bodyChanged  = false;
+            for (const tuning::BodyField& f : tuning::BodyFields()) {
+                float             shown = body.*f.member * f.shown;
+                const std::string label(f.label);
+                if (ImGuiMCP::DragFloat(label.c_str(), &shown, f.max / 500.0f, 0.0f, f.max, "%.3g")) {
+                    body.*f.member = (std::max)(0.0f, shown) / f.shown;
+                    bodyChanged    = true;
+                }
+                ImGuiMCP::SameLine();
+                ImGuiMCP::TextDisabled("%.*s, default %.3g", static_cast<int>(f.unit.size()), f.unit.data(), bodyDefaults.*f.member * f.shown);
+            }
+            if (bodyChanged) tuning::SetBody(body);
+            if (ImGuiMCP::Button("Save body facing")) tuning::SaveBody();
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button("Reset body facing")) tuning::ResetBody();
         }
 
         /// @brief Which dodge key the Advanced Dodge page is waiting for, and the input frame the wait began on.

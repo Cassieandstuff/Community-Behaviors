@@ -200,6 +200,22 @@ namespace CB::core::debug {
           "bAnimationDriven, bSpeedSynced and bIsSynced. Every frame it writes the stick into the player's graph: "
           "iCB_StickDirection (degrees clockwise from the facing, 0-359) and iCB_StickIntensity (0-100). Needs bCamera (in third person); off without it. AE only. "
           "Unproven in game." },
+        { "char_weighted_facing", FlagKind::IniBool, "Character", "bWeightedFacing", false, false,
+          "Weighted facing (body follows the clip)",
+          "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate): the playing motion-matched clip's "
+          "root yaw turns it (pivots, starts, stops, turns), then a steering spring (fBodySteerHalflife, 0.2 s) pulls it "
+          "toward the movement model's facing, capped per gait (fBodyTurnRateIdle/Walk/Run/Sprint: 90/450/300/180 deg/s; "
+          "while the clip turns, at most fBodyAnimatedSteer = 0.5 x the clip's own turn) and never more than "
+          "fBodyMaxOffset (90 deg) behind it. The model's facing still feeds the trajectory, so the query asks for the "
+          "turn the body owes. Needs bMovementModel; the clip's turn needs bMotionMatching. Switchable live from the "
+          "config menu. Unproven in game." },
+        { "char_player_traction", FlagKind::IniBool, "Character", "bPlayerTraction", false, false,
+          "Player traction",
+          "The player's velocity turns under grip, as the horse's does: at most 1000 units/s2 sideways (a sprint arcs no "
+          "tighter than about 240 units; a walk is untouched), and asked more than 100 deg off its course the player digs "
+          "in, braking up to 700 units/s2 more at a full reversal while the model's facing leads the momentum by up to "
+          "90 deg. [Movement] fLateralGrip, fBrakingGrip, fMinTurnRadius and fDigIn* override each number. Needs "
+          "bMovementModel. Switchable live from the config menu. Unproven in game." },
         { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
           "Horse movement model",
           "The horse the player rides moves with the player's movement model and the horse's own numbers (900 units/s2 "

@@ -77,13 +77,16 @@ namespace CB::feature::controller::motion {
                                                                                  hky::locomotion::DistanceMarker marker);
 
     /// @brief The turn the playing clip's root made since the last call, while that clip is from a database tagged
-    ///        TurnInPlace (PoseDatabase::rootTurns): the clip turns the character as it turns its feet.
+    ///        TurnInPlace (PoseDatabase::rootTurns), or with `anyDatabase` any clip with a root yaw (the body facing,
+    ///        locomotion::StepBody): the clip turns the character as it turns its feet.
     /// @param delta radians, the actor heading's convention (increasing turns right); 0 on the first frame of a clip, after
     ///        a jump in its time, or when the call is the first since the node last played
     /// @return whether such a clip plays now (the node published it within the last kRootTurnStale): the caller's facing
     ///         spring then waits
-    /// @note  The frame hook's alone (one caller per actor): it keeps what it read last.
-    bool RootTurn(RE::FormID actor, float& delta);
+    /// @param ahead when given, radians the clip's root turns over the next kRootTurnAhead seconds (0.5), read up to the
+    ///        clip's end: whether a turn is coming that the clip owns (locomotion::BodyFacingInput::clipTurnAhead)
+    /// @note  The frame hook's alone (one caller per actor, one mode per frame): it keeps what it read last.
+    bool RootTurn(RE::FormID actor, float& delta, bool anyDatabase = false, float* ahead = nullptr);
 
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
