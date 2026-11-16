@@ -15,6 +15,7 @@
 #include <features/Camera/Camera.h>
 #include <features/Camera/CameraLock.h>
 #include <hky/locomotion/BodyFacing.h>
+#include <hky/locomotion/ChooserInputs.h>
 #include <hky/locomotion/Horse.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
@@ -672,16 +673,23 @@ namespace CB::feature::controller {
             /// @note Switched off, the body restarts from the heading when it is switched on again.
             if (!tuning::WeightedFacing()) d.bodyInit = false;
             if (tuning::WeightedFacing()) {
-                /// @note GASP's Offset Root Bone (Accumulate): the heading is the body, one offset from the model's facing (the
-                ///       capsule) that every playing clip's root yaw turns and that eases back. The predictor measures from
-                ///       the heading (the controller's forward), so while the capsule leads, the query reads the body moving
-                ///       sideways or backward and asks for the clips that turn it.
+                /// @note GASP's Offset Root Bone (Accumulate) under its Steering: the heading is the body, one offset from
+                ///       the model's facing (the capsule) that every playing clip's root yaw turns, scaled (or, with no turn
+                ///       in the clip, rotated) onto the target. The predictor measures from the heading (the controller's
+                ///       forward), so while the capsule leads, the query reads the body moving sideways or backward and asks
+                ///       for the clips that turn it.
+                /// @note The target: moving, the model's facing targetAhead seconds on (the predictor's, GASP's trajectory
+                ///       facing at +0.5 s; the model's facing now until the predictor publishes one); for a turn in place,
+                ///       the orientation intent.
                 if (!d.bodyInit) d.body = hky::locomotion::StartBody(heading, s.yaw), d.bodyInit = true;
-                hky::locomotion::BodyFacingInput bi;
+                const hky::locomotion::BodyFacingProfile bodyTuning = tuning::Body();
+                hky::locomotion::BodyFacingInput         bi;
                 bi.modelYaw     = s.yaw;
-                bi.moving       = in.airborne || std::hypot(s.vx, s.vy) >= cf.profile.facingMinSpeed;
-                bi.haveClipTurn = motion::RootTurn(player->GetFormID(), bi.clipTurn, true, &bi.clipTurnAhead);
-                hky::locomotion::StepBody(d.body, bi, tuning::Body(), deltaTime);
+                bi.steer        = in.airborne || (hky::locomotion::IsMoving(s, in) && std::hypot(s.vx, s.vy) >= bodyTuning.minSpeed);
+                bi.haveClipTurn = motion::RootTurn(player->GetFormID(), bi.clipTurn, true, &bi.clipTurnWindow, bodyTuning.animatedTime, &bi.turnInPlace);
+                if (!bi.steer) bi.targetYaw = hky::locomotion::TurnIntent(s);
+                else if (!move::FacingAt(player->GetFormID(), bodyTuning.targetAhead, bi.targetYaw)) bi.targetYaw = s.yaw;
+                hky::locomotion::StepBody(d.body, bi, bodyTuning, deltaTime);
                 faceYaw = d.body.yaw;
             } else if (float rootTurn = 0.0f; !in.airborne && std::hypot(s.vx, s.vy) < cf.profile.facingMinSpeed &&
                                               motion::RootTurn(player->GetFormID(), rootTurn)) {

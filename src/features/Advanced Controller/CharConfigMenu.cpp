@@ -104,10 +104,12 @@ namespace CB::feature::controller::config {
 
             ImGuiMCP::Separator();
             ImGuiMCP::TextWrapped("The player's body facing: with weighted facing on, the body keeps an offset from where the model faces. "
-                                  "The model's turn opens it, the playing clip's root yaw turns the body (pivots, starts, stops, "
-                                  "turns), and the rest eases back over the halflife. Traction makes the velocity arc and dig in at speed (the grip and "
-                                  "dig-in numbers above override it). Changes apply at once; the switches save at once, the numbers on "
-                                  "Save, to settings.ini [Character].");
+                                  "The model's turn opens it and the playing clip's root yaw turns the body (pivots, starts, stops, "
+                                  "turns). Moving or airborne, GASP's steering lands it on the model's facing a moment ahead: a turning "
+                                  "clip's turn is scaled onto it, otherwise the body rotates there over the steering time. Standing, only "
+                                  "the clip turns it (a turn-in-place clip is scaled onto the stick's heading). Traction makes the velocity "
+                                  "arc and dig in at speed (the grip and dig-in numbers above override it). Changes apply at once; the "
+                                  "switches save at once, the numbers on Save, to settings.ini [Character].");
             bool weighted = tuning::WeightedFacing();
             if (ImGuiMCP::Checkbox("Weighted facing (the body follows the clip)", &weighted)) tuning::SetWeightedFacing(weighted);
             bool traction = tuning::PlayerTraction();

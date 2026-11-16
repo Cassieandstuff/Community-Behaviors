@@ -41,12 +41,18 @@ namespace CB::feature::controller::tuning {
 
         using BodyProfile = hky::locomotion::BodyFacingProfile;
 
+        /// @note GASP's CMC Steering numbers (locomotion::BodyFacingProfile).
         constexpr std::array kBodyFields{
-            BodyField{ "fBodyHalflife", "Body offset halflife moving", "s", &BodyProfile::halflife, 1.0f, 2.0f },
-            BodyField{ "fBodyHalflifeIdle", "Body offset halflife standing", "s", &BodyProfile::halflifeIdle, 1.0f, 2.0f },
-            BodyField{ "fBodyMaxOffset", "Body's largest offset from the model", "deg", &BodyProfile::maxOffset, kDeg, 180.0f },
-            BodyField{ "fBodyClipOwnsFrom", "A clip about to turn this far owns the turn", "deg", &BodyProfile::clipOwnsFrom, kDeg, 180.0f },
+            BodyField{ "fSteerProceduralTime", "Steering time with no turn in the clip (95 %)", "s", &BodyProfile::proceduralTime, 1.0f, 2.0f },
+            BodyField{ "fSteerAnimatedTime", "Clip turn read ahead", "s", &BodyProfile::animatedTime, 1.0f, 10.0f },
+            BodyField{ "fSteerTargetAhead", "Target: the model's facing ahead", "s", &BodyProfile::targetAhead, 1.0f, 1.0f },
+            BodyField{ "fSteerMinScale", "Clip turn scale, least", "x", &BodyProfile::minScale, 1.0f, 1.0f },
+            BodyField{ "fSteerMaxScale", "Clip turn scale, most", "x", &BodyProfile::maxScale, 1.0f, 3.0f },
+            BodyField{ "fSteerMinSpeed", "Steering from speed", "units/s", &BodyProfile::minSpeed, 1.0f, 100.0f },
+            BodyField{ "fBodyMaxOffset", "Body's largest offset from the model (ini: negative = none)", "deg", &BodyProfile::maxOffset, kDeg, 180.0f },
         };
+        /// @brief Keys of the offset's old ease back toward the model (before steering): ignored, and removed on SaveBody.
+        constexpr std::array<std::string_view, 3> kRetiredBodyKeys{ "fBodyHalflife", "fBodyHalflifeIdle", "fBodyClipOwnsFrom" };
 
         constexpr std::string_view kBodySection = "Character";
 
@@ -189,6 +195,7 @@ namespace CB::feature::controller::tuning {
             if (now.*f.member == defaults.*f.member) ok = core::debug::RemoveValue(kBodySection, f.key) && ok;
             else ok = core::debug::SetValue(kBodySection, f.key, std::format("{:g}", now.*f.member * f.shown)) && ok;
         }
+        for (const std::string_view key : kRetiredBodyKeys) ok = core::debug::RemoveValue(kBodySection, key) && ok;
         LOG_INFO("body facing tuning: saved to settings.ini [Character]{}", ok ? "" : " (with errors)");
         return ok;
     }

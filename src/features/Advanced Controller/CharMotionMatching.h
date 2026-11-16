@@ -83,10 +83,13 @@ namespace CB::feature::controller::motion {
     ///        a jump in its time, or when the call is the first since the node last played
     /// @return whether such a clip plays now (the node published it within the last kRootTurnStale): the caller's facing
     ///         spring then waits
-    /// @param ahead when given, radians the clip's root turns over the next kRootTurnAhead seconds (0.5), read up to the
-    ///        clip's end: whether a turn is coming that the clip owns (locomotion::BodyFacingInput::clipTurnAhead)
+    /// @param ahead when given, radians the clip's root turns over the next `aheadSeconds`, read up to the clip's end: the
+    ///        turn steering scales (locomotion::BodyFacingInput::clipTurnWindow, GASP's AnimatedTargetTime)
+    /// @param turnInPlace when given, whether the clip's database is tagged TurnInPlace (PoseDatabase::rootTurns): GASP's
+    ///        second Steering node scales its turn even standing
     /// @note  The frame hook's alone (one caller per actor, one mode per frame): it keeps what it read last.
-    bool RootTurn(RE::FormID actor, float& delta, bool anyDatabase = false, float* ahead = nullptr);
+    bool RootTurn(RE::FormID actor, float& delta, bool anyDatabase = false, float* ahead = nullptr, float aheadSeconds = 2.0f,
+                  bool* turnInPlace = nullptr);
 
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.

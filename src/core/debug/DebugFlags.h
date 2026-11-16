@@ -201,13 +201,16 @@ namespace CB::core::debug {
           "Unproven in game." },
         { "char_weighted_facing", FlagKind::IniBool, "Character", "bWeightedFacing", false, false,
           "Weighted facing (body follows the clip)",
-          "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate): one offset from the "
-          "movement model's facing, which the model's turn opens, the playing motion-matched clip's root yaw turns "
-          "(pivots, starts, stops, turns) and which eases back (fBodyHalflife 0.15 s moving, fBodyHalflifeIdle 0.5 s "
-          "standing; paused while a clip about to turn fBodyClipOwnsFrom = 20 deg closes it), at most fBodyMaxOffset "
-          "(180 deg). The trajectory is measured from the body, so while the model leads, the query asks for the "
-          "clips that turn it. Needs bMovementModel; the clip's turn needs bMotionMatching. Switchable live from the "
-          "config menu. Unproven in game." },
+          "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate, under GASP's Steering): one "
+          "offset from the movement model's facing, which the model's turn opens and the playing motion-matched clip's "
+          "root yaw turns (pivots, starts, stops, turns). Moving (fSteerMinSpeed 7 units/s or more) or airborne, it is "
+          "steered onto the model's facing fSteerTargetAhead (0.5 s) ahead: a clip turning more than 1 deg over the "
+          "next fSteerAnimatedTime (2 s) has its turn scaled onto it (fSteerMinScale 0.5 to fSteerMaxScale 1.5x), "
+          "otherwise the body rotates there, 95 % within fSteerProceduralTime (0.4 s). Standing, only the clip turns "
+          "it; a TurnInPlace clip's turn is scaled onto the stick's heading. No clamp unless fBodyMaxOffset (deg) is "
+          "0 or more. The trajectory is measured from the body, so while the model leads, the query asks for the "
+          "clips that turn it. Needs bMovementModel; the clip's turn needs bMotionMatching, the target the predictor. "
+          "Switchable live from the config menu. Unproven in game." },
         { "char_player_traction", FlagKind::IniBool, "Character", "bPlayerTraction", false, false,
           "Player traction",
           "The player's velocity turns under grip, as the horse's does: at most 1000 units/s2 sideways (a sprint arcs no "

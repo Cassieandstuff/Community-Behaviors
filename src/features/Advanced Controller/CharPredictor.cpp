@@ -163,7 +163,10 @@ namespace CB::feature {
             int                                hitLayer  = -1;      ///< collision layer (-1 none or unknown)
             int                                hitSlides = 0;       ///< and how many slides along that leg came before it
             float                              jumpIn    = -1.0f;   ///< seconds to a pending jump's launch (its wind-up), -1 for none
+            /// @brief The model's facing at each path point (with the movement model only), for the body's steering target.
+            ch::move::FacingAhead              facingAhead;
         };
+        static_assert(ch::move::FacingAhead::kPoints == kPathPoints);
 
         /// @brief How the predicted character steers.
         /// @note With the movement model on, the frame's own step (ch::move::Step) runs on from the frame's state with its
@@ -470,6 +473,8 @@ namespace CB::feature {
 
             ch::move::State model = drive.state;
             ch::move::Input input = drive.input;
+            tr.facingAhead.step   = kPathStep;
+            tr.facingAhead.yaw[0] = model.yaw;
             /// @note The press happened this frame, not again on the predicted path.
             input.slide           = false;
             ch::move::Caps  caps  = drive.caps;
@@ -556,6 +561,7 @@ namespace CB::feature {
                         ++query;
                     }
                 }
+                if (horizon) tr.facingAhead.yaw[i + 1] = model.yaw;
 
                 Vec2             at{ px, py };
                 ch::FloorVerdict floor;
@@ -888,6 +894,8 @@ namespace CB::feature {
                 }
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, pastTimes, world, path);
+            /// @note The model's facing ahead: the body facing's steering target (CharFacing, move::FacingAt).
+            if (drive.model) ch::move::PublishFacingAhead(actorId, tr.facingAhead);
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note The material ahead (relay IsAheadMaterial): the one most of the path's grounded points stand on, the
             ///       nearer winning a tie; none while the character neither moves nor asks to.
