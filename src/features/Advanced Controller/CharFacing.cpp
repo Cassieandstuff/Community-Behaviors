@@ -669,6 +669,8 @@ namespace CB::feature::controller {
             caps = cf.caps;
             move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
             float faceYaw = s.yaw;
+            /// @note Switched off, the body restarts from the heading when it is switched on again.
+            if (!tuning::WeightedFacing()) d.bodyInit = false;
             if (tuning::WeightedFacing()) {
                 /// @note GASP's Offset Root Bone (Accumulate) and Steering: the heading is the body, which every playing
                 ///       clip's root yaw turns, steered toward the model's facing (the capsule) and clamped to it. The model's
