@@ -202,12 +202,12 @@ namespace CB::core::debug {
           "Unproven in game." },
         { "char_weighted_facing", FlagKind::IniBool, "Character", "bWeightedFacing", false, false,
           "Weighted facing (body follows the clip)",
-          "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate): the playing motion-matched clip's "
-          "root yaw turns it (pivots, starts, stops, turns), then a steering spring (fBodySteerHalflife, 0.12 s) pulls it "
-          "toward the movement model's facing, capped per gait (fBodyTurnRateIdle/Walk/Run/Sprint: 90/450/300/180 deg/s; "
-          "while the clip turns, at most fBodyAnimatedSteer = 0.5 x the clip's own turn) and never more than "
-          "fBodyMaxOffset (90 deg) behind it. The model's facing still feeds the trajectory, so the query asks for the "
-          "turn the body owes. Needs bMovementModel; the clip's turn needs bMotionMatching. Switchable live from the "
+          "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate): one offset from the "
+          "movement model's facing, which the model's turn opens, the playing motion-matched clip's root yaw turns "
+          "(pivots, starts, stops, turns) and which eases back (fBodyHalflife 0.15 s moving, fBodyHalflifeIdle 0.5 s "
+          "standing; paused while a clip about to turn fBodyClipOwnsFrom = 20 deg closes it), at most fBodyMaxOffset "
+          "(180 deg). The trajectory is measured from the body, so while the model leads, the query asks for the "
+          "clips that turn it. Needs bMovementModel; the clip's turn needs bMotionMatching. Switchable live from the "
           "config menu. Unproven in game." },
         { "char_player_traction", FlagKind::IniBool, "Character", "bPlayerTraction", false, false,
           "Player traction",

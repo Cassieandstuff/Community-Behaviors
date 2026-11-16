@@ -42,14 +42,10 @@ namespace CB::feature::controller::tuning {
         using BodyProfile = hky::locomotion::BodyFacingProfile;
 
         constexpr std::array kBodyFields{
-            BodyField{ "fBodySteerHalflife", "Body steering halflife", "s", &BodyProfile::steerHalflife, 1.0f, 2.0f },
-            BodyField{ "fBodyMaxOffset", "Body's largest lag behind the model", "deg", &BodyProfile::maxOffset, kDeg, 180.0f },
-            BodyField{ "fBodyAnimatedSteer", "Steering while the clip turns", "x the clip's turn", &BodyProfile::animatedSteer, 1.0f, 2.0f },
+            BodyField{ "fBodyHalflife", "Body offset halflife moving", "s", &BodyProfile::halflife, 1.0f, 2.0f },
+            BodyField{ "fBodyHalflifeIdle", "Body offset halflife standing", "s", &BodyProfile::halflifeIdle, 1.0f, 2.0f },
+            BodyField{ "fBodyMaxOffset", "Body's largest offset from the model", "deg", &BodyProfile::maxOffset, kDeg, 180.0f },
             BodyField{ "fBodyClipOwnsFrom", "A clip about to turn this far owns the turn", "deg", &BodyProfile::clipOwnsFrom, kDeg, 180.0f },
-            BodyField{ "fBodyTurnRateIdle", "Body turn rate standing", "deg/s", &BodyProfile::turnRateIdle, kDeg, 720.0f },
-            BodyField{ "fBodyTurnRateWalk", "Body turn rate walking", "deg/s", &BodyProfile::turnRateWalk, kDeg, 1080.0f },
-            BodyField{ "fBodyTurnRateRun", "Body turn rate running", "deg/s", &BodyProfile::turnRateRun, kDeg, 1080.0f },
-            BodyField{ "fBodyTurnRateSprint", "Body turn rate sprinting", "deg/s", &BodyProfile::turnRateSprint, kDeg, 1080.0f },
         };
 
         constexpr std::string_view kBodySection = "Character";

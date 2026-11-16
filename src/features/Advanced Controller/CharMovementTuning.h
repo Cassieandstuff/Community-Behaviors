@@ -64,7 +64,8 @@ namespace CB::feature::controller::tuning {
     void ResetBody();
 
     /// @brief settings.ini `[Character] bWeightedFacing` (flag char_weighted_facing), live: the player's heading is the body
-    ///        facing (the clip's root yaw, steered toward the model's facing and clamped to it) instead of the model's.
+    ///        facing (an offset from the model's facing that the clips' root yaw turns and that eases back) instead of the
+    ///        model's.
     bool WeightedFacing();
 
     /// @brief settings.ini `[Character] bPlayerTraction` (flag char_player_traction), live: the player's profile takes

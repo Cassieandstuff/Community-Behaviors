@@ -672,14 +672,13 @@ namespace CB::feature::controller {
             /// @note Switched off, the body restarts from the heading when it is switched on again.
             if (!tuning::WeightedFacing()) d.bodyInit = false;
             if (tuning::WeightedFacing()) {
-                /// @note GASP's Offset Root Bone (Accumulate) and Steering: the heading is the body, which every playing
-                ///       clip's root yaw turns, steered toward the model's facing (the capsule) and clamped to it. The model's
-                ///       facing keeps feeding the predictor, so the query asks for the turn the body still owes.
-                if (!d.bodyInit) d.body = hky::locomotion::BodyFacing{ heading, 0.0f }, d.bodyInit = true;
-                d.body.yaw = heading + WrapPi(d.body.yaw - heading);
+                /// @note GASP's Offset Root Bone (Accumulate): the heading is the body, one offset from the model's facing (the
+                ///       capsule) that every playing clip's root yaw turns and that eases back. The predictor measures from
+                ///       the heading (the controller's forward), so while the capsule leads, the query reads the body moving
+                ///       sideways or backward and asks for the clips that turn it.
+                if (!d.bodyInit) d.body = hky::locomotion::StartBody(heading, s.yaw), d.bodyInit = true;
                 hky::locomotion::BodyFacingInput bi;
                 bi.modelYaw     = s.yaw;
-                bi.gait         = in.gait;
                 bi.moving       = in.airborne || std::hypot(s.vx, s.vy) >= cf.profile.facingMinSpeed;
                 bi.haveClipTurn = motion::RootTurn(player->GetFormID(), bi.clipTurn, true, &bi.clipTurnAhead);
                 hky::locomotion::StepBody(d.body, bi, tuning::Body(), deltaTime);
