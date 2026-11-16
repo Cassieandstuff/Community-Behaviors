@@ -140,8 +140,9 @@ namespace CB::feature::controller::motion {
         /// @brief Play child `index` at `fraction` of its length, on this character's clone of it.
         /// @note  For a node with no bindings. Two nodes alive through a state's transition would fight over MM_Clip and MM_Time,
         ///        which hold one child of one database. Its effect lands when a binding's would: the children updated before this.
-        /// @brief The next output blends: the matcher moved the playing child to another time.
-        void BlendNextJump();
+        /// @brief The matcher switched: the switch the output shows next blends over `blendTime` seconds (SituationBlendTime),
+        ///        and with `jump` (the playing child moved to another time) it blends though the child stays.
+        void BlendNext(float blendTime, bool jump);
         void PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction);
 
         /// @return what this node loaded, for its database; nothing when its template cannot be found
@@ -154,6 +155,12 @@ namespace CB::feature::controller::motion {
         void deadBlend(const ::hkbContext& context, ::hkbGeneratorOutput& output);
     };
     HKY_LAYOUT_CHECK(PoseSearchGenerator, hky::layout::CBPoseSearchGenerator);
+
+    /// @brief GASP's Get_MMBlendTime: the seconds a switch made now blends over (settings.ini [Character]
+    ///        fMMBlendTimeGround 0.5, fMMBlendTimeLand 0.2 just landed, fMMBlendTimeJump 0.15 airborne and rising past
+    ///        70 units/s, fMMBlendTimeAir 0.5 otherwise in the air).
+    /// @param vz the character's vertical speed, game units/s
+    float SituationBlendTime(bool airborne, bool justLanded, float vz);
 
     /// @brief Seconds left in the newest dead blend (0 when none runs), for the HUD.
     /// @note  One value for every instance: motion matching plays the node for the player alone.

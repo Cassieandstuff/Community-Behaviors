@@ -319,17 +319,19 @@ namespace CB::core::debug {
           "Motion matching (prototype)",
           "Needs the Motion Matching add-on (Motion Matching.hky, the clips, and Motion Matching Wiring.hky, which switches "
           "locomotion to them) and bPredictorObserve. For the player, CB searches the "
-          "add-on's clips every 0.1 s for the frame whose next second best matches the predicted trajectory and the "
+          "add-on's clips every update for the frame whose next second best matches the predicted trajectory and the "
           "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Only the databases the "
           "add-on's chooser picks are searched: each frame CB computes Unreal's Game Animation Sample inputs (movement "
           "mode, rotation mode, movement state, gait, stance, starting, pivoting, landing, turn in place, spin; "
           "iMMDatabaseLOD, default 0, as the LOD) and writes them as MM_* graph variables. Costs carry each database's "
           "additive biases (base, looping, and continuing for the playing frame); a switch happens when a candidate's "
           "biased cost is below the playing frame's, and a change of those inputs that drops the playing database "
-          "switches at once. Each clip switch is dead-blended: fMMBlendTime seconds of cross-fade (default 0.2, 0 = "
-          "hard cuts) from the old pose coasting at its velocity, slowing with an fMMBlendDecay halflife (default "
-          "0.1 s). A pick's stretch of motion stays banned for fMMReselectTime seconds (default 1.0); a sharp change of "
-          "the request searches at once. Without the add-on it does nothing. Prototype." },
+          "switches at once. Each switch is dead-blended over the switches still blending (up to 4 at once): the old "
+          "clip's pose coasts at its velocity, slowing with an fMMBlendDecay halflife (default 0.1 s), while the new "
+          "one blends in over fMMBlendTimeGround seconds (default 0.5), fMMBlendTimeLand just landed (0.2), "
+          "fMMBlendTimeJump rising in the air (0.15) or fMMBlendTimeAir (0.5); 0 = hard cuts. The root takes the new "
+          "pose at once, the legs and feet in 0.3 of the time. A pick's stretch of motion stays banned for "
+          "fMMReselectTime seconds (default 0.3). Without the add-on it does nothing. Prototype." },
         { "foot_ik", FlagKind::IniBool, "FootIk", "bEnable", false, false,
           "FABRIK foot IK",
           "CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla still finds "

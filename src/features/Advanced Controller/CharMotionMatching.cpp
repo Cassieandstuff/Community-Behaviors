@@ -100,11 +100,11 @@ namespace CB::feature {
         constexpr const char*      kTimeVar    = "MM_Time";
 
         /// @brief fMMReselectTime (settings.ini [Character], read once): seconds a pick's neighbourhood stays banned.
-        /// @note  Why: 12% of switches once went A -> B -> A within a second. A forced search keeps the ban, so input
-        ///        noise cannot flip.
+        /// @note  Default 0.3 s, GASP's PoseReselectHistory: with a search every update and no margin or dwell, it is what
+        ///        keeps near-equal candidates from trading places each update. Was 1.0 s, beside a 0.3 s dwell.
         float ReselectTime()
         {
-            static const float t = std::clamp(ch::SettingFloat("fMMReselectTime", 1.0f), 0.0f, 5.0f);
+            static const float t = std::clamp(ch::SettingFloat("fMMReselectTime", ps::kReselectTime), 0.0f, 5.0f);
             return t;
         }
         /// @brief iMMDatabaseLOD (settings.ini [Character], read once): the MM_DatabaseLOD the chooser sees.
@@ -549,6 +549,16 @@ namespace CB::feature {
             std::unique_ptr<CharacterMatch>& match = t.byActor[actor];
             if (!match) match = std::make_unique<CharacterMatch>();
             return *match;
+        }
+
+        /// @brief `actor`'s character controller's vertical speed, game units/s (0 without one).
+        float VerticalSpeed(RE::Actor* actor)
+        {
+            const auto* cc = actor ? actor->GetCharController() : nullptr;
+            if (!cc) return 0.0f;
+            ::hkVector4 v;
+            const_cast<::bhkCharacterController*>(reinterpret_cast<const ::bhkCharacterController*>(cc))->GetLinearVelocityImpl(v);
+            return v(2) * kGameUnitsPerHavok;
         }
 
         /// @brief GASP's chooser inputs for this frame into `io` (its previous values on entry).
@@ -1156,8 +1166,11 @@ namespace CB::feature {
                 if (c.takeoff < 0.0f || s.playingTime >= c.takeoff) ch::takeoff::Ready(gen);
             }
         }
-        /// @note A new child blends by itself; a new time in the same one has to be told.
-        if (step.switched && step.clip >= 0 && step.nextClip == step.clip) node.BlendNextJump();
+        /// @note Every switch hands the blend its time, as GASP's Get_MMBlendTime picks it at the search; a new child blends
+        ///       by itself, a new time in the same one has to be told.
+        if (step.switched)
+            node.BlendNext(SituationBlendTime(in[kMovementMode] == 1, in[kJustLandedLight] || in[kJustLandedHeavy], VerticalSpeed(actor)),
+                           step.clip >= 0 && step.nextClip == step.clip);
 
         if (request.active != s.lastActive) {
             static std::atomic<int> changes{ 0 };

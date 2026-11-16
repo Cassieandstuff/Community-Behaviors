@@ -49,13 +49,34 @@ namespace CB::feature::controller::motion {
         namespace loco = hky::locomotion;
         static_assert(sizeof(loco::Bone) == sizeof(::hkQsTransform), "Bone mirrors hkQsTransform");
 
-        /// @brief The blend's tuning, read once from settings.ini [Character].
+        /// @brief The blend's tuning, read once from settings.ini [Character]: fMMBlendDecay. Each switch's blend time is
+        ///        the matcher's (BlendNext, SituationBlendTime).
         inline const loco::DeadBlendTuning& Tuning()
         {
-            static const loco::DeadBlendTuning s{ std::clamp(SettingFloat("fMMBlendTime", 0.2f), 0.0f, 1.0f),
-                                                  std::clamp(SettingFloat("fMMBlendDecay", 0.1f), 0.01f, 1.0f) };
+            static const loco::DeadBlendTuning s = [] {
+                loco::DeadBlendTuning t;
+                t.decay = std::clamp(SettingFloat("fMMBlendDecay", 0.1f), 0.01f, 1.0f);
+                return t;
+            }();
             return s;
         }
+
+        /// @brief GASP's Get_MMBlendTime numbers, read once from settings.ini [Character] (seconds, clamped to [0, 1]).
+        /// @note  fMMBlendTime (one 0.2 s blend for every switch) is retired: it was tuned for a single blend restarting at
+        ///        each switch, which the stacked blend replaces; GASP's 0.5 s ground blend needs the stack.
+        struct BlendTimes {
+            float ground, land, jump, air;
+        };
+        inline const BlendTimes& Times()
+        {
+            static const BlendTimes t{ std::clamp(SettingFloat("fMMBlendTimeGround", 0.5f), 0.0f, 1.0f),
+                                       std::clamp(SettingFloat("fMMBlendTimeLand", 0.2f), 0.0f, 1.0f),
+                                       std::clamp(SettingFloat("fMMBlendTimeJump", 0.15f), 0.0f, 1.0f),
+                                       std::clamp(SettingFloat("fMMBlendTimeAir", 0.5f), 0.0f, 1.0f) };
+            return t;
+        }
+        /// @brief Game units/s upward past which an airborne switch blends as a jump's (GASP: 100 cm/s).
+        constexpr float kJumpRise = 70.0f;
 
         inline std::atomic<float> g_blendRemaining{ 0.0f };
 
@@ -79,6 +100,10 @@ namespace CB::feature::controller::motion {
         /// @note  The graph updates children before their parent, so the clip shows the new time a frame after the matcher
         ///        wrote it: a blend started in the same frame's generate was already part-way in when the jump showed.
         bool                                  jumpPending = false, jumpNow = false;
+        /// @brief The latest switch's blend time (BlendNext), which the next switch the output shows blends over; < 0 = none
+        ///        yet, the ground's.
+        float                                 blendTime = -1.0f;
+        const void*                           profileSkeleton = nullptr;   ///< the skeleton blend.timeScale was resolved on
         bool                                  activated = false;   ///< the node (re)activated: its last outputs are not the pose shown since
         std::chrono::steady_clock::time_point used{};
         /// @brief The player's arm bones as the last traced output had them, live (the child's) and shown (blended), for
@@ -244,6 +269,25 @@ namespace CB::feature::controller::motion {
                        arm.bone[1], skeleton->m_bones.getSize(), bones);
         }
 
+        /// @brief The blend's per-bone time shares (GASP Mover's FastFeet_InstantRoot) for `context`'s animation skeleton,
+        ///        when it is not the one last resolved: the root at once, the legs and feet in 0.3 of the time.
+        void ResolveProfile(BlendSlot& slot, const ::hkbContext& context)
+        {
+            const ::hkbCharacterSetup* setup    = context.m_character ? context.m_character->m_setup.val() : nullptr;
+            const ::hkaSkeleton*       skeleton = setup ? setup->m_animationSkeleton.val() : nullptr;
+            if (skeleton == slot.profileSkeleton) return;
+            slot.profileSkeleton     = skeleton;
+            std::vector<float>& scale = slot.blend.timeScale;
+            scale.clear();
+            if (!skeleton) return;
+            const loco::BlendProfile& profile = loco::FastFeetInstantRoot();
+            scale.reserve(static_cast<std::size_t>(skeleton->m_bones.getSize()));
+            for (int b = 0; b < skeleton->m_bones.getSize(); ++b) {
+                const char* name = skeleton->m_bones[b].m_name.cString();
+                scale.push_back(loco::BoneTimeScale(profile, name ? name : ""));
+            }
+        }
+
         /// @brief Plots each arm bone's rotation against the last traced output's, live (the child's) and shown (blended).
         void PlotArm(BlendSlot::ArmWatch& arm, const loco::Quat (&live)[2], const loco::Bone* shown, int bones)
         {
@@ -327,11 +371,21 @@ namespace CB::feature::controller::motion {
         RunMatcher(context, *this, timestep, false);
     }
 
-    void PoseSearchGenerator::BlendNextJump()
+    void PoseSearchGenerator::BlendNext(float blendTime, bool jump)
     {
         BlendTable&      table = Blends();
         std::scoped_lock lock(table.lock);
-        if (const auto it = table.slots.find(this); it != table.slots.end()) it->second.jumpPending = true;
+        if (const auto it = table.slots.find(this); it != table.slots.end()) {
+            it->second.blendTime = blendTime;
+            if (jump) it->second.jumpPending = true;
+        }
+    }
+
+    float SituationBlendTime(bool airborne, bool justLanded, float vz)
+    {
+        const BlendTimes& t = Times();
+        if (airborne) return vz > kJumpRise ? t.jump : t.air;
+        return justLanded ? t.land : t.ground;
     }
 
     void PoseSearchGenerator::PlayUnbound(const ::hkbContext& context, int index, ::hkReal fraction)
@@ -551,6 +605,7 @@ namespace CB::feature::controller::motion {
             b.Reset(0, m_currentIndex);
             return;
         }
+        ResolveProfile(slot, context);
         ::hkQsTransform*       out  = output.accessPoseLocal();
         std::vector<loco::Bone>& pose = slot.pose;
         pose.resize(static_cast<std::size_t>(bones));
@@ -575,8 +630,9 @@ namespace CB::feature::controller::motion {
                 break;
             }
         }
-        const loco::DeadBlendTuning& s = Tuning();
-        loco::BlendFault             fault;
+        loco::DeadBlendTuning s = Tuning();
+        s.blendTime             = slot.blendTime >= 0.0f ? slot.blendTime : SituationBlendTime(false, false, 0.0f);
+        loco::BlendFault      fault;
         const bool jumped = std::exchange(slot.jumpNow, std::exchange(slot.jumpPending, false));
         if (!b.Step(pose.data(), bones, m_currentIndex, jumped, s, &fault)) return;
         if (fault.bone >= 0 && !g_outputLogged.exchange(true)) {
@@ -594,6 +650,7 @@ namespace CB::feature::controller::motion {
         CB_PLOT("MM blend left", b.Remaining(s));
         if (tracePlayer) {
             CB_PLOT("MM player blend left", b.Remaining(s));
+            CB_PLOT("MM player blends", b.Blends());
             PlotArm(slot.arm, armLive, pose.data(), bones);
         }
     }
