@@ -134,6 +134,19 @@ namespace CB::feature {
 
         /// @brief GASP's thresholds (its AnimBP's), centimetres at 0.7 game units each.
         constexpr float kLandHold        = 0.2f;          ///< seconds JustLanded* stays true after touching down
+        /// @brief JustLanded* follows only a real fall: airborne this long, or touching down at kFallingSpeed or faster.
+        /// @note  Why: air mode says air after kAirDebounce (or a jump, or kFallingSpeed), so a stair or a kerb dropped
+        ///        off opened a JustLanded window where only Idle_Lands was searchable, and a stop played a land. GASP
+        ///        sets it only from the CMC's Landed event after Falling. The air mode itself is unchanged.
+        constexpr float kLandMinAir      = 0.3f;
+        /// @brief JustTraversed: seconds it holds once the traversal montage blends out (TR_End's 0.3 s transition;
+        ///        GASP's montage blend-out, while its MovingTraversal curve is still above 0).
+        constexpr float kTraversedHold   = 0.3f;
+        /// @brief JustTraversed only while the request is at most this far off the velocity (GASP's
+        ///        |Get_TrajectoryTurnAngle| <= 50 deg).
+        constexpr float kTraversedTurn   = 0.87266463f;
+        /// @brief A node that ran within this has run "lately" for JustTraversed (a frame or a hitch).
+        constexpr auto  kNodeRecent      = std::chrono::milliseconds(100);
         /// @brief JustLandedHeavy's vertical speed (700 cm/s). @warning Assumed: GASP's HeavyLandSpeedThreshold was not
         ///        exported with the sample's assets.
         constexpr float kHeavyLandSpeed  = 490.0f;
@@ -476,12 +489,15 @@ namespace CB::feature {
             bool  haveZ = false;
             float lastZ = 0;
             float airVz = 0;          ///< the vertical speed on the latest airborne frame, game units/s
+            float airSpan = 0;        ///< seconds the movement mode has said air without a break (the latest air time)
             bool  wasAirborne = false;
             float airFor = 0;         ///< seconds the controller has been airborne without a break
             float landedFor = -1;     ///< seconds since touching down, -1 = not landed since the last air time
             bool  heavy = false;
             float turnHold = 0;       ///< seconds ShouldTurnInPlace stays raised
             float slideExitHold = 0;  ///< seconds MM_SlidePhase still reads Exiting
+            bool  traversing = false;     ///< the traversal node ran without the motion matching node, until either changes
+            float traversedHold = 0;      ///< seconds MM_JustTraversed may still read true
         };
 
         /// @brief One character's side of the matching, by FormID: what the predictor, the frame hook and the node hand each other.
@@ -511,6 +527,10 @@ namespace CB::feature {
             std::mutex        distancesLock;
             ch::motion::Distances distances;
             bool              haveDistances = false;
+            /// @brief When a node searching a Traversal-tagged database (the traversal montage) and one searching none (motion
+            ///        matching) last ran for this character, steady_clock ticks (0 = never): RunMatcher writes them, the
+            ///        frame hook's JustTraversed reads them.
+            std::atomic<Clock::rep> traversalAt{ 0 }, matchingAt{ 0 };
             /// @brief The frame hook's alone: the inputs as of the previous frame, what they remember, and whether it switched the graph on.
             Inputs            inputs = InitialInputs();
             InputMemory       memory;
@@ -578,9 +598,18 @@ namespace CB::feature {
 
             /// @note The landing's vertical speed is the player's height change over the last airborne frame (the
             ///       touch-down frame's own is already cut short by the floor).
-            if (air) m.airVz = vz, m.landedFor = -1.0f;
-            else if (m.wasAirborne) m.landedFor = 0.0f, m.heavy = std::fabs(m.airVz) >= kHeavyLandSpeed;
-            else if (m.landedFor >= 0.0f) m.landedFor += dt;
+            /// @note Only a real fall lands (kLandMinAir): a short drop touches down with no landing window.
+            if (air) {
+                m.airSpan   = m.wasAirborne ? m.airSpan + dt : dt;
+                m.airVz     = vz;
+                m.landedFor = -1.0f;
+            } else if (m.wasAirborne) {
+                const bool fell = m.airSpan >= kLandMinAir || std::fabs(m.airVz) >= kFallingSpeed;
+                m.landedFor     = fell ? 0.0f : -1.0f;
+                m.heavy         = std::fabs(m.airVz) >= kHeavyLandSpeed;
+            } else if (m.landedFor >= 0.0f) {
+                m.landedFor += dt;
+            }
             m.wasAirborne     = air;
             const bool landed = m.landedFor >= 0.0f && m.landedFor < kLandHold;
             io[kJustLandedLight] = landed && !m.heavy;
@@ -592,7 +621,22 @@ namespace CB::feature {
             io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, static_cast<float>(ps::kSearchInterval), dt);
 
             io[kSlidePhase]           = ps::SlidePhase(m.slideExitHold, s, dt);
-            io[kJustTraversed]        = 0;
+            /// @note GASP's JustTraversed: true while the traversal montage blends out and the request is within
+            ///       kTraversedTurn of the velocity, which adds the *_FromTraversal databases. CB's montage is the traversal
+            ///       state's node: once it has run alone, the window opens when the motion matching node runs again (TR_End's
+            ///       blend) or the traversal node stops, and holds kTraversedHold.
+            {
+                const Clock::time_point now       = Clock::now();
+                const auto              ranLately = [&](const std::atomic<Clock::rep>& at) {
+                    const Clock::rep t = at.load(std::memory_order_relaxed);
+                    return t != 0 && now - Clock::time_point(Clock::duration(t)) < kNodeRecent;
+                };
+                const bool traversal = ranLately(match.traversalAt), matching = ranLately(match.matchingAt);
+                if (traversal && !matching) m.traversing = true;
+                else if (m.traversing) m.traversing = false, m.traversedHold = kTraversedHold;
+                else m.traversedHold = (std::max)(0.0f, m.traversedHold - dt);
+                io[kJustTraversed] = m.traversedHold > 0.0f && ps::RequestTurnAngle(s, in) <= kTraversedTurn ? 1 : 0;
+            }
             io[kDatabaseLOD]          = DatabaseLod();
             io.real[kTimeToLand]      = air ? match.timeToLand.load(std::memory_order_relaxed) : 0.0f;
             return true;
@@ -1017,6 +1061,11 @@ namespace CB::feature {
         const Database& db       = *s.db;
         const bool      isPlayer = actor == RE::PlayerCharacter::GetSingleton();
         if (isPlayer) g_db.store(&db, std::memory_order_release);
+        /// @note Which of the character's nodes run, for the frame hook's JustTraversed.
+        {
+            CharacterMatch& ran = MatchOf(actor->GetFormID());
+            (s.traversal ? ran.traversalAt : ran.matchingAt).store(Clock::now().time_since_epoch().count(), std::memory_order_relaxed);
+        }
         if (restart) s.matcher.Restart();
         CB_ZONE(zone, "MM node");
 
