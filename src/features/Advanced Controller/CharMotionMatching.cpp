@@ -691,11 +691,12 @@ namespace CB::feature {
 
         /// @brief The query's graph variables.
         /// @note Each sample is two VECTOR3 variables: where (x, y, facing in radians) and how (vx, vy, height). Samples
-        ///       0-4 are MM_Future0-4 and MM_FutureMotion0-4, at kAhead's times; 5-9 MM_Past0-4 and MM_PastMotion0-4.
+        ///       0-4 are MM_Future0-4 and MM_FutureMotion0-4, at kAhead's times; 5-9 MM_Past0-4 and MM_PastMotion0-4;
+        ///       10 (kNow) MM_Now and MM_NowMotion.
         struct QueryNames {
             RE::BSFixedString have{ "MM_HaveQuery" }, rate{ "MM_PlayRate" }, desired{ "MM_Desired" };
             RE::BSFixedString stairsRise{ "MM_StairsRise" };
-            std::array<RE::BSFixedString, hky::anim::features::kSamples> where, how;
+            std::array<RE::BSFixedString, hky::anim::features::kQuerySamples> where, how;
             QueryNames()
             {
                 constexpr int ahead = static_cast<int>(hky::anim::features::kAhead.size());
@@ -705,6 +706,8 @@ namespace CB::feature {
                     where[s] = RE::BSFixedString((future ? "MM_Future" : "MM_Past") + k);
                     how[s]   = RE::BSFixedString((future ? "MM_FutureMotion" : "MM_PastMotion") + k);
                 }
+                where[hky::anim::features::kNow] = RE::BSFixedString("MM_Now");
+                how[hky::anim::features::kNow]   = RE::BSFixedString("MM_NowMotion");
             }
         };
         const QueryNames& QueryVariables()
@@ -729,6 +732,7 @@ namespace CB::feature {
             /// @note A graph whose bundle predates MM_StairsRise does not declare it: the write is then a no-op.
             ch::SetGraphFloat(player, names.stairsRise, ch::stairs::SignedRise(player->GetFormID()));
             if (!have) return false;
+            /// @note A graph whose bundle predates MM_Now does not declare it either: those writes are no-ops too.
             RE::NiPoint3 p;
             for (std::size_t s = 0; s < q.samples.size(); ++s) {
                 const auto& t = q.samples[s];
@@ -754,9 +758,20 @@ namespace CB::feature {
             RE::NiPoint3 p;
             for (std::size_t s = 0; s < out.samples.size(); ++s) {
                 auto& t = out.samples[s];
-                if (!ch::GetGraphPoint(actor, names.where[s], p)) return;
+                /// @note Without MM_Now (a bundle built before it), t=0 reads between its neighbours, as it did before.
+                ///       kNow is the last sample, so they are read by then.
+                const bool now = s == static_cast<std::size_t>(hky::anim::features::kNow);
+                if (!ch::GetGraphPoint(actor, names.where[s], p)) {
+                    if (!now) return;
+                    t = ps::NowBetween(out.samples);
+                    continue;
+                }
                 t.x = p.x, t.y = p.y, t.dirX = -std::sin(p.z), t.dirY = std::cos(p.z);
-                if (!ch::GetGraphPoint(actor, names.how[s], p)) return;
+                if (!ch::GetGraphPoint(actor, names.how[s], p)) {
+                    if (!now) return;
+                    t = ps::NowBetween(out.samples);
+                    continue;
+                }
                 t.vx = p.x, t.vy = p.y, t.z = p.z;
             }
             if (!ch::GetGraphPoint(actor, names.desired, p)) return;
@@ -1019,6 +1034,16 @@ namespace CB::feature {
                     if (!ch::GetGraphPoint(actor, name, p)) continue;
                     if (b.how == How::PoseXY) {
                         out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = -std::sin(p.z), out[b.dim + 3] = std::cos(p.z);
+                    } else if (b.how == How::MotionXYZ) {
+                        /// @note The velocity, the height, then the velocity's direction, normalized as the rows are.
+                        constexpr int kDirection = hky::anim::features::kSampleDirection - hky::anim::features::kSampleVelocity;
+                        out[b.dim] = p.x, out[b.dim + 1] = p.y, out[b.dim + 2] = p.z;
+                        if (b.width >= kDirection + 2) {
+                            double dx = 0.0, dy = 0.0;
+                            hky::anim::VelocityDirection(p.x, p.y, dx, dy);
+                            out[b.dim + kDirection]     = static_cast<float>(dx);
+                            out[b.dim + kDirection + 1] = static_cast<float>(dy);
+                        }
                     } else {
                         const float v[3] = { p.x, p.y, p.z };
                         for (int j = 0; j < (std::min)(b.width, 3); ++j) out[b.dim + j] = v[j];

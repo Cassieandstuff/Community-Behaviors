@@ -154,6 +154,8 @@ namespace CB::feature {
             std::array<Sample, kFutureSamples> future{};
             std::array<Sample, kQuerySamples> query{};   ///< at the caller's query times (motion matching), the gate's never
             std::array<Sample, kQuerySamples> queryPast{};   ///< the history as long ago as each past time, held at its oldest
+            /// @brief The query's t=0 sample (anim::features::kNow): here, facing the model's way, at the body's velocity.
+            Sample                             now;
             std::int32_t                       iState   = 0;   ///< held constant over the horizon (P1)
             float                              velForward = 0, velSide = 0;   ///< current velocity, Havok units/s
             float                              desiredForward = 0, desiredSide = 0;
@@ -484,6 +486,17 @@ namespace CB::feature {
             float sx = airborne ? 0.0f : note.slideX, sy = airborne ? 0.0f : note.slideY;
             float vx = velocity(0) - sx, vy = velocity(1) - sy, vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
             float px = 0, py = 0, z = held ? note.pogoDz : 0.0f, fz = 0.0f;
+            /// @note Now, as the samples ahead report theirs: the facing f relative to the heading, and the body's velocity
+            ///       (the spring's state, which starts on the capsule's, plus the slide), not the model's it follows. Motion
+            ///       matching's t=0 velocity reads it as is; before it, t=0 blended the history's -0.05 s velocity with
+            ///       the 0.2 s prediction and lagged about 0.04 s while braking.
+            tr.now.time     = 0.0f;
+            tr.now.facing   = WrapAngle(f - heading);
+            tr.now.vForward = (vx + sx) * tangent.x + (vy + sy) * tangent.y;
+            tr.now.vSide    = (vx + sx) * sideAxis.x + (vy + sy) * sideAxis.y;
+            tr.now.ground   = prevFloor.ground;
+            tr.now.support  = prevFloor.support;
+            tr.now.valid    = true;
             Vec2  prev{};
             float prevZ = z, prevFz = 0, prevT = 0;
             bool  blocked = false;
@@ -942,8 +955,11 @@ namespace CB::feature {
             };
             if (matches && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
-                for (int s = 0; s < 2 * kQuerySamples; s++) {
-                    const Sample& from = s < kQuerySamples ? tr.query[s] : tr.queryPast[s - kQuerySamples];
+                /// @note The samples ahead, back, then now (anim::features::kNow).
+                constexpr int kNow = hky::anim::features::kNow;
+                static_assert(kNow == 2 * kQuerySamples && hky::anim::features::kQuerySamples == kNow + 1);
+                for (int s = 0; s <= kNow; s++) {
+                    const Sample& from = s == kNow ? tr.now : s < kQuerySamples ? tr.query[s] : tr.queryPast[s - kQuerySamples];
                     auto&         to   = q.samples[s];
                     to.x    = from.side * kGameUnitsPerHavok;
                     to.y    = from.forward * kGameUnitsPerHavok;

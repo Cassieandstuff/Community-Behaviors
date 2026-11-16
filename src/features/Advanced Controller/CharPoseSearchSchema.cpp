@@ -111,7 +111,7 @@ namespace CB::feature::controller::motion {
                 spec.kind     = anim::FeatureKind::Trajectory;
                 for (int i = 0; i < t.m_samples.getSize(); ++i) {
                     const auto& s = t.m_samples[i];
-                    spec.samples.push_back({ s.m_time, s.m_position, s.m_facing, s.m_velocity, s.m_height });
+                    spec.samples.push_back({ s.m_time, s.m_position, s.m_facing, s.m_velocity, s.m_height, s.m_direction });
                 }
             } else if (type == kPosition || type == kVelocity) {
                 const auto& b = static_cast<const PoseSearchBoneFeature&>(*f);
@@ -142,9 +142,13 @@ namespace CB::feature::controller::motion {
                     std::string_view part;
                     if (spec.kind == anim::FeatureKind::Trajectory && SamplePath(path, sample, part) && sample >= 0 &&
                         sample < static_cast<int>(spec.samples.size())) {
-                        const int base = dim + sample * anim::features::kPerSample;
+                        /// @note A typed schema's sample is anim::features::kSchemaPerSample wide; the motion fills the
+                        ///       velocity, the height and, from the velocity, its direction (the dims after the height).
+                        const int base = dim + sample * anim::features::kSchemaPerSample;
                         if (part == "pose") bound.push_back({ base + anim::features::kSamplePos, 4, BoundInput::How::PoseXY, variable });
-                        if (part == "motion") bound.push_back({ base + anim::features::kSampleVelocity, 3, BoundInput::How::MotionXYZ, variable });
+                        if (part == "motion")
+                            bound.push_back({ base + anim::features::kSampleVelocity, anim::features::kSchemaPerSample - anim::features::kSampleVelocity,
+                                              BoundInput::How::MotionXYZ, variable });
                     } else if (spec.kind != anim::FeatureKind::Trajectory && std::strcmp(path, "query") == 0) {
                         const int width = anim::FeatureDims(spec);
                         bound.push_back({ dim, width, width == 1 ? BoundInput::How::Float : BoundInput::How::Vector, variable });

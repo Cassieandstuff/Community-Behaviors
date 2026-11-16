@@ -46,7 +46,8 @@ namespace CB::feature::controller::motion {
         ::hkReal    m_facing;     ///< +0x08
         ::hkReal    m_velocity;   ///< +0x0c
         ::hkReal    m_height;     ///< +0x10
-        ::hkUint8   m_pad14[0x20 - 0x14];
+        ::hkReal    m_direction;  ///< +0x14, the velocity's direction's weight (GASP's normalized Velocity)
+        ::hkUint8   m_pad18[0x20 - 0x18];
         ::hkVector4 m_pose;       ///< +0x20 (x, y, facing angle, -)
         ::hkVector4 m_motion;     ///< +0x30 (velocity x, velocity y, height, -)
     };
@@ -119,7 +120,7 @@ namespace CB::feature::controller::motion {
             Float,      ///< one float
             Vector,     ///< x, y, z into as many dims as the feature has (up to 3)
             PoseXY,     ///< a trajectory sample's pose: x, y, then the facing angle as (-sin, cos)
-            MotionXYZ,  ///< a trajectory sample's motion: velocity x, y, then height
+            MotionXYZ,  ///< a trajectory sample's motion: velocity x, y, then height; then the velocity's direction
         };
         int         dim = 0;     ///< the first dim it fills
         int         width = 1;   ///< Vector: how many dims

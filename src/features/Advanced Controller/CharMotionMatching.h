@@ -21,8 +21,8 @@ namespace CB::feature::controller::motion {
     class PoseSearchGenerator;
 
     /// @brief The predictor's query: where the character will be and face at the database's sample times ahead
-    ///        (engine::anim::features::kAhead, real seconds), and where they were and faced that long ago (kBack), in the
-    ///        current root space (x right, y forward), game units.
+    ///        (engine::anim::features::kAhead, real seconds), where they were and faced that long ago (kBack), and how they
+    ///        face and move now (kNow), in the current root space (x right, y forward), game units.
     struct Query {
         hky::locomotion::QueryTrajectory samples{};
         /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
