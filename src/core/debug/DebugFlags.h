@@ -146,10 +146,9 @@ namespace CB::core::debug {
           "(the horse's) floats whole, its top rising too. Unproven in game." },
         { "char_variable_jump", FlagKind::IniBool, "Character", "bVariableJump", false, false,
           "Variable jump height",
-          "For the player under bGroundStates: releasing Jump early cuts the jump short. iJumpMode=1 (default) "
-          "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
-          "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
-          "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+          "For the player under bDynamicMover: two jump heights. Let go of Jump before rising fShortHopHeight game "
+          "units (default half the full height) and the jump peaks there; still holding past it, it goes the full "
+          "height (bDynamicMover's fJumpHeight). Air jumps too. Unproven in game." },
         { "adv_input", FlagKind::IniBool, "Input", "bAdvancedInput", false, false,
           "Advanced Input",
           "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
@@ -250,7 +249,11 @@ namespace CB::core::debug {
           "own contacts; Bethesda's controller rides along at its feet (the actor, the camera and floor triggers see it "
           "there). Replaces bPogo's float, the constraint planes and the stick/crest rules for the player while on. Tuning: "
           "[Character] fMoverMass (80), fMoverGroundForce (6000), fMoverAirForce (1500), fMoverPogoHertz (3), "
-          "fMoverPogoDamping (0.8), fMoverSlideTime (0.2). Read once at launch. Experimental, AE only." },
+          "fMoverPogoDamping (0.8), fMoverSlideTime (0.2). The jump (game units, seconds): fJumpHeight (0 = the "
+          "character's own height), fJumpRiseTime (0.35) to reach it, fJumpFallTime (0.3) to fall that height back "
+          "(every fall in the air), iAirJumps (1) fresh presses of Jump in the air, each fAirJumpHeight high (0 = "
+          "fJumpHeight); a time of 0 leaves that half to the world's gravity. bVariableJump adds the short hop. Read "
+          "once at launch. Experimental, AE only." },
         { "char_leg_collision", FlagKind::IniBool, "Character", "bLegCollision", false, false,
           "Legs push clutter",
           "While the player is on foot, the thigh, calf and foot bodies of their ragdoll go on BipedNoCC and into the "

@@ -27,7 +27,10 @@ namespace CB::feature::controller::dynamic {
     struct In {
         float dx = 0, dy = 0;     ///< the requested horizontal velocity
         bool  jump = false;       ///< a jump is asked for (taken only from walkable ground)
-        float jumpSpeed = 0;      ///< its vertical speed
+        bool  airJump = false;    ///< a fresh press of Jump in the air (taken only while air jumps are left)
+        bool  jumpHeld = true;    ///< Jump is down; true while variable jumps are off, so every jump is full
+        bool  variable = false;   ///< short hops are on (char_variable_jump)
+        float jumpHeight = 0;     ///< the controller's own full height (m_jumpHeight), used while fJumpHeight is unset
         float gravity = 9.80665f; ///< the world's gravity's magnitude times the controller's multiplier
         float walkableZ = 0.682f;
     };
@@ -35,7 +38,11 @@ namespace CB::feature::controller::dynamic {
     /// @brief What the mover's latest Havok step left (Havok units).
     struct Out {
         bool  onGround = false, walkable = false, jumping = false;
-        bool  jumped = false;   ///< a jump launched since the last controller step
+        bool  jumped = false;      ///< a jump from the ground launched since the last controller step
+        bool  airJumped = false;   ///< an air jump launched since the last controller step
+        int   airJumpsLeft = 0;
+        bool  hopPending = false;  ///< the current jump may still stop at the short hop
+        float fullHeight = 0;      ///< the full height of a jump from the ground now (Havok units)
         float nx = 0, ny = 0, nz = 1;   ///< the floor's normal
         float feetX = 0, feetY = 0, feetZ = 0;   ///< where the feet are with the pogo at rest
         float vx = 0, vy = 0, vz = 0;
