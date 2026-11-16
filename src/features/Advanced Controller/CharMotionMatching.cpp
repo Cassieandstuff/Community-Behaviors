@@ -8,6 +8,7 @@
 #include "CharMotionMatching.h"
 #include <hky/locomotion/ChooserInputs.h>
 #include "CharMovementModel.h"
+#include "CharMovementTuning.h"
 #include "CharPoseSearch.h"
 #include "CharSkeletonWatch.h"
 #include "CharStairs.h"
@@ -150,6 +151,8 @@ namespace CB::feature {
         constexpr double kRootTurnStale = 0.25;   ///< seconds since the node last published its clip before RootTurn holds none
         /// @brief The longest step in a clip's time RootTurn turns through; a longer one is the matcher jumping within the clip.
         constexpr double kRootTurnStep = 0.2;
+        /// @brief How far ahead in the clip RootTurn's `ahead` reads its root's turn.
+        constexpr double kRootTurnAhead = 0.5;
         /// @brief When the last switch was chosen (steady_clock ticks; 0 = none yet), for Describe.
         std::atomic<Clock::rep> g_lastSwitch{ 0 };
         std::atomic<int>   g_logs{ 0 };
@@ -585,7 +588,10 @@ namespace CB::feature {
             io[kJustLandedLight] = landed && !m.heavy;
             io[kJustLandedHeavy] = landed && m.heavy;
 
-            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), s.yaw, static_cast<float>(ps::kSearchInterval), dt);
+            /// @note Under the body facing the turn owed is the body's (GASP's root against its capsule): the model's facing
+            ///       reaches the intent on its own, long before the body does.
+            const float bodyYaw    = player->IsPlayerRef() && controller::tuning::WeightedFacing() ? player->GetHeading(false) : s.yaw;
+            io[kShouldTurnInPlace] = ps::ShouldTurnInPlace(m.turnHold, moving, ps::TurnIntent(s), bodyYaw, static_cast<float>(ps::kSearchInterval), dt);
 
             io[kSlidePhase]           = ps::SlidePhase(m.slideExitHold, s, dt);
             io[kJustTraversed]        = 0;
@@ -894,9 +900,10 @@ namespace CB::feature {
     }
 
 
-    bool controller::motion::RootTurn(RE::FormID actor, float& delta)
+    bool controller::motion::RootTurn(RE::FormID actor, float& delta, bool anyDatabase, float* ahead)
     {
         delta = 0.0f;
+        if (ahead) *ahead = 0.0f;
         if (!On()) return false;
         CharacterMatch&   match = MatchOf(actor);
         Playback          p;
@@ -912,7 +919,7 @@ namespace CB::feature {
         const bool  fresh = db && p.clip >= 0 && p.clip < static_cast<int>(db->clips.size()) &&
                            std::chrono::duration<double>(Clock::now() - at).count() < kRootTurnStale;
         const Clip* c     = fresh ? &db->clips[p.clip] : nullptr;
-        const bool  turns = c && c->database >= 0 && db->databases[c->database].rootTurns;
+        const bool  turns = c && (anyDatabase || (c->database >= 0 && db->databases[c->database].rootTurns));
         const std::optional<float> yaw = turns ? ps::ClipRootYaw(*c, p.time) : std::nullopt;
         if (!yaw) {
             last = {};
@@ -920,6 +927,7 @@ namespace CB::feature {
         }
         if (last.db == db && last.clip == p.clip && p.time >= last.time && p.time - last.time <= kRootTurnStep) delta = *yaw - last.yaw;
         last = { db, p.clip, p.time, *yaw };
+        if (ahead) *ahead = ps::ClipRootYaw(*c, p.time + kRootTurnAhead).value_or(*yaw) - *yaw;
         return true;
     }
 
