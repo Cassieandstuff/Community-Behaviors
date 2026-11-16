@@ -240,6 +240,12 @@ add_subdirectory(tools/cb-tests)       # cb-tests: unit tests over CB's own libr
 # (community_behaviors/plugins/<Bundle>.hky), so the deploy is a straight mirror.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 
+# The plugin's settings (data/settings.ini): staged at its Data path, so every deploy writes the repo's copy over the
+# mod's. The deploy compares contents, so an edit made in the mod (or by the in-game config menu's Save) lasts only until
+# the next build: the settings under test are the ones in the repo.
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/data/settings.ini"
+               "${CB_HKY_STAGE}/SKSE/Plugins/Community Behaviors/settings.ini" COPYONLY)
+
 # Authored feature bundles (features/<Name>.hky: partitions in Git LFS + inject configs) assemble into the same
 # stage; the plugin depends on them so a plugin build deploys them (cmake/FeatureBundles.cmake).
 include(FeatureBundles)
