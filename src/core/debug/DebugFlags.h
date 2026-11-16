@@ -203,7 +203,7 @@ namespace CB::core::debug {
         { "char_weighted_facing", FlagKind::IniBool, "Character", "bWeightedFacing", false, false,
           "Weighted facing (body follows the clip)",
           "The player's body turns as GASP's mesh root does (Offset Root Bone, Accumulate): the playing motion-matched clip's "
-          "root yaw turns it (pivots, starts, stops, turns), then a steering spring (fBodySteerHalflife, 0.2 s) pulls it "
+          "root yaw turns it (pivots, starts, stops, turns), then a steering spring (fBodySteerHalflife, 0.12 s) pulls it "
           "toward the movement model's facing, capped per gait (fBodyTurnRateIdle/Walk/Run/Sprint: 90/450/300/180 deg/s; "
           "while the clip turns, at most fBodyAnimatedSteer = 0.5 x the clip's own turn) and never more than "
           "fBodyMaxOffset (90 deg) behind it. The model's facing still feeds the trajectory, so the query asks for the "

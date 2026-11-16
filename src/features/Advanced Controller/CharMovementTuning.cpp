@@ -45,7 +45,7 @@ namespace CB::feature::controller::tuning {
             BodyField{ "fBodySteerHalflife", "Body steering halflife", "s", &BodyProfile::steerHalflife, 1.0f, 2.0f },
             BodyField{ "fBodyMaxOffset", "Body's largest lag behind the model", "deg", &BodyProfile::maxOffset, kDeg, 180.0f },
             BodyField{ "fBodyAnimatedSteer", "Steering while the clip turns", "x the clip's turn", &BodyProfile::animatedSteer, 1.0f, 2.0f },
-            BodyField{ "fBodyClipTurningRate", "A clip turning this fast owns the turn", "deg/s", &BodyProfile::clipTurningRate, kDeg, 360.0f },
+            BodyField{ "fBodyClipOwnsFrom", "A clip about to turn this far owns the turn", "deg", &BodyProfile::clipOwnsFrom, kDeg, 180.0f },
             BodyField{ "fBodyTurnRateIdle", "Body turn rate standing", "deg/s", &BodyProfile::turnRateIdle, kDeg, 720.0f },
             BodyField{ "fBodyTurnRateWalk", "Body turn rate walking", "deg/s", &BodyProfile::turnRateWalk, kDeg, 1080.0f },
             BodyField{ "fBodyTurnRateRun", "Body turn rate running", "deg/s", &BodyProfile::turnRateRun, kDeg, 1080.0f },
