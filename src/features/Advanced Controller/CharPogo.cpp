@@ -43,6 +43,7 @@ namespace CB::feature {
     namespace {
 
         namespace ch = CB::feature::controller;
+        platform::physics::QueryTag kSweepTag{ "char.pogo.sweep" };
 
         using GetPosition = platform::hooks::Override<&::bhkCharProxyController::GetPositionImpl>;
         using SetPosition = platform::hooks::Override<&::bhkCharProxyController::SetPositionImpl>;
@@ -281,7 +282,7 @@ namespace CB::feature {
             if (top > curTop + kMinChange && hull.valid) {
                 const float          up  = top - curTop;
                 const ::hkVector4& at  = hull.collidable->getTransform().getTranslation();
-                const ch::SweepHit   hit = ch::Sweep(hull.world, hull.collidable, ::hkVector4(at(0), at(1), at(2) + up, at(3)), 0.0f, 2.0f, kCharacters);
+                const ch::SweepHit   hit = ch::Sweep(kSweepTag, hull.world, hull.collidable, ::hkVector4(at(0), at(1), at(2) + up, at(3)), 0.0f, 2.0f, kCharacters);
                 if (hit.hit) top = curTop + (std::max)(up * hit.fraction - kSkin, 0.0f);
             }
             const float ride  = std::clamp(ctrl.m_stepHeight, 0.0f, (std::max)(0.0f, top - s.feet - 2.0f * radius - kMinCore));
@@ -309,7 +310,7 @@ namespace CB::feature {
             if (!(up > kMinRaise) || !hull.valid) return lift;
             /// @note The raise is swept: under a low ceiling the shape floats what fits, and tries for the rest each step.
             const ::hkVector4& at  = hull.collidable->getTransform().getTranslation();
-            const ch::SweepHit   hit = ch::Sweep(hull.world, hull.collidable, ::hkVector4(at(0), at(1), at(2) + up, at(3)), 0.0f, 2.0f, kCharacters);
+            const ch::SweepHit   hit = ch::Sweep(kSweepTag, hull.world, hull.collidable, ::hkVector4(at(0), at(1), at(2) + up, at(3)), 0.0f, 2.0f, kCharacters);
             const float          rise = hit.hit ? (std::max)(up * hit.fraction - kSkin, 0.0f) : up;
             if (rise < kMinRaise) return lift;
             ::hkVector4 pos;

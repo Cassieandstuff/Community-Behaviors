@@ -7,6 +7,8 @@
 #include <hky/locomotion/Pogo.h>
 #include <hky/locomotion/Slope.h>
 
+#include <platform/physics/QueryTag.h>
+
 #include <array>
 #include <cmath>
 #include <string_view>
@@ -176,12 +178,14 @@ namespace CB::feature::controller {
     ///        lower support when both ends are; when one end is, Grounded on that end alone (it stands, and moving on
     ///        steps the other end down); Airborne when neither is. Its hits are the fore end's.
     /// @pre Called where vanilla OnGround::Simulate calls PickObject: inside UpdatePhysics, outside the physics step.
-    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
+    /// @param tag the caller, whose counters the rays land in.
+    FloorVerdict QueryFloor(platform::physics::QueryTag& tag, ::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
     /// @brief Where the floor query casts ray `i` (0 = the axis, 1-8 = the ring at the perch radius), Havok units; for a
     ///        long body, under its fore end, or its hind end with `hind`.
     void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind = false);
     /// @brief QueryFloor as if the hull stood displaced by (dx, dy, dz) (a step's landing spot, a predicted sample).
-    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
+    FloorVerdict QueryFloorAt(platform::physics::QueryTag& tag, ::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz,
+                              const FloorTunables& t = {});
 
     /// @brief Publishes this step's floor verdict for the proxy's constraint planes (step 4) to read during integrate.
     /// @note The planes cannot query themselves: integrate runs under the world WRITE lock, where a ray pick may

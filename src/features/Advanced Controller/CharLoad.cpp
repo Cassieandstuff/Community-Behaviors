@@ -5,12 +5,14 @@
 #include "CharGround.h"
 
 #include <platform/game/Render.h>
+#include <platform/physics/QueryStats.h>
 #include <platform/profile/Profile.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <vector>
 
 namespace CB::feature::controller {
 
@@ -42,12 +44,29 @@ namespace CB::feature::controller {
             const double f = static_cast<double>((std::max)(w.frames, std::uint64_t{ 1 }));
             std::size_t  managed = 0, entries = 0;
             NpcCounts(managed, entries);
+            const std::vector<platform::physics::QueryWindow> queries = platform::physics::TakeQueryWindows();
+            std::uint64_t                                     calls = 0, nanos = 0;
+            for (const platform::physics::QueryWindow& q : queries) calls += q.calls, nanos += q.nanos;
             LOG_INFO("load: {:.0f} s, {} frames ({:.1f} ms average, {:.1f} ms worst); per frame: {:.1f} player + {:.1f} NPC predictions "
-                     "({:.1f} NPC steps skipped by distance), {:.2f} ms predicting, {:.0f} floor rays, {:.1f} sweeps; NPCs managed {} "
+                     "({:.1f} NPC steps skipped by distance), {:.2f} ms predicting, {:.1f} physics queries in {:.2f} ms; NPCs managed {} "
                      "(table {}), predictor states {}",
                      seconds, w.frames, 1000.0 * w.frameSum / f, 1000.0 * w.frameMax, delta(LoadCounter::PredictPlayer) / f,
                      delta(LoadCounter::PredictNpc) / f, delta(LoadCounter::PredictNpcSkipped) / f, delta(LoadCounter::PredictMicros) / f / 1000.0,
-                     delta(LoadCounter::Rays) / f, delta(LoadCounter::Sweeps) / f, managed, entries, PredictorStateCount());
+                     static_cast<double>(calls) / f, static_cast<double>(nanos) / f / 1.0e6, managed, entries, PredictorStateCount());
+            LOG_INFO("load: queries per frame by tag: {}", platform::physics::FormatQueryWindows(queries, w.frames));
+        }
+
+        /// @brief Each tag's frame: plotted to Tracy (milliseconds, under the tag's name), and logged the first time it goes
+        ///        over its budget.
+        void OnQueryFrame(void*, const platform::physics::QueryFrameUse& use)
+        {
+            const char* name = use.stats->Name();
+            CB_PLOT(name, static_cast<double>(use.nanos) / 1.0e6);
+            if (!use.firstOver) return;
+            const platform::physics::QueryBudget& b = use.stats->Budget();
+            LOG_WARN("load: physics queries '{}' over budget: {} calls in {:.3f} ms this frame (budget {} calls, {:.3f} ms; 0 = none); "
+                     "logged once, the load report counts the frames over",
+                     name, use.calls, static_cast<double>(use.nanos) / 1.0e6, b.callsPerFrame, b.msPerFrame);
         }
 
         /// @note After the present: the frame time is present to present, the game's whole frame.
@@ -58,9 +77,11 @@ namespace CB::feature::controller {
             const auto now = Clock::now();
             std::array<std::uint64_t, static_cast<std::size_t>(LoadCounter::kCount)> counts{};
             for (std::size_t i = 0; i < counts.size(); ++i) counts[i] = g_counters[i].load(std::memory_order_relaxed);
+            bool frame = false;
             if (w.last != Clock::time_point{}) {
                 const double dt = std::chrono::duration<double>(now - w.last).count();
-                if (dt < kMaxFrame) {
+                frame           = dt < kMaxFrame;
+                if (frame) {
                     ++w.frames;
                     w.frameSum += dt;
                     w.frameMax = (std::max)(w.frameMax, dt);
@@ -70,14 +91,16 @@ namespace CB::feature::controller {
                     const std::size_t i = static_cast<std::size_t>(c);
                     return static_cast<double>(counts[i] - w.lastFrame[i]);
                 };
-                CB_PLOT("CB floor rays", perFrame(LoadCounter::Rays));
-                CB_PLOT("CB sweeps", perFrame(LoadCounter::Sweeps));
                 CB_PLOT("CB NPC predictions", perFrame(LoadCounter::PredictNpc));
                 CB_PLOT("CB predict ms", perFrame(LoadCounter::PredictMicros) / 1000.0);
             } else {
                 w.opened = now;
                 w.start  = counts;
+                (void)platform::physics::TakeQueryWindows();
             }
+            /// @note A gap that is no frame (the first present, a load screen) closes the tags' frame unchecked: what was
+            ///       cast during a load is no frame's budget. The first window's queries likewise start here, not at load.
+            platform::physics::EndQueryFrame(frame ? &OnQueryFrame : nullptr, nullptr);
             w.last      = now;
             w.lastFrame = counts;
             const double open = std::chrono::duration<double>(now - w.opened).count();

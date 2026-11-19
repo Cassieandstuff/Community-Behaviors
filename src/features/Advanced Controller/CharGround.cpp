@@ -3,7 +3,6 @@
 #include "CharGraph.h"
 
 #include "CharGround.h"
-#include "CharLoad.h"
 
 #include <hky/locomotion/Floor.h>
 #include <platform/physics/GameWorld.h>
@@ -384,7 +383,6 @@ namespace CB::feature::controller {
         {
             const std::uint64_t rings = ring ? g_rings.fetch_add(1, std::memory_order_relaxed) + 1 : g_rings.load(std::memory_order_relaxed);
             const std::uint64_t n     = g_footprints.fetch_add(1, std::memory_order_relaxed) + 1;
-            CountLoad(LoadCounter::Rays, ring ? 9 : 1);
             if ((n & (n - 1)) == 0 && n >= 1024)
                 LOG_INFO("floor query: {} footprints, {} cast the ring ({:.1f}%), {} rays in all", n, rings, 100.0 * static_cast<double>(rings) / n,
                          n + 8 * rings);
@@ -397,18 +395,19 @@ namespace CB::feature::controller {
         lc::FloorRayXY(BodyOf(hull), i, TunablesOf(t), x, y, hind);
     }
 
-    FloorVerdict QueryFloor(::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
+    FloorVerdict QueryFloor(platform::physics::QueryTag& tag, ::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
     {
-        return QueryFloorAt(ctrl, hull, 0.0f, 0.0f, 0.0f, t);
+        return QueryFloorAt(tag, ctrl, hull, 0.0f, 0.0f, 0.0f, t);
     }
 
     /// @note hky::locomotion's floor query, cast through the game's world (platform::physics::GameWorld) with the
     ///       controller's own collision filter.
-    FloorVerdict QueryFloorAt(::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t)
+    FloorVerdict QueryFloorAt(platform::physics::QueryTag& tag, ::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz,
+                              const FloorTunables& t)
     {
         if (!hull.valid) return FloorVerdict{};
         CB_ZONE(zone, "floor query");
-        const platform::physics::GameWorld world(hull.world);
+        const platform::physics::GameWorld world(hull.world, tag);
         const ::CFilter                    filter = ctrl.GetCollisionFilterInfo();
         lc::FloorQuery                     q;
         q.world          = &world;

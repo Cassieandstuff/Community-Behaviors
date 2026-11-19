@@ -5,9 +5,10 @@
 #include <cstdint>
 
 /// @file
-/// @brief The Advanced Controller's load report (char_load_report): what the controller casts and predicts per frame,
-///        the frame time beside it, and the size of its per-controller tables, logged every 30 s and plotted to Tracy
-///        every frame.
+/// @brief The Advanced Controller's load report (char_load_report): what the controller predicts per frame, the frame
+///        time beside it, the size of its per-controller tables, and every physics query tag's use (platform/physics
+///        QueryStats: calls, time, lock wait, budget), logged every 30 s and plotted to Tracy every frame.
+/// @note  The report also closes each frame for the query tags: their budgets are checked only while it runs.
 /// @note  Why: a session's frame rate fell until it was unplayable, and the log had no frame time nor any count that
 ///        could tell work that grows (a table never pruned, casts multiplying) from work that scales with the crowd
 ///        (every managed NPC predicts). A line every 30 s tells them apart over a whole session.
@@ -15,8 +16,6 @@
 namespace CB::feature::controller {
 
     enum class LoadCounter : std::uint8_t {
-        Rays,               ///< floor rays (bhkWorld::PickObject)
-        Sweeps,             ///< shape casts (hkpWorld::linearCast)
         PredictPlayer,      ///< trajectory predictions for the player (or the ridden horse)
         PredictNpc,         ///< trajectory predictions for managed NPCs
         PredictNpcSkipped,  ///< NPC steps the distance rate skipped (CharPredictor: fNpcPredictNear, fNpcPredictEvery)

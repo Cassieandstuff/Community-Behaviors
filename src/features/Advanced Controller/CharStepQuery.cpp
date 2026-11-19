@@ -31,6 +31,8 @@ namespace CB::feature {
     namespace {
 
         namespace ch = CB::feature::controller;
+        platform::physics::QueryTag kFloorTag{ "char.step.floor" };
+        platform::physics::QueryTag kSweepTag{ "char.step.sweep" };
         using Integrate   = platform::hooks::Override<&::bhkCharProxyController::Unk_0B>;
 
         constexpr float         kHavokToGame       = 69.99125f;
@@ -102,12 +104,12 @@ namespace CB::feature {
 
             /// @note The floor query runs at the pre-slide spot (the hull shifted back by the slide): the slide moves only
             ///       the phantom, which the query's rays ignore (character layer), so this is the floor before the slide.
-            if (!ch::Supported(ch::QueryFloorAt(ctrl, hull, before(0) - after(0), before(1) - after(1), before(2) - after(2))))
+            if (!ch::Supported(ch::QueryFloorAt(kFloorTag, ctrl, hull, before(0) - after(0), before(1) - after(1), before(2) - after(2))))
                 return;
 
             const ::hkVector4& at = hull.collidable->getTransform().getTranslation();
             const ch::SweepHit   obstacle =
-                ch::Sweep(hull.world, hull.collidable, Offset(at, ux * remainder, uy * remainder, 0.0f), 0.0f, ch::WalkableZ(ctrl), kCharacters);
+                ch::Sweep(kSweepTag, hull.world, hull.collidable, Offset(at, ux * remainder, uy * remainder, 0.0f), 0.0f, ch::WalkableZ(ctrl), kCharacters);
             if (!obstacle.hit) return;
 
             Attempt a;
@@ -120,7 +122,7 @@ namespace CB::feature {
                 return Log(a);
             }
 
-            const ch::SweepHit up = ch::Sweep(hull.world, hull.collidable, Offset(at, 0.0f, 0.0f, stepHeight), 0.0f);
+            const ch::SweepHit up = ch::Sweep(kSweepTag, hull.world, hull.collidable, Offset(at, 0.0f, 0.0f, stepHeight), 0.0f);
             a.up = up.hit ? (std::max)(stepHeight * up.fraction - kSkin, 0.0f) : stepHeight;
             if (a.up < kMinUp) {
                 a.reason = "ceiling";
@@ -129,7 +131,7 @@ namespace CB::feature {
 
             const float          forward = (std::max)(remainder, kMinForward);
             const ::hkVector4  raised  = Offset(at, 0.0f, 0.0f, a.up);
-            const ch::SweepHit   ahead   = ch::SweepFrom(hull.world, hull.collidable, raised, Offset(raised, ux * forward, uy * forward, 0.0f), 0.0f);
+            const ch::SweepHit   ahead   = ch::SweepFrom(kSweepTag, hull.world, hull.collidable, raised, Offset(raised, ux * forward, uy * forward, 0.0f), 0.0f);
             a.forward = ahead.hit ? (std::max)(forward * ahead.fraction - kSkin, 0.0f) : forward;
             if (a.forward < kMinForwardGain) {
                 a.reason = "blocked above step";
@@ -138,7 +140,7 @@ namespace CB::feature {
 
             const float          drop    = a.up + kDownExtra;
             const ::hkVector4  over    = Offset(raised, ux * a.forward, uy * a.forward, 0.0f);
-            const ch::SweepHit   down    = ch::SweepFrom(hull.world, hull.collidable, over, Offset(over, 0.0f, 0.0f, -drop), 0.0f, 2.0f, kCharacters);
+            const ch::SweepHit   down    = ch::SweepFrom(kSweepTag, hull.world, hull.collidable, over, Offset(over, 0.0f, 0.0f, -drop), 0.0f, 2.0f, kCharacters);
             if (!down.hit) {
                 a.reason = "no floor beyond";
                 return Log(a);
@@ -155,7 +157,7 @@ namespace CB::feature {
             }
 
             const float dx = ux * a.forward, dy = uy * a.forward;
-            const ch::FloorVerdict landing = ch::QueryFloorAt(ctrl, hull, dx, dy, a.rise);
+            const ch::FloorVerdict landing = ch::QueryFloorAt(kFloorTag, ctrl, hull, dx, dy, a.rise);
             a.landingSupport               = landing.ground == ch::Ground::Grounded ? landing.support : 0.0f;
             if (!ch::Supported(landing)) {
                 a.reason = kNotGrounded;

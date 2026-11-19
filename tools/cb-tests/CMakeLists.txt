@@ -1,7 +1,9 @@
 # ── tools/cb-tests ───────────────────────────────────────────────────────
 # cb-tests — unit tests over CB's own libraries (never deployed). The engine's tests (engine-tests) live in HKY-SDK.
 
-add_executable(cb-tests CbTests.cpp CompatTests.cpp)
+add_executable(cb-tests CbTests.cpp CompatTests.cpp QueryStatsTests.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../src/platform/physics/QueryStats.cpp")   # game-free: the plugin's query counters
+target_include_directories(cb-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../src")
 target_link_libraries(cb-tests PRIVATE config)
 
 set_target_properties(cb-tests PROPERTIES

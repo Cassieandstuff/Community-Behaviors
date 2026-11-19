@@ -41,6 +41,8 @@ namespace CB::feature {
     namespace {
 
         namespace ch = CB::feature::controller;
+        platform::physics::QueryTag kFloorTag{ "char.predict.floor" };
+        platform::physics::QueryTag kSweepTag{ "char.predict.sweep" };
         using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief The pogo's spring, the ground states' own (char_pogo).
@@ -336,15 +338,15 @@ namespace CB::feature {
         {
             auto floorOf = [&](const ch::FloorVerdict& v, float& dz) { return pogo ? ch::PogoFloor(ctrl, v, dz) : HighestFloor(v, dz); };
             float            dz    = 0.0f;
-            ch::FloorVerdict first = ch::QueryFloorAt(ctrl, hull, x, y, zEstimate);
+            ch::FloorVerdict first = ch::QueryFloorAt(kFloorTag, ctrl, hull, x, y, zEstimate);
             z                      = zEstimate;
             if (!floorOf(first, dz)) {
-                first = ch::QueryFloorAt(ctrl, hull, x, y, zPrevious);
+                first = ch::QueryFloorAt(kFloorTag, ctrl, hull, x, y, zPrevious);
                 z     = zPrevious;
                 if (!floorOf(first, dz)) return first;
             }
             z += dz;
-            return ch::QueryFloorAt(ctrl, hull, x, y, z);
+            return ch::QueryFloorAt(kFloorTag, ctrl, hull, x, y, z);
         }
 
         /// @brief Where a fall from `zTop` to `zBottom` (feet heights) at (x, y) lands: the highest floor-like hit between
@@ -357,11 +359,11 @@ namespace CB::feature {
             float       zq   = zTop - hull.radius;
             for (int i = 0; i < 4 && zq + hull.radius >= zBottom; i++, zq -= span) {
                 float dz = 0.0f;
-                if (!HighestFloor(ch::QueryFloorAt(ctrl, hull, x, y, zq), dz)) continue;
+                if (!HighestFloor(ch::QueryFloorAt(kFloorTag, ctrl, hull, x, y, zq), dz)) continue;
                 const float hit = zq + dz;
                 if (hit > zTop || hit < zBottom) continue;
                 zLand = hit;
-                floor = ch::QueryFloorAt(ctrl, hull, x, y, zLand);
+                floor = ch::QueryFloorAt(kFloorTag, ctrl, hull, x, y, zLand);
                 return true;
             }
             return false;
@@ -416,7 +418,7 @@ namespace CB::feature {
                 toLocal(past.x - hull.cx, past.y - hull.cy, tr.past);
                 tr.past.up     = past.z - hull.feetZ;
                 tr.past.facing = WrapAngle(past.heading - heading);
-                const ch::FloorVerdict pastFloor = ch::QueryFloorAt(ctrl, hull, past.x - hull.cx, past.y - hull.cy, tr.past.up);
+                const ch::FloorVerdict pastFloor = ch::QueryFloorAt(kFloorTag, ctrl, hull, past.x - hull.cx, past.y - hull.cy, tr.past.up);
                 tr.past.ground  = pastFloor.ground;
                 tr.past.support = pastFloor.support;
                 tr.past.valid  = true;
@@ -453,7 +455,7 @@ namespace CB::feature {
             const ::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
             const float          lift      = (std::max)(0.0f, ctrl.m_stepHeight - hull.lift);
             const std::uint64_t  ignore    = SweepIgnoreLayers();
-            ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
+            ch::FloorVerdict     prevFloor = ch::QueryFloor(kFloorTag, ctrl, hull);
             /// @note Held by the pogo the character is on the ground whatever the rays say (it may be riding down to a
             ///       floor below the foot tolerance). The shape still floating proves the note is current.
             const bool held = note.pogo && hull.lift > 0.0f;
@@ -591,7 +593,7 @@ namespace CB::feature {
                         ::hkVector4 a, b;
                         a.set(origin(0) + from.x, origin(1) + from.y, origin(2) + fromZ + lift, 0.0f);
                         b.set(origin(0) + to.x, origin(1) + to.y, origin(2) + toZ + lift, 0.0f);
-                        const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, ignore);
+                        const ch::SweepHit hit = ch::SweepFrom(kSweepTag, hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, ignore);
                         const float dx = to.x - from.x, dy = to.y - from.y;
                         const float len = std::sqrt(dx * dx + dy * dy);
                         if (!hit.hit) {

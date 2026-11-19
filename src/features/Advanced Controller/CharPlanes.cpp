@@ -46,6 +46,7 @@ namespace CB::feature {
     namespace {
 
         namespace ch  = CB::feature::controller;
+        platform::physics::QueryTag kFloorTag{ "char.planes.floor" };
 
         using Process = platform::hooks::Override<&::bhkCharProxyController::processConstraintsCallback>;
 
@@ -110,7 +111,7 @@ namespace CB::feature {
                 /// @note Samples the graph for the planes (ch::GraphMovesPublished), outside the integrate.
                 if (const auto actor = ch::ManagedActor(*self)) ch::GraphMovesActor(actor.get());
                 const ch::Hull hull = ch::GetHull(*self);
-                if (hull.valid) ch::PublishVerdict(*self, ch::QueryFloor(*self, hull, ch::FloorTunables{}));
+                if (hull.valid) ch::PublishVerdict(*self, ch::QueryFloor(kFloorTag, *self, hull, ch::FloorTunables{}));
             }
             next(self);
         }

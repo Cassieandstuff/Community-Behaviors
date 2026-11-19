@@ -20,6 +20,7 @@ void Check(bool ok, const std::string& what) {
 int main() {
     namespace t = CB::config::tests;
     t::RunCompatTests();
+    t::RunQueryStatsTests();
     if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("cb-tests: all passed\n");
     return t::g_failures;

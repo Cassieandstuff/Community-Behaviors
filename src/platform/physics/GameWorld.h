@@ -1,12 +1,12 @@
 #pragma once
 
 #include <Common/Base/hkBase.h>
-#include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
 #include <BSHavok/bhkWorld.h>
 
 #include <hky/runtime/Physics.h>
 
-#include <cstdint>
+#include <platform/physics/QueryTag.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,8 +18,12 @@
 ///        create, move or step bodies does nothing, and says so where it can (CreateShape, AddBody).
 /// @note  A hit's userData is the hit root collidable (`const hkpCollidable*`), its body id empty (the game's bodies are
 ///        not ours to name); its layer is the collidable's collision layer.
-/// @pre   Queried where vanilla may query the world: inside a character's update, outside the physics step. A shape cast
-///        holds the world's read lock for the cast; a ray goes through bhkWorld::PickObject.
+/// @pre   Queried where vanilla may query the world: inside a character's update, outside the physics step.
+/// @note  THE way CB queries the game's world: nothing outside platform/physics calls PickObject or linearCast. Every
+///        query is counted, timed and zoned under the QueryTag the GameWorld was made with (QueryStats.h), its wait for
+///        the world's read lock timed apart: a shape cast takes that lock for the cast, a ray takes it around
+///        bhkWorld::PickObject, which takes it again inside (a reader's lock nests: BSReadWriteLock::LockForRead blocks
+///        only on a writer that holds it).
 
 namespace CB::platform::physics {
 
@@ -36,34 +40,9 @@ private:
     const ::hkpCollidable* m_collidable;
 };
 
-/// @brief A caller's say over each sweep hit: return false to pass through it (Havok units).
-/// @note  Runs inside the cast, under the world's read lock; a refused hit never hides one beyond it.
-struct NativeHitFilter {
-    bool (*accept)(void* user, const ::hkpCollidable* body, float fraction) = nullptr;
-    void* user = nullptr;
-};
-
-/// @brief The first thing a native sweep met (Havok units).
-struct NativeSweepHit {
-    bool                   hit      = false;
-    float                  fraction = 1.0f;   ///< of the path, 0 to 1
-    ::hkContactPoint       contact{};         ///< on the hit body; normal points away from it, w the fraction
-    const ::hkpCollidable* body = nullptr;    ///< the hit root collidable
-};
-
-/// @brief Sweeps `collidable`'s shape from `from` to `to` (Havok world space, the collidable's rotation) and returns the
-///        closest hit: hkpWorld::linearCast over a stand-in of the collidable at `from`.
-/// @param ignoreAboveNormalZ hits on faces flatter than this (normal z above it) are skipped.
-/// @param ignoreLayers bit n set: hits on collision layer n are skipped.
-/// @param rejectLeaving hits the motion leaves (contact normal . displacement >= 0) are skipped, as Jolt's
-///        ContactCastCollector does: a horizontal hull sweep otherwise meets the floor it slides over.
-NativeSweepHit SweepNative(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& from, const ::hkVector4& to,
-                           float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers, bool rejectLeaving,
-                           const NativeHitFilter* filter);
-
 class GameWorld final : public hky::physics::IPhysicsWorld {
 public:
-    explicit GameWorld(::bhkWorld* world) : m_world(world) {}
+    GameWorld(::bhkWorld* world, QueryTag& tag) : m_world(world), m_tag(&tag) {}
 
     void SetLayerTable(const hky::physics::LayerTable&) override {}
     void SetGravity(const hky::physics::Vec3&) override {}
@@ -83,14 +62,16 @@ public:
     float Step(float) override { return 0.0f; }
 
     /// @brief bhkWorld::PickObject from `from` to `to`, with `filter.native` as the ray's Havok filter info (else the
-    ///        filter's layer); `ignoreLayers` and `maxNormalZ` are applied to its one hit.
+    ///        filter's layer); `ignoreLayers`, `maxNormalZ` and `accept` are applied to its one hit. A pick the game skips
+    ///        for its frame budget is no hit, counted as skipped.
     [[nodiscard]] std::optional<hky::physics::Hit> CastRay(const hky::physics::Vec3& from, const hky::physics::Vec3& to,
                                                           const hky::physics::QueryFilter& filter) const override;
     /// @note PickObject returns one hit: this gives that one.
     void CastRayAll(const hky::physics::Vec3& from, const hky::physics::Vec3& to, const hky::physics::QueryFilter& filter,
                     std::vector<hky::physics::Hit>& out) const override;
-    /// @brief SweepNative for a LiveShape (no other shape is the game's): at most its closest hit. The pair filter is the
-    ///        collidable's own; `ignoreLayers`, `maxNormalZ`, `rejectLeaving` and `startTolerance` apply.
+    /// @brief hkpWorld::linearCast of a LiveShape (no other shape is the game's) over a stand-in of its collidable placed
+    ///        at `from`: at most the closest hit. The pair filter is the collidable's own; `ignoreLayers`, `maxNormalZ`,
+    ///        `rejectLeaving`, `startTolerance` and `accept` apply, the collidable itself is never a hit.
     void CastShape(const hky::physics::ShapeRef& shape, const hky::physics::Transform& from, const hky::physics::Vec3& to,
                    const hky::physics::QueryFilter& filter, std::vector<hky::physics::Hit>& out) const override;
     void Overlap(const hky::physics::ShapeRef&, const hky::physics::Transform&, const hky::physics::QueryFilter&,
@@ -98,7 +79,11 @@ public:
     void DebugTriangles(hky::physics::BodyId, std::vector<hky::physics::Vec3>& out) const override { out.clear(); }
 
 private:
+    [[nodiscard]] std::optional<hky::physics::Hit> Ray(const hky::physics::Vec3& from, const hky::physics::Vec3& to,
+                                                      const hky::physics::QueryFilter& filter, QueryTimer& timer) const;
+
     ::bhkWorld* m_world;
+    QueryTag*   m_tag;
 };
 
 }  // namespace CB::platform::physics
