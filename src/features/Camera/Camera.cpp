@@ -6,6 +6,7 @@
 #include "CameraRules.h"
 #include "CameraZoom.h"
 
+#include "features/Advanced Controller/CharLoad.h"
 #include "features/Advanced Controller/CharSweep.h"
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
@@ -303,6 +304,9 @@ namespace CB::feature::camera {
             auto* camera   = RE::PlayerCamera::GetSingleton();
             auto* controls = RE::PlayerControls::GetSingleton();
             if (!player || !controls || !Owns(tps)) return next(tps, nextState);
+            namespace ctl = controller;
+            ctl::CountLoad(ctl::LoadCounter::CameraUpdates);
+            const ctl::LoadScope timed(ctl::LoadCounter::CameraMicros);
 
             std::scoped_lock    lock(g_lock);
             Live&               l       = g_live;
@@ -344,7 +348,10 @@ namespace CB::feature::camera {
             const float mounted = rig::StepEase(profile.mounted.ease, l.mounted, mountTarget, dt);
             const float body    = rig::StepEase(profile.mounted.body, l.body, bodyTarget, dt);
             /// @note The camera rules (CameraRules): each output laid on the rig's own number where the stage reads it.
-            const rules::Result         ruled = rules::Step(*player, dt);
+            const rules::Result ruled = [&] {
+                const ctl::LoadScope t(ctl::LoadCounter::CameraRulesMicros);
+                return rules::Step(*player, dt);
+            }();
             const rules::ModifierState& cam   = ruled.state;
             const auto                  shape = [&](rules::Output o, float base) { return cam.Shape(rules::Index(o), base); };
 
@@ -359,7 +366,10 @@ namespace CB::feature::camera {
             ///       its pitch is the player's as ever.
             /// @note Why not face the fight's centre: a camera chasing the whole fight swung around the player at will and
             ///       lost them.
-            const lock::Frame locked      = lock::Step(*player, dt, look.x, look.y, l.view.yaw);
+            const lock::Frame locked = [&] {
+                const ctl::LoadScope t(ctl::LoadCounter::CameraLockMicros);
+                return lock::Step(*player, dt, look.x, look.y, l.view.yaw);
+            }();
             const bool        facingFight = locked.engaged && l.fightWeight > 0.05f;
             if (facingFight) {
                 constexpr float kMaxNudge = 1.0f, kNudgeReturn = 0.3f, kFaceHalflife = 0.35f;
@@ -389,7 +399,10 @@ namespace CB::feature::camera {
             tps->targetZoomOffset = tps->currentZoomOffset = kZoomPin;
             l.zoomPinned          = true;
             t_inOwnedUpdate = true;
-            next(tps, nextState);
+            {
+                const ctl::LoadScope t(ctl::LoadCounter::CameraVanillaMicros);
+                next(tps, nextState);
+            }
             t_inOwnedUpdate = false;
             controls->data.lookInputVec   = look;
             const float headingAfter      = player->GetHeading(false);
@@ -633,6 +646,7 @@ namespace CB::feature::camera {
             if (auto* node = camera->cameraRoot.get()) {
                 node->local.translate = tps->translation;
                 RE::NiUpdateData update;
+                const ctl::LoadScope t(ctl::LoadCounter::CameraNodeMicros);
                 node->Update(update);
             }
 

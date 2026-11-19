@@ -75,6 +75,13 @@ namespace CB::feature::controller {
                      samples > 0 ? delta(LoadCounter::ClipGenerateMicros) / samples : 0.0, delta(LoadCounter::PoseSearchActivates),
                      delta(LoadCounter::PoseSearchDeactivates), delta(LoadCounter::PoseNonFinite), nonFinite.empty() ? "" : " - last ",
                      nonFinite);
+            const double updates = delta(LoadCounter::CameraUpdates);
+            const auto   perUpdate = [&](LoadCounter c) { return updates > 0 ? delta(c) / updates / 1000.0 : 0.0; };
+            LOG_INFO("load: camera per update: {:.3f} ms (vanilla's update {:.3f}, rules {:.3f}, lock {:.3f}, root node {:.3f}) over {:.0f} updates "
+                     "({:.2f} per frame), {:.2f} ms per frame",
+                     perUpdate(LoadCounter::CameraMicros), perUpdate(LoadCounter::CameraVanillaMicros), perUpdate(LoadCounter::CameraRulesMicros),
+                     perUpdate(LoadCounter::CameraLockMicros), perUpdate(LoadCounter::CameraNodeMicros), updates, updates / f,
+                     delta(LoadCounter::CameraMicros) / f / 1000.0);
         }
 
         /// @brief Times every clip's sample, every character's: the cost of a pose-search node's active children shows on

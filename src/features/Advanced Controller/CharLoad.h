@@ -26,6 +26,12 @@ namespace CB::feature::controller {
         PoseSearchActivates,    ///< pose-search node activations (each activates every child it keeps active)
         PoseSearchDeactivates,  ///< and deactivations
         PoseNonFinite,      ///< pose-search outputs whose input pose held a non-finite or flung bone
+        CameraUpdates,      ///< CB's third-person camera updates (features/Camera)
+        CameraMicros,       ///< microseconds in them, everything below included
+        CameraVanillaMicros,  ///< of which vanilla's wrapped ThirdPersonState::Update
+        CameraRulesMicros,    ///< of which the camera rules' step (their conditions evaluated)
+        CameraLockMicros,     ///< of which the target lock's step (the combatants ranked)
+        CameraNodeMicros,     ///< of which the camera root's NiNode update
         kCount
     };
 
@@ -51,6 +57,23 @@ namespace CB::feature::controller {
     /// @brief Remembers what the last non-finite input pose was (node, child, bone) for the next report.
     /// @note Any thread.
     void NotePoseNonFinite(std::string what);
+
+    /// @brief Times a scope into any counter, in microseconds.
+    class LoadScope {
+    public:
+        explicit LoadScope(LoadCounter counter) : m_counter(counter), m_start(std::chrono::steady_clock::now()) {}
+        ~LoadScope()
+        {
+            const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - m_start).count();
+            CountLoad(m_counter, static_cast<std::uint64_t>(us > 0 ? us : 0));
+        }
+        LoadScope(const LoadScope&)            = delete;
+        LoadScope& operator=(const LoadScope&) = delete;
+
+    private:
+        LoadCounter                           m_counter;
+        std::chrono::steady_clock::time_point m_start;
+    };
 
     /// @return the predictor's per-controller states (CharPredictor.cpp), entries never pruned.
     std::size_t PredictorStateCount();
