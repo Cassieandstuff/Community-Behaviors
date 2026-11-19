@@ -32,6 +32,7 @@ namespace CB::feature::controller::dynamic {
     namespace {
 
         namespace lc = hky::locomotion;
+        platform::physics::QueryTag kProbeTag{ "char.mover" };
 
         using Integrate = platform::hooks::Override<&::bhkCharProxyController::Unk_0B>;
 
@@ -312,7 +313,7 @@ namespace CB::feature::controller::dynamic {
         }
 
         /// @note The probes, here where vanilla queries the world; the listener reads the floor they chose.
-        const platform::physics::GameWorld game(hull.world);
+        const platform::physics::GameWorld game(hull.world, kProbeTag);
         const lc::MoverGround ground = lc::ProbeMoverGround(game, settings, {}, state, x, y, originZ, vx, vy, &out.probes);
         {
             std::scoped_lock lock(s.lock);

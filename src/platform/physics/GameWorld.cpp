@@ -3,6 +3,7 @@
 #include "platform/physics/GameWorld.h"
 
 #include <Physics/Collide/Agent/Collidable/hkpCollidable.h>
+#include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
 #include <Physics/Collide/Shape/hkpShape.h>
 #include <BSHavok/bhkPickData.h>
 #include <BSHavok/bhkShape.h>
@@ -20,6 +21,56 @@ namespace CB::platform::physics {
         namespace ph = hky::physics;
         constexpr float kToGame   = ph::kHavokToGame;
         constexpr float kToHavok  = 1.0f / ph::kHavokToGame;
+
+        ::hkVector4 Havok(const ph::Vec3& v)
+        {
+            ::hkVector4 out;
+            out.set(v.x * kToHavok, v.y * kToHavok, v.z * kToHavok, 0.0f);
+            return out;
+        }
+
+        ph::Vec3 Game(const ::hkVector4& v) { return { v(0) * kToGame, v(1) * kToGame, v(2) * kToGame }; }
+
+        unsigned LayerOf(const ::hkpCollidable* c) { return c ? (c->getCollisionFilterInfo() & 0x7f) : 0u; }
+
+        bool LayerIgnored(std::uint64_t ignoreLayers, unsigned layer) { return layer < 64 && ((ignoreLayers >> layer) & 1u); }
+
+        /// @brief The world's read lock, held for the scope; the wait for it reported to the query's timer.
+        /// @note  bhkWorldLock is a no-op unless the game runs with bUseWorldLock:HAVOK, as is vanilla's own lock.
+        class TimedReadLock {
+        public:
+            TimedReadLock(::bhkWorld* world, QueryTimer& timer) : m_from(QueryClock::now()), m_lock(world, 0)
+            {
+                timer.LockWaited(QueryClock::now() - m_from);
+            }
+            TimedReadLock(const TimedReadLock&)            = delete;
+            TimedReadLock& operator=(const TimedReadLock&) = delete;
+
+        private:
+            QueryClock::time_point m_from;   ///< declared before m_lock: read before the lock is taken
+            ::bhkWorldLock         m_lock;
+        };
+
+        /// @brief The first thing a sweep met (Havok units).
+        struct NativeSweepHit {
+            bool                   hit      = false;
+            float                  fraction = 1.0f;   ///< of the path, 0 to 1
+            ::hkContactPoint       contact{};         ///< on the hit body; normal points away from it, w the fraction
+            const ::hkpCollidable* body = nullptr;    ///< the hit root collidable
+        };
+
+        /// @brief The game-units hit a sweep contact makes, as CastShape reports it and `accept` sees it.
+        ph::Hit HitOf(const ::hkContactPoint& contact, float fraction, const ::hkpCollidable* body)
+        {
+            ph::Hit hit;
+            hit.fraction         = fraction;
+            hit.point            = Game(contact.getPosition());
+            const ::hkVector4& n = contact.getSeparatingNormal();
+            hit.normal           = { n(0), n(1), n(2) };
+            hit.layer            = static_cast<std::uint8_t>(LayerOf(body));
+            hit.userData         = reinterpret_cast<std::uint64_t>(body);
+            return hit;
+        }
 
         /// @brief hkpCdPoint as vanilla's hkpAllCdPointCollector::addCdPoint (0x140b1d930) reads it.
         /// @note 0x40 bytes: the contact is copied whole, the unwelded normal skipped, and each body walked up m_parent
@@ -57,7 +108,7 @@ namespace CB::platform::physics {
             float                  m_ignoreAboveNormalZ = 2.0f;
             std::uint64_t          m_ignoreLayers       = 0;
             const ::hkpCollidable* m_self               = nullptr;   ///< the stand-in's original, never a hit
-            const NativeHitFilter* m_filter             = nullptr;
+            const ph::HitAccept*   m_accept             = nullptr;
         };
 
         void* CollectorDtor(ClosestCollector* self, unsigned) { return self; }
@@ -74,18 +125,14 @@ namespace CB::platform::physics {
             const ::hkpCdBody* root = point.m_cdBodyB;
             while (root && root->getParent()) root = root->getParent();
             if (root && root == self->m_self) return;
-            if (root && self->m_ignoreLayers) {
-                const unsigned layer = static_cast<const ::hkpCollidable*>(root)->getCollisionFilterInfo() & 0x7f;
-                if (layer < 64 && ((self->m_ignoreLayers >> layer) & 1u)) return;
-            }
-            if (self->m_filter && self->m_filter->accept &&
-                !self->m_filter->accept(self->m_filter->user, static_cast<const ::hkpCollidable*>(root), d))
-                return;
+            const auto* body = static_cast<const ::hkpCollidable*>(root);
+            if (root && self->m_ignoreLayers && LayerIgnored(self->m_ignoreLayers, LayerOf(body))) return;
+            if (self->m_accept && self->m_accept->fn && !self->m_accept->Accepts(HitOf(point.m_contact, d, body))) return;
             self->m_earlyOutDistance = d;
             self->m_best.hit      = true;
             self->m_best.fraction = d;
             self->m_best.contact  = point.m_contact;
-            self->m_best.body     = static_cast<const ::hkpCollidable*>(root);
+            self->m_best.body     = body;
         }
 
         void CollectorReset(ClosestCollector* self)
@@ -130,63 +177,41 @@ namespace CB::platform::physics {
         };
         static_assert(StandIn::kMaxOwnerBytes % 16 == 0 && sizeof(::hkpCollidable) == 0x70);
 
-        ::hkVector4 Havok(const ph::Vec3& v)
+        /// @brief Sweeps `collidable`'s shape from `from` to `to` (Havok world space, the collidable's rotation) and returns
+        ///        the closest hit: hkpWorld::linearCast over a stand-in of the collidable at `from`, under the world's read
+        ///        lock.
+        /// @param ignoreAboveNormalZ hits on faces flatter than this (normal z above it) are skipped.
+        /// @param ignoreLayers bit n set: hits on collision layer n are skipped.
+        /// @param rejectLeaving hits the motion leaves (contact normal . displacement >= 0) are skipped, as Jolt's
+        ///        ContactCastCollector does: a horizontal hull sweep otherwise meets the floor it slides over.
+        NativeSweepHit SweepNative(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& from, const ::hkVector4& to,
+                                   float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers, bool rejectLeaving,
+                                   const ph::HitAccept& accept, QueryTimer& timer)
         {
-            ::hkVector4 out;
-            out.set(v.x * kToHavok, v.y * kToHavok, v.z * kToHavok, 0.0f);
-            return out;
+            if (!world || !collidable || !collidable->m_motion || !collidable->getShape() || collidable->getParent()) return {};
+            const ::hkpWorld* havokWorld = world->GetWorld2();
+            if (!havokWorld) return {};
+            const StandIn standIn(*collidable, from);
+
+            LinearCastInput input{};
+            input.m_to                  = to;
+            input.m_maxExtraPenetration = FLT_EPSILON;
+            input.m_startPointTolerance = startTolerance;
+            ClosestCollector collector{ kCollectorVtable };
+            collector.m_dx                 = to(0) - from(0);
+            collector.m_dy                 = to(1) - from(1);
+            collector.m_dz                 = to(2) - from(2);
+            collector.m_rejectLeaving      = rejectLeaving;
+            collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
+            collector.m_ignoreLayers       = ignoreLayers;
+            collector.m_self               = collidable;
+            collector.m_accept             = &accept;
+
+            const TimedReadLock lock(world, timer);
+            havokWorld->linearCast(standIn.m_collidable, reinterpret_cast<const ::hkpLinearCastInput&>(input),
+                                   reinterpret_cast<::hkpCdPointCollector&>(collector), nullptr);
+            return collector.m_best;
         }
-
-        ph::Vec3 Game(const ::hkVector4& v) { return { v(0) * kToGame, v(1) * kToGame, v(2) * kToGame }; }
-
-        unsigned LayerOf(const ::hkpCollidable* c) { return c ? (c->getCollisionFilterInfo() & 0x7f) : 0u; }
-
-        bool LayerIgnored(std::uint64_t ignoreLayers, unsigned layer) { return layer < 64 && ((ignoreLayers >> layer) & 1u); }
-
-    }  // namespace
-
-    NativeSweepHit SweepNative(::bhkWorld* world, const ::hkpCollidable* collidable, const ::hkVector4& from, const ::hkVector4& to,
-                               float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers, bool rejectLeaving,
-                               const NativeHitFilter* filter)
-    {
-        if (!world || !collidable || !collidable->m_motion || !collidable->getShape() || collidable->getParent()) return {};
-        const ::hkpWorld* havokWorld = world->GetWorld2();
-        if (!havokWorld) return {};
-        const StandIn standIn(*collidable, from);
-
-        LinearCastInput input{};
-        input.m_to                  = to;
-        input.m_maxExtraPenetration = FLT_EPSILON;
-        input.m_startPointTolerance = startTolerance;
-        ClosestCollector collector{ kCollectorVtable };
-        collector.m_dx                 = to(0) - from(0);
-        collector.m_dy                 = to(1) - from(1);
-        collector.m_dz                 = to(2) - from(2);
-        collector.m_rejectLeaving      = rejectLeaving;
-        collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
-        collector.m_ignoreLayers       = ignoreLayers;
-        collector.m_self               = collidable;
-        collector.m_filter             = filter;
-
-        const ::bhkWorldLock lock(world, 0);
-        havokWorld->linearCast(standIn.m_collidable, reinterpret_cast<const ::hkpLinearCastInput&>(input),
-                               reinterpret_cast<::hkpCdPointCollector&>(collector), nullptr);
-        return collector.m_best;
-    }
-
-    ph::ShapeRef GameWorld::CreateShape(const ph::ShapeDesc&, std::string* error)
-    {
-        if (error) *error = "the game's world: shapes are the game's own (wrap one in a LiveShape)";
-        return nullptr;
-    }
-
-    ph::BodyId GameWorld::AddBody(const ph::BodyDesc&, std::string* error)
-    {
-        if (error) *error = "the game's world: bodies are the game's own";
-        return {};
-    }
-
-    namespace {
 
         /// @brief The material a ray hit, read as the game reads a contact's in its stairs test
         ///        (bhkCharacterController's IsStairsContact): the mesh shape seen through a MOPP, its child's material at the
@@ -207,14 +232,32 @@ namespace CB::platform::physics {
 
     }  // namespace
 
-    std::optional<ph::Hit> GameWorld::CastRay(const ph::Vec3& from, const ph::Vec3& to, const ph::QueryFilter& filter) const
+    ph::ShapeRef GameWorld::CreateShape(const ph::ShapeDesc&, std::string* error)
+    {
+        if (error) *error = "the game's world: shapes are the game's own (wrap one in a LiveShape)";
+        return nullptr;
+    }
+
+    ph::BodyId GameWorld::AddBody(const ph::BodyDesc&, std::string* error)
+    {
+        if (error) *error = "the game's world: bodies are the game's own";
+        return {};
+    }
+
+    std::optional<ph::Hit> GameWorld::Ray(const ph::Vec3& from, const ph::Vec3& to, const ph::QueryFilter& filter, QueryTimer& timer) const
     {
         if (!m_world) return std::nullopt;
         ::bhkPickData pick;
         pick.m_rayInput.m_from        = Havok(from);
         pick.m_rayInput.m_to          = Havok(to);
         pick.m_rayInput.m_filterInfo  = filter.native ? static_cast<::hkUint32>(filter.native) : static_cast<::hkUint32>(filter.filter.layer);
-        m_world->PickObject(pick);
+        {
+            const TimedReadLock lock(m_world, timer);
+            m_world->PickObject(pick);
+        }
+        /// @note PickObject skips a pick when the game's per-frame pick time is spent (bhkPickData +0xC0, m_unkC0): the
+        ///       caller reads it as no hit, so the tag counts it.
+        if (pick.m_unkC0) timer.Skipped();
         if (!pick.m_rayOutput.hasHit() || !pick.m_rayOutput.m_rootCollidable) return std::nullopt;
         const ::hkpCollidable* body = pick.m_rayOutput.m_rootCollidable;
         const unsigned         layer = LayerOf(body);
@@ -227,13 +270,26 @@ namespace CB::platform::physics {
         hit.layer    = static_cast<std::uint8_t>(layer);
         hit.userData = reinterpret_cast<std::uint64_t>(body);
         hit.material.id = MaterialOf(body, pick.m_rayOutput);
+        if (!filter.accept.Accepts(hit)) return std::nullopt;
+        return hit;
+    }
+
+    std::optional<ph::Hit> GameWorld::CastRay(const ph::Vec3& from, const ph::Vec3& to, const ph::QueryFilter& filter) const
+    {
+        CB_ZONE_AT(zone, m_tag->Zone());
+        QueryTimer timer(m_tag->Stats());
+        auto       hit = Ray(from, to, filter, timer);
+        timer.Hit(hit.has_value());
         return hit;
     }
 
     void GameWorld::CastRayAll(const ph::Vec3& from, const ph::Vec3& to, const ph::QueryFilter& filter, std::vector<ph::Hit>& out) const
     {
         out.clear();
-        if (auto hit = CastRay(from, to, filter)) out.push_back(*hit);
+        CB_ZONE_AT(zone, m_tag->Zone());
+        QueryTimer timer(m_tag->Stats());
+        if (auto hit = Ray(from, to, filter, timer)) out.push_back(*hit);
+        timer.Hit(!out.empty());
     }
 
     void GameWorld::CastShape(const ph::ShapeRef& shape, const ph::Transform& from, const ph::Vec3& to, const ph::QueryFilter& filter,
@@ -242,17 +298,12 @@ namespace CB::platform::physics {
         out.clear();
         const auto* live = dynamic_cast<const LiveShape*>(shape.get());
         if (!live || !live->Collidable()) return;
+        CB_ZONE_AT(zone, m_tag->Zone());
+        QueryTimer           timer(m_tag->Stats());
         const NativeSweepHit s = SweepNative(m_world, live->Collidable(), Havok(from.position), Havok(to), filter.startTolerance * kToHavok,
-                                             filter.maxNormalZ, filter.ignoreLayers, filter.rejectLeaving, nullptr);
-        if (!s.hit) return;
-        ph::Hit hit;
-        hit.fraction       = s.fraction;
-        hit.point          = Game(s.contact.getPosition());
-        const ::hkVector4& n = s.contact.getSeparatingNormal();
-        hit.normal         = { n(0), n(1), n(2) };
-        hit.layer          = static_cast<std::uint8_t>(LayerOf(s.body));
-        hit.userData       = reinterpret_cast<std::uint64_t>(s.body);
-        out.push_back(hit);
+                                             filter.maxNormalZ, filter.ignoreLayers, filter.rejectLeaving, filter.accept, timer);
+        timer.Hit(s.hit);
+        if (s.hit) out.push_back(HitOf(s.contact, s.fraction, s.body));
     }
 
 }  // namespace CB::platform::physics

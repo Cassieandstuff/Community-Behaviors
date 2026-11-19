@@ -47,6 +47,7 @@ namespace CB::feature {
     namespace {
 
         namespace ch = CB::feature::controller;
+        platform::physics::QueryTag kFloorTag{ "char.state.floor" };
         namespace eng        = platform::hooks::engine;
         using GetState       = platform::hooks::Override<&::hkpCharacterStateManager::getState>;
         using SimulateFn     = void (*)(const void* state, ::bhkCharacterController* controller);
@@ -743,7 +744,7 @@ namespace CB::feature {
             ///       the shape floats through a jump, so landing needs no re-raise.
             const bool pogo = ch::PogoOn() && hull.valid;
             if (pogo && ch::RaiseLift(c, hull) != hull.lift) hull = ch::GetHull(c);
-            const ch::FloorVerdict fv = hull.valid ? ch::QueryFloor(c, hull) : ch::FloorVerdict{};
+            const ch::FloorVerdict fv = hull.valid ? ch::QueryFloor(kFloorTag, c, hull) : ch::FloorVerdict{};
             const float        vz   = c.m_outVelocity(2);
             if (fv.ground != t.lastVerdict) {
                 if (LogBudget())

@@ -244,12 +244,16 @@ namespace CB::feature::camera {
             bool  sawThinBest = false;
         };
 
+        platform::physics::QueryTag kBoomTag{ "camera.boom" };
+        platform::physics::QueryTag kCasterTag{ "camera.caster" };
+
         /// @note A thin hit counts only where the eye would sit in it.
-        bool AcceptHit(void* user, const ::hkpCollidable* body, float fraction)
+        bool AcceptHit(void* user, const hky::physics::Hit& hit)
         {
-            auto&      f    = *static_cast<ThinFilter*>(user);
-            const bool thin = body && IsThin(body, f.widthHavok);
-            if (thin && (fraction < f.thinFrom || fraction > f.thinTo)) return false;
+            auto&       f    = *static_cast<ThinFilter*>(user);
+            const auto* body = reinterpret_cast<const ::hkpCollidable*>(hit.userData);
+            const bool  thin = body && IsThin(body, f.widthHavok);
+            if (thin && (hit.fraction < f.thinFrom || hit.fraction > f.thinTo)) return false;
             f.sawThinBest = thin;
             return true;
         }
@@ -283,7 +287,7 @@ namespace CB::feature::camera {
             ::hkVector4 start, end;
             start.set(from.x * s, from.y * s, from.z * s, 0.0f);
             end.set(to.x * s, to.y * s, to.z * s, 0.0f);
-            const controller::SweepHit hit = controller::SweepFrom(reinterpret_cast<::bhkWorld*>(world), collidable, start, end, 0.0f, 2.0f,
+            const controller::SweepHit hit = controller::SweepFrom(kBoomTag, reinterpret_cast<::bhkWorld*>(world), collidable, start, end, 0.0f, 2.0f,
                                                                    kPassLayers, p.passThin ? &hitFilter : nullptr);
             if (!hit.hit) return {};
             return { std::clamp(hit.fraction, 0.0f, 1.0f), hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1,
@@ -606,7 +610,7 @@ namespace CB::feature::camera {
             /// @note Vanilla's caster only for what it does besides its position: fading the player and the actors at the
             ///       camera, here at the eye CB shows. The position it answers is dropped.
             RE::NiPoint3 fadeAt(eye.x, eye.y, eye.z);
-            platform::game::PlayerCamera_ApplyCameraCaster(camera, &fadeAt, true);
+            platform::physics::VanillaQuery(kCasterTag, [&] { return platform::game::PlayerCamera_ApplyCameraCaster(camera, &fadeAt, true); });
 
             /// @note Diagnostic: twice a second, what the camera read and what it showed; and every boom hit (up to a
             ///       budget), with what it hit.

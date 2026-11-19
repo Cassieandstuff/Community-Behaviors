@@ -1,7 +1,6 @@
 #include "PCH.h"
 
 #include "CharSweep.h"
-#include "CharLoad.h"
 
 #include <platform/hooks/Override.h>
 #include <Common/Base/hkBase.h>
@@ -30,6 +29,8 @@ namespace CB::feature {
     namespace {
 
         using CheckSupport = platform::hooks::Override<&::bhkCharProxyController::CheckSupportImpl>;
+        platform::physics::QueryTag kObserveFloorTag{ "char.observe.floor" };
+        platform::physics::QueryTag kObserveSweepTag{ "char.observe.sweep" };
 
         constexpr ::hkUint32 kSupport                     = 1u << 8;
         constexpr ::hkUint32 kHasPotentialSupportManifold = 1u << 9;
@@ -91,10 +92,9 @@ namespace CB::feature {
         {
             Hit                                h;
             constexpr float                    k = hky::physics::kHavokToGame;
-            const platform::physics::GameWorld game(world);
+            const platform::physics::GameWorld game(world, kObserveFloorTag);
             hky::physics::QueryFilter          q;
             q.native = filter;
-            controller::CountLoad(controller::LoadCounter::Rays);
             const auto hit = game.CastRay({ x * k, y * k, fromZ * k }, { x * k, y * k, toZ * k }, q);
             if (!hit) return h;
             h.hit   = true;
@@ -122,7 +122,7 @@ namespace CB::feature {
             if (vx * vx + vy * vy < 1.0e-4f) return;
             const ::hkVector4& from = coll->getTransform().getTranslation();
             const ::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
-            const controller::SweepHit s = controller::Sweep(world, coll, to, 0.0f, self->m_zNormal);
+            const controller::SweepHit s = controller::Sweep(kObserveSweepTag, world, coll, to, 0.0f, self->m_zNormal);
             const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.getSeparatingNormal()(2) > 0.3f ? 2 : 0) : 0;
             if (key == g_lastSweepKey || g_sweepLogged >= 2000) return;
             g_lastSweepKey = key;

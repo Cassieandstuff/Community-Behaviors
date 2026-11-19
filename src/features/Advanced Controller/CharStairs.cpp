@@ -30,6 +30,7 @@ namespace CB::feature::controller::stairs {
 
         namespace lc  = hky::locomotion;
         namespace ph  = hky::physics;
+        platform::physics::QueryTag kMarchTag{ "char.stairs" };
         using Clock   = std::chrono::steady_clock;
 
         constexpr float kGameUnitsPerHavok = ph::kHavokToGame;
@@ -169,7 +170,7 @@ namespace CB::feature::controller::stairs {
         float  dt = 0.0f;
         Entry& e  = EntryOf(step.actor, Clock::now(), dt);
 
-        const platform::physics::GameWorld world(hull.world);
+        const platform::physics::GameWorld world(hull.world, kMarchTag);
         std::vector<ph::Vec3>              path;
         path.reserve(step.path.size());
         for (const hud::Point& p : step.path) path.push_back({ p.x * kGameUnitsPerHavok, p.y * kGameUnitsPerHavok, p.z * kGameUnitsPerHavok });

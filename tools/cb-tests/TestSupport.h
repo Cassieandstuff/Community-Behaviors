@@ -8,5 +8,6 @@ namespace CB::config::tests {
 void Check(bool ok, const std::string& what);
 
 void RunCompatTests();
+void RunQueryStatsTests();
 
 }  // namespace CB::config::tests
