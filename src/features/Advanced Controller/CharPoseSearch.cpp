@@ -3,10 +3,12 @@
 #include "CharPoseSearch.h"
 
 #include "CharGround.h"
+#include "CharLoad.h"
 #include "CharMotionMatching.h"
 #include "CharSkeletonWatch.h"
 
 #include <hky/locomotion/DeadBlend.h>
+#include <core/debug/Settings.h>
 #include <platform/classes/ClassRegistry.h>
 #include <platform/profile/Profile.h>
 
@@ -28,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <mutex>
 #include <new>
 #include <numbers>
@@ -281,6 +284,7 @@ namespace CB::feature::controller::motion {
             }
         }
         const std::uint64_t activation = g_activates.fetch_add(1, std::memory_order_relaxed) + 1;
+        CountLoad(LoadCounter::PoseSearchActivates);
         CB_PLOT("MM activate", activation);
         m_currentIndex = computeCurrentIndex();
         const int selected = m_currentIndex;
@@ -303,6 +307,7 @@ namespace CB::feature::controller::motion {
     {
         CB_ZONE(zone, "MM deactivate");
         const std::uint64_t deactivation = g_deactivates.fetch_add(1, std::memory_order_relaxed) + 1;
+        CountLoad(LoadCounter::PoseSearchDeactivates);
         CB_PLOT("MM deactivate", deactivation);
         CB_MESSAGE("MM deactivate '{}' node {} ({}) - {} children, playing child {}, #{} at {:.3f} s", NameOf(*this),
                    static_cast<const void*>(this), Whose(context), m_children.getSize(), m_currentIndex, deactivation, Seconds());
@@ -459,6 +464,25 @@ namespace CB::feature::controller::motion {
             for (int i = 0; i < n; i++) childrenInfo.m_childInfos[i].m_node = m_children[i].m_generator;
             return;
         }
+        /// @note settings.ini [Character] bPoseSearchKeepChildrenActive (default true). False reports only the playing
+        ///       child, as the stock selector does: the other children are neither sampled nor updated, and a switch
+        ///       activates the new child (its animation streams in, so the first frames may A-pose). For A/B tests.
+        static const bool keepAll = [] {
+            const std::string v    = core::debug::Value("Character", "bPoseSearchKeepChildrenActive");
+            const bool        keep = !(v == "false" || v == "0");
+            LOG_INFO("pose search: {} ([Character] bPoseSearchKeepChildrenActive)", keep ? "every child stays active" : "only the playing child is active");
+            return keep;
+        }();
+        if (!keepAll) {
+            childrenInfo.m_childInfos.setSize(1);
+            ChildInfo& ci     = childrenInfo.m_childInfos[0];
+            ci.m_node         = m_children[m_currentIndex >= 0 && m_currentIndex < n ? m_currentIndex : 0].m_generator;
+            ci.m_ignoreEvents = false;
+            ci.m_reactivate   = false;
+            ci.m_isActive     = false;
+            ci.m_skipGenerate = false;
+            return;
+        }
         childrenInfo.m_anyIgnoreEvents = true;
         childrenInfo.m_anySkipGenerate = true;
         int        slot = 0;
@@ -564,16 +588,20 @@ namespace CB::feature::controller::motion {
                 if (const int i = slot.arm.bone[k]; i >= 0 && i < bones) armLive[k] = pose[static_cast<std::size_t>(i)].q;
         }
         /// @note The input guard: the live child's pose is not ours to fix, but a broken one must not be blamed on the blend.
-        if (!g_inputLogged.load(std::memory_order_relaxed)) {
-            for (int i = 0; i < bones; i++) {
-                const loco::Bone& in = pose[i];
-                if (loco::FiniteBone(in)) continue;
-                if (g_inputLogged.exchange(true)) break;
-                LOG_WARN("motion matching: input pose non-finite (not the blend's) - bone {} of {}, child {}: t ({}, {}, {}) q ({}, {}, {}, {})",
-                         i, bones, m_currentIndex, in.t[0], in.t[1], in.t[2], in.q.x, in.q.y, in.q.z, in.q.w);
-                CB_MESSAGE("MM input pose non-finite - bone {}, child {}", i, m_currentIndex);
-                break;
-            }
+        ///       Every output is checked and counted on the load report (the last one named there); the log line is once.
+        for (int i = 0; i < bones; i++) {
+            const loco::Bone& in = pose[i];
+            if (loco::FiniteBone(in)) continue;
+            CountLoad(LoadCounter::PoseNonFinite);
+            const ::hkbGenerator* child = m_currentIndex >= 0 && m_currentIndex < m_children.getSize() ? m_children[m_currentIndex].m_generator : nullptr;
+            const char*           name  = child && child->m_name.cString() ? child->m_name.cString() : "?";
+            NotePoseNonFinite(std::format("node '{}' child {} '{}' bone {} of {} t ({}, {}, {}) ({})", NameOf(*this), m_currentIndex, name, i,
+                                          bones, in.t[0], in.t[1], in.t[2], Whose(context)));
+            if (!g_inputLogged.exchange(true))
+                LOG_WARN("motion matching: input pose non-finite (not the blend's) - bone {} of {}, child {} '{}': t ({}, {}, {}) q ({}, {}, {}, {})",
+                         i, bones, m_currentIndex, name, in.t[0], in.t[1], in.t[2], in.q.x, in.q.y, in.q.z, in.q.w);
+            CB_MESSAGE("MM input pose non-finite - bone {}, child {}", i, m_currentIndex);
+            break;
         }
         const loco::DeadBlendTuning& s = Tuning();
         loco::BlendFault             fault;

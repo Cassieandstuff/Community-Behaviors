@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 /// @file
 /// @brief The Advanced Controller's load report (char_load_report): what the controller predicts per frame, the frame
@@ -20,6 +21,11 @@ namespace CB::feature::controller {
         PredictNpc,         ///< trajectory predictions for managed NPCs
         PredictNpcSkipped,  ///< NPC steps the distance rate skipped (CharPredictor: fNpcPredictNear, fNpcPredictEvery)
         PredictMicros,      ///< microseconds spent predicting, every character
+        ClipGenerates,      ///< hkbClipGenerator::generate calls, every character (a pose-search node's active children included)
+        ClipGenerateMicros, ///< microseconds inside them
+        PoseSearchActivates,    ///< pose-search node activations (each activates every child it keeps active)
+        PoseSearchDeactivates,  ///< and deactivations
+        PoseNonFinite,      ///< pose-search outputs whose input pose held a non-finite or flung bone
         kCount
     };
 
@@ -41,6 +47,10 @@ namespace CB::feature::controller {
     private:
         std::chrono::steady_clock::time_point m_start;
     };
+
+    /// @brief Remembers what the last non-finite input pose was (node, child, bone) for the next report.
+    /// @note Any thread.
+    void NotePoseNonFinite(std::string what);
 
     /// @return the predictor's per-controller states (CharPredictor.cpp), entries never pruned.
     std::size_t PredictorStateCount();

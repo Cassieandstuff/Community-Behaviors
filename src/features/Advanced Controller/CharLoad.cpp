@@ -5,6 +5,7 @@
 #include "CharGround.h"
 
 #include <platform/game/Render.h>
+#include <platform/hooks/Override.h>
 #include <platform/physics/QueryStats.h>
 #include <platform/profile/Profile.h>
 
@@ -12,7 +13,12 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <mutex>
+#include <string>
+#include <utility>
 #include <vector>
+
+#include <Behavior/Behavior/Generator/Clip/hkbClipGenerator.h>
 
 namespace CB::feature::controller {
 
@@ -34,6 +40,9 @@ namespace CB::feature::controller {
         };
         Window g_window;
 
+        std::mutex  g_nonFiniteLock;
+        std::string g_nonFinite;   ///< the last non-finite input pose since the last report
+
         std::uint64_t Read(LoadCounter c) { return g_counters[static_cast<std::size_t>(c)].load(std::memory_order_relaxed); }
 
         void Report(Window& w, double seconds)
@@ -54,7 +63,36 @@ namespace CB::feature::controller {
                      delta(LoadCounter::PredictNpc) / f, delta(LoadCounter::PredictNpcSkipped) / f, delta(LoadCounter::PredictMicros) / f / 1000.0,
                      static_cast<double>(calls) / f, static_cast<double>(nanos) / f / 1.0e6, managed, entries, PredictorStateCount());
             LOG_INFO("load: queries per frame by tag: {}", platform::physics::FormatQueryWindows(queries, w.frames));
+            std::string nonFinite;
+            {
+                std::scoped_lock guard(g_nonFiniteLock);
+                nonFinite = std::exchange(g_nonFinite, std::string{});
+            }
+            const double samples = delta(LoadCounter::ClipGenerates);
+            LOG_INFO("load: clips per frame: {:.1f} samples in {:.2f} ms ({:.2f} us each); pose search: {:.0f} node activations, {:.0f} "
+                     "deactivations, {:.0f} outputs from a non-finite input pose{}{}",
+                     samples / f, delta(LoadCounter::ClipGenerateMicros) / f / 1000.0,
+                     samples > 0 ? delta(LoadCounter::ClipGenerateMicros) / samples : 0.0, delta(LoadCounter::PoseSearchActivates),
+                     delta(LoadCounter::PoseSearchDeactivates), delta(LoadCounter::PoseNonFinite), nonFinite.empty() ? "" : " - last ",
+                     nonFinite);
         }
+
+        /// @brief Times every clip's sample, every character's: the cost of a pose-search node's active children shows on
+        ///        the report whether or not motion matching runs.
+        using ClipGenerate = platform::hooks::Override<&::hkbClipGenerator::generate>;
+
+        void OnClipGenerate(ClipGenerate::Next next, ::hkbClipGenerator* clip, const ::hkbContext& context,
+                            const ::hkbGeneratorOutput** activeChildrenOutput, ::hkbGeneratorOutput& output, ::hkReal timeOffset)
+        {
+            const auto start = Clock::now();
+            next(clip, context, activeChildrenOutput, output, timeOffset);
+            const auto us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
+            CountLoad(LoadCounter::ClipGenerates);
+            CountLoad(LoadCounter::ClipGenerateMicros, static_cast<std::uint64_t>(us > 0 ? us : 0));
+        }
+
+        [[maybe_unused]] const bool s_clipTimed =
+            ClipGenerate::Subscribe(&OnClipGenerate, platform::hooks::Priority::Normal, "CharLoad", "char_load_report");
 
         /// @brief Each tag's frame: plotted to Tracy (milliseconds, under the tag's name), and logged the first time it goes
         ///        over its budget.
@@ -120,6 +158,12 @@ namespace CB::feature::controller {
     void CountLoad(LoadCounter counter, std::uint64_t n)
     {
         g_counters[static_cast<std::size_t>(counter)].fetch_add(n, std::memory_order_relaxed);
+    }
+
+    void NotePoseNonFinite(std::string what)
+    {
+        std::scoped_lock guard(g_nonFiniteLock);
+        g_nonFinite = std::move(what);
     }
 
 }  // namespace CB::feature::controller
