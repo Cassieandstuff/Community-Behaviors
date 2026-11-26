@@ -333,7 +333,8 @@ namespace CB::feature::controller {
         {
             FloorHit o;
             o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
-            o.body = reinterpret_cast<const ::hkpCollidable*>(h.body);
+            o.body     = reinterpret_cast<const ::hkpCollidable*>(h.body);
+            o.material = h.material;
             return o;
         }
 
@@ -341,7 +342,8 @@ namespace CB::feature::controller {
         {
             lc::FloorHit o;
             o.cast = h.cast, o.hit = h.hit, o.dz = h.dz, o.nx = h.nx, o.ny = h.ny, o.nz = h.nz, o.layer = h.layer;
-            o.body = reinterpret_cast<std::uint64_t>(h.body);
+            o.body     = reinterpret_cast<std::uint64_t>(h.body);
+            o.material = h.material;
             return o;
         }
 
@@ -354,6 +356,7 @@ namespace CB::feature::controller {
             o.stickDz   = v.stickDz;
             o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
             o.supportBody  = reinterpret_cast<const ::hkpCollidable*>(v.supportBody);
+            o.material     = v.material;
             o.supportHits  = v.supportHits;
             o.walkableHits = v.walkableHits;
             o.longBody     = v.longBody;
@@ -370,6 +373,7 @@ namespace CB::feature::controller {
             o.stickDz   = v.stickDz;
             o.groundNx = v.groundNx, o.groundNy = v.groundNy, o.groundNz = v.groundNz;
             o.supportBody  = reinterpret_cast<std::uint64_t>(v.supportBody);
+            o.material     = v.material;
             o.supportHits  = v.supportHits;
             o.walkableHits = v.walkableHits;
             o.longBody     = v.longBody;

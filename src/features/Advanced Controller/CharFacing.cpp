@@ -455,6 +455,28 @@ namespace CB::feature::controller {
         ///        it toggles sneak, before the frame reads the press.
         constexpr double kSlideSprintGrace = 0.25;
 
+        /// @brief The game's Sneak action on the player, as its Sneak button performs it (SneakHandler::ProcessButton runs
+        ///        action 59, ActionSneak, through the action system), on the main thread: it toggles sneak where the graph
+        ///        takes it, so the engine's sneak (detection, movement type, iIsInSneak) follows as it does for the key.
+        void PerformSneakAction()
+        {
+            auto* tasks = SKSE::GetTaskInterface();
+            if (!tasks) return;
+            tasks->AddTask([] {
+                auto* player  = RE::PlayerCharacter::GetSingleton();
+                auto* objects = RE::BGSDefaultObjectManager::GetSingleton();
+                auto* action  = objects ? objects->GetObject<RE::BGSAction>(RE::DEFAULT_OBJECT::kActionSneak) : nullptr;
+                if (!player || !action) return;
+                RE::TESActionData* data = RE::TESActionData::Create();
+                if (!data) return;
+                data->source = RE::NiPointer<RE::TESObjectREFR>(player);
+                data->action = action;
+                data->Process();
+                data->~TESActionData();
+                RE::free(data);
+            });
+        }
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             RE::Actor* player   = out ? PlayerOf(controller) : nullptr;
@@ -602,17 +624,16 @@ namespace CB::feature::controller {
             /// @note The crouch slide: Sneak pressed at a sprint asks for one (the model decides, Profile::slideEnabled and
             ///       the speed); Jump or Sprint ends one. Silent Roll is the add-on's to keep out of the way (its graph
             ///       gates the roll's transitions on motion matching).
-            {
-                SlideButtons& buttons = SlideButtons::Get();
-                buttons.EnsureRegistered();
-                static double sprintAt = -1.0e9;
-                if (gait == Gait::Sprint) sprintAt = Now();
-                const bool sneak = buttons.Take(SlideButtons::kSneak);
-                const bool jump  = buttons.Take(SlideButtons::kJump);
-                const bool run   = buttons.Take(SlideButtons::kSprint);
-                in.slide         = sneak && Now() - sprintAt <= kSlideSprintGrace;
-                in.cancelSlide   = jump || run;
-            }
+            SlideButtons& buttons = SlideButtons::Get();
+            buttons.EnsureRegistered();
+            static double sprintAt = -1.0e9;
+            if (gait == Gait::Sprint) sprintAt = Now();
+            const bool sneakPress = buttons.Take(SlideButtons::kSneak);
+            const bool jumpPress  = buttons.Take(SlideButtons::kJump);
+            const bool runPress   = buttons.Take(SlideButtons::kSprint);
+            const double sinceSprint = Now() - sprintAt;
+            in.slide                 = sneakPress && sinceSprint <= kSlideSprintGrace;
+            in.cancelSlide           = jumpPress || runPress;
             /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             /// @note A melee attack faces its own aim instead (the stick, magnetized), held once the swing commits.
             if (in.mode == move::Mode::Strafe) {
@@ -657,7 +678,22 @@ namespace CB::feature::controller {
             component::Apply(*player, cf);
             in   = cf.input;
             caps = cf.caps;
+            const bool slidingBefore = s.sliding, exitingBefore = s.slideOut >= 0.0f;
             move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
+            /// @note A slide that ended on its own exits crouched (its exit plays the crouch outs, MM_Stance reads it): at
+            ///       the exit's end the game's Sneak action puts the player in sneak, as the press that started the slide
+            ///       asked; a slide cut short by Sprint or Jump stands. Sprint pressed while sneaking stands the player up,
+            ///       so the sprint the press starts runs (where Silent Roll rolled). Both only where the slide is enabled:
+            ///       the add-on's rule turns them on with it.
+            if (cf.profile.slideEnabled) {
+                if (exitingBefore && s.slideOut < 0.0f && !s.sliding && gait != Gait::Sprint && !player->IsSneaking()) PerformSneakAction();
+                if (runPress && !slidingBefore && player->IsSneaking()) PerformSneakAction();
+            }
+            if (sneakPress && DiagBudget())
+                LOG_INFO("slide: Sneak pressed - gait {}, sprint {:.2f} s ago, speed {:.0f} (enter at {:.0f}), slide {} -> {}",
+                         static_cast<int>(gait), sinceSprint, std::hypot(s.vx, s.vy), cf.profile.slideEnterSpeed,
+                         cf.profile.slideEnabled ? "enabled" : "disabled",
+                         s.sliding && !slidingBefore ? "sliding" : !in.slide ? "not at a sprint" : !cf.profile.slideEnabled ? "off" : "too slow or airborne");
             /// @note GASP's turn in place: a TurnInPlace clip turns the body by its own root, which its feet step to.
             ///       Standing, the clip's root yaw since the last frame is this frame's turn and the model's facing spring
             ///       waits; the desired facing stays, so the query still asks for the rest of the turn.

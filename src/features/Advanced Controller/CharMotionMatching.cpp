@@ -562,7 +562,9 @@ namespace CB::feature {
                 match.haveDistances = true;
             }
             const bool moving = io[kMovementState] == 1;
-            io[kStance]       = player->IsSneaking() ? 1 : 0;
+            /// @note A slide that ended on its own exits crouched before the game's sneak starts (CharFacing sneaks the
+            ///       player at the exit's end): its exit searches the crouch outs.
+            io[kStance]       = player->IsSneaking() || (!s.sliding && s.slideOut >= 0.0f) ? 1 : 0;
 
             /// @note CB's own launch (CharStateWrapper) commits InAir, never Jumping, and marks the controller kJumping until
             ///       it lands: without that bit the jump waited out kAirDebounce and entered the jump starts past their takeoff.
